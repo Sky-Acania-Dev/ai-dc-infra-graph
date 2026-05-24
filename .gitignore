@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Infrastructure data
+data/imports/
+data/exports/
+data/runtime/
+
+# Sensitive topology exports
+*.sqlite
+*.db
+
+# Environment variables
+.env
+.env.*
