@@ -25,6 +25,12 @@ class PortConnector(BaseModel):
     note: str = ""
 
 
+class OpticModule(BaseModel):
+    model: str
+    side: str = ""
+    note: str = ""
+
+
 class Device(BaseModel):
     cabinet_id: str
     rack_unit: int
@@ -56,4 +62,8 @@ class Cable(BaseModel):
     a_side: PortConnector
     z_side: PortConnector
     cable_type: str
+    group: str = ""
+    status: str = ""
+    a_optic: OpticModule | None = None
+    z_optic: OpticModule | None = None
     note: str = ""
