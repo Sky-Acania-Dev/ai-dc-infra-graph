@@ -1,7 +1,7 @@
 import unittest
 
 from backend.api.validation import PortCollisionRequest, find_port_collisions
-from backend.validation import detect_port_collisions
+from backend.validation import BreakoutFanoutRule, detect_port_collisions
 
 
 class PortCollisionTests(unittest.TestCase):
@@ -41,6 +41,26 @@ class PortCollisionTests(unittest.TestCase):
         )
 
         self.assertEqual(findings, [])
+
+    def test_breakout_rule_defaults_to_four_way_fanout(self) -> None:
+        rows = [
+            {
+                "a_port_uid": "DH1:001:28:1/1/c15",
+                "a_breakout_loc_cab_ru": "dh1:001:26",
+                "a_breakout_slot_port": f"1:3:{index}",
+                "z_port_uid": f"DH1:00{index}:8:ens1f0np0",
+            }
+            for index in range(1, 5)
+        ]
+
+        default_findings = detect_port_collisions(rows)
+        strict_findings = detect_port_collisions(
+            rows,
+            breakout_rules=[BreakoutFanoutRule(name="Strict 2-way breakout", max_child_connections=2)],
+        )
+
+        self.assertEqual(default_findings, [])
+        self.assertEqual(len(strict_findings), 1)
 
     def test_flags_breakout_with_duplicate_slot_port(self) -> None:
         findings = detect_port_collisions(

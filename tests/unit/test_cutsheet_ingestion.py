@@ -1,6 +1,9 @@
 import unittest
 
-from backend.ingest.cutsheet import ingest_cutsheet_rows, parse_loc_cab_ru
+import json
+
+from backend.ingest.cutsheet import cutsheet_result_to_json, ingest_cutsheet_rows, parse_loc_cab_ru
+from backend.validation import BreakoutFanoutRule
 
 
 class CutsheetIngestionTests(unittest.TestCase):
@@ -124,7 +127,8 @@ class CutsheetIngestionTests(unittest.TestCase):
                     "Z-PORT": "ens1f0np0",
                     "CABLE": "LC-TO-LC SMF",
                 },
-            ]
+            ],
+            breakout_rules=[BreakoutFanoutRule(max_child_connections=4)],
         )
 
         self.assertEqual(result.findings, [])
@@ -173,6 +177,28 @@ class CutsheetIngestionTests(unittest.TestCase):
         self.assertEqual(len(result.rows), 1)
         self.assertEqual(result.rows[0].status, "Cable Not Run")
         self.assertEqual(result.rows[0].group, "Backbone")
+
+    def test_json_report_has_summary_and_explicit_collision_findings(self) -> None:
+        result = ingest_cutsheet_rows(
+            [
+                {"STATUS": "OOB-FW"},
+                {
+                    "STATUS": "Cable Is Ran: Complete",
+                    "A-LOC:CAB:RU": "dh1:001:10",
+                    "A-PORT": "ethernet1/21",
+                    "Z-LOC:CAB:RU": "dh1:002:42",
+                    "Z-PORT": "swp1",
+                    "CABLE": "CAT6a",
+                },
+            ]
+        )
+
+        payload = json.loads(cutsheet_result_to_json(result))
+
+        self.assertEqual(payload["summary"]["rows"], 1)
+        self.assertEqual(payload["summary"]["port_collision_findings"], 0)
+        self.assertIn("port_collision_findings", payload)
+        self.assertNotIn("findings", payload)
 
 
 if __name__ == "__main__":

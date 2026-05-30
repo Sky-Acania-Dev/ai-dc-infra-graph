@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from backend.ingest.ods import read_ods_sheet_rows
 from backend.models import Cabinet, Cable, ConnectorType, OpticModule, PortConnector, Room
-from backend.validation import PortConnectionFinding, detect_port_collisions
+from backend.validation import BreakoutFanoutRule, PortConnectionFinding, detect_port_collisions
 
 
 DEFAULT_PROJECT_UID = "MSK01"
@@ -59,11 +59,21 @@ class CutsheetIngestionResult(BaseModel):
     findings: list[PortConnectionFinding] = Field(default_factory=list)
 
 
+class CutsheetSummary(BaseModel):
+    rows: int
+    data_halls: int
+    cabinets: int
+    ports: int
+    cables: int
+    port_collision_findings: int
+
+
 def ingest_cutsheet(
     path: str | Path,
     project_uid: str = DEFAULT_PROJECT_UID,
     building_id: str = DEFAULT_BUILDING_ID,
     sheet_name: str | None = None,
+    breakout_rules: list[BreakoutFanoutRule] | None = None,
 ) -> CutsheetIngestionResult:
     path = Path(path)
     if path.suffix.lower() == ".ods":
@@ -72,13 +82,19 @@ def ingest_cutsheet(
     else:
         rows = _read_csv_rows(path)
 
-    return ingest_cutsheet_rows(rows, project_uid=project_uid, building_id=building_id)
+    return ingest_cutsheet_rows(
+        rows,
+        project_uid=project_uid,
+        building_id=building_id,
+        breakout_rules=breakout_rules,
+    )
 
 
 def ingest_cutsheet_rows(
     rows: Iterable[dict[str, str]],
     project_uid: str = DEFAULT_PROJECT_UID,
     building_id: str = DEFAULT_BUILDING_ID,
+    breakout_rules: list[BreakoutFanoutRule] | None = None,
 ) -> CutsheetIngestionResult:
     current_group = ""
     enriched_rows: list[CutsheetCableRow] = []
@@ -147,7 +163,7 @@ def ingest_cutsheet_rows(
         cabinets=cabinets,
         ports=sorted(ports_by_uid.values(), key=lambda port: port.uid),
         cables=cables,
-        findings=detect_port_collisions(enriched_rows),
+        findings=detect_port_collisions(enriched_rows, breakout_rules=breakout_rules),
     )
 
 
@@ -165,10 +181,31 @@ def parse_loc_cab_ru(value: str) -> LocationRackUnit:
 
 
 def cutsheet_result_to_json(result: CutsheetIngestionResult) -> str:
+    summary = CutsheetSummary(
+        rows=len(result.rows),
+        data_halls=len(result.data_halls),
+        cabinets=len(result.cabinets),
+        ports=len(result.ports),
+        cables=len(result.cables),
+        port_collision_findings=len(result.findings),
+    )
     if hasattr(result, "model_dump"):
-        payload = result.model_dump(mode="json")
+        result_payload = result.model_dump(mode="json")
+        summary_payload = summary.model_dump(mode="json")
     else:
-        payload = result.dict()
+        result_payload = result.dict()
+        summary_payload = summary.dict()
+    payload = {
+        "project_uid": result.project_uid,
+        "building_id": result.building_id,
+        "summary": summary_payload,
+        "port_collision_findings": result_payload["findings"],
+        "data_halls": result_payload["data_halls"],
+        "cabinets": result_payload["cabinets"],
+        "ports": result_payload["ports"],
+        "cables": result_payload["cables"],
+        "rows": result_payload["rows"],
+    }
     return json.dumps(payload, indent=2)
 
 
