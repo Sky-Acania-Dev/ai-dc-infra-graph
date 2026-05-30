@@ -13,6 +13,12 @@ from backend.ingest.cutsheet import (
     ingest_cutsheet_rows,
     parse_loc_cab_ru,
 )
+from backend.ingest.overhead import (
+    CabinetInventoryRecord,
+    OverheadIngestionResult,
+    ingest_overhead,
+    overhead_result_to_json,
+)
 
 __all__ = [
     "CableEndpoint",
@@ -21,8 +27,12 @@ __all__ = [
     "ingest_cable_connections_csv",
     "CutsheetCableRow",
     "CutsheetIngestionResult",
+    "CabinetInventoryRecord",
+    "OverheadIngestionResult",
     "ingest_cutsheet",
     "ingest_cutsheet_rows",
+    "ingest_overhead",
+    "overhead_result_to_json",
     "parse_cable_endpoint",
     "parse_loc_cab_ru",
     "result_to_json",

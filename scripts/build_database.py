@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.persistence import DEFAULT_RUNTIME_DATABASE_PATH, save_topology_database
+from backend.services import build_topology_database_from_sources
+from backend.validation import BreakoutFanoutRule
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build one topology database JSON from cutsheet and overhead sources.")
+    parser.add_argument("--cutsheet-path", required=True)
+    parser.add_argument("--overhead-path", required=True)
+    parser.add_argument("--runtime-path", default=str(DEFAULT_RUNTIME_DATABASE_PATH))
+    parser.add_argument("--project-uid", default="MSK01")
+    parser.add_argument("--building-id", default="A")
+    parser.add_argument("--cutsheet-sheet-name", default=None)
+    parser.add_argument("--overhead-sheet-name", default=None)
+    parser.add_argument("--breakout-max-children", type=int, default=4)
+    args = parser.parse_args()
+
+    database = build_topology_database_from_sources(
+        cutsheet_path=args.cutsheet_path,
+        overhead_path=args.overhead_path,
+        project_uid=args.project_uid,
+        building_id=args.building_id,
+        cutsheet_sheet_name=args.cutsheet_sheet_name,
+        overhead_sheet_name=args.overhead_sheet_name,
+        breakout_rules=[BreakoutFanoutRule(max_child_connections=args.breakout_max_children)],
+    )
+    saved_path = save_topology_database(database, args.runtime_path)
+
+    print(f"runtime_database={saved_path}")
+    print(f"project_uid={database.project_uid}")
+    print(f"rows={database.summary.rows}")
+    print(f"data_halls={database.summary.data_halls}")
+    print(f"cabinets={database.summary.cabinets}")
+    print(f"ports={database.summary.ports}")
+    print(f"cables={database.summary.cables}")
+    print(f"port_collision_findings={database.summary.port_collision_findings}")
+
+
+if __name__ == "__main__":
+    main()

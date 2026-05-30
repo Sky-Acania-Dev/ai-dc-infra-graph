@@ -232,3 +232,7 @@ data/runtime/*
 # Environment variables
 .env
 .env.*
+
+# Frontend dependencies/build output
+frontend/web/node_modules/
+frontend/web/dist/

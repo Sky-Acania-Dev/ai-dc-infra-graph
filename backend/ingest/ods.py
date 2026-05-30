@@ -13,6 +13,8 @@ NAMESPACES = {
 TABLE_NAME = f"{{{NAMESPACES['table']}}}name"
 ROW_REPEAT = f"{{{NAMESPACES['table']}}}number-rows-repeated"
 CELL_REPEAT = f"{{{NAMESPACES['table']}}}number-columns-repeated"
+TABLE_CELL = f"{{{NAMESPACES['table']}}}table-cell"
+COVERED_TABLE_CELL = f"{{{NAMESPACES['table']}}}covered-table-cell"
 
 
 def read_ods_sheet_rows(path: str | Path, sheet_name: str | None = None) -> list[list[str]]:
@@ -28,9 +30,12 @@ def read_ods_sheet_rows(path: str | Path, sheet_name: str | None = None) -> list
     for row in sheet.findall("table:table-row", NAMESPACES):
         row_repeat = int(row.attrib.get(ROW_REPEAT, "1"))
         values: list[str] = []
-        for cell in row.findall("table:table-cell", NAMESPACES):
+        for cell in row:
+            if cell.tag not in {TABLE_CELL, COVERED_TABLE_CELL}:
+                continue
             cell_repeat = int(cell.attrib.get(CELL_REPEAT, "1"))
-            values.extend([_cell_text(cell)] * cell_repeat)
+            value = "" if cell.tag == COVERED_TABLE_CELL else _cell_text(cell)
+            values.extend([value] * cell_repeat)
 
         trimmed_values = _trim_trailing_empty(values)
         if trimmed_values:

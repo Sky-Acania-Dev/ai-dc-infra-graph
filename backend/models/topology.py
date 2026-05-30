@@ -43,6 +43,10 @@ class Cabinet(BaseModel):
     building_id: str
     data_hall_id: str
     cabinet_id: str
+    category: str = ""
+    cabinet_group: str = ""
+    source_row: int | None = None
+    source_col: int | None = None
     devices: list[Device] = Field(default_factory=list)
 
 
