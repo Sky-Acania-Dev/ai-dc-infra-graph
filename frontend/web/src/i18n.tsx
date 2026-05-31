@@ -1,0 +1,308 @@
+import React, { createContext, useContext, useMemo, useState } from "react";
+
+export type Locale = "en" | "zh-CN";
+
+type TranslationParams = Record<string, string | number>;
+type I18nContextValue = {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  t: (key: string, params?: TranslationParams) => string;
+  formatNumber: (value: number) => string;
+  formatPercent: (value: number) => string;
+  formatLifecycleStatus: (status: string) => string;
+  formatCableStatus: (status: string) => string;
+  formatCableProgressStep: (step: string) => string;
+  formatCableProgressState: (state: string) => string;
+  formatValidationClassification: (classification: string) => string;
+};
+
+const STORAGE_KEY = "ai-dc-infra-graph-locale";
+
+const TRANSLATIONS: Record<Locale, Record<string, string>> = {
+  en: {
+    "app.name": "AI DC Infra Graph",
+    "app.topologyTitle": "Infrastructure Topology",
+    "app.validationTitle": "Validation Results",
+    "view.topology": "Topology",
+    "view.validation": "Validation",
+    "settings.label": "Settings",
+    "settings.language": "Language",
+    "settings.english": "English",
+    "settings.chineseSimplified": "Chinese Simplified",
+    "dataHall.selector": "Data hall",
+    "dataHall.fallback": "Data Hall",
+    "dataHall.summary": "Data Hall Summary",
+    "common.loading": "Loading {{target}}",
+    "common.close": "Close",
+    "common.filter": "Filter",
+    "common.go": "Go",
+    "common.map": "Map",
+    "common.count": "Count",
+    "common.finding": "Finding",
+    "common.examples": "Examples",
+    "common.status": "Status",
+    "common.group": "Group",
+    "common.type": "Type",
+    "common.port": "Port",
+    "common.side": "Side",
+    "common.model": "Model",
+    "common.normalized": "Normalized",
+    "common.noFindings": "No findings.",
+    "common.noExamples": "No row examples available.",
+    "cabinet.details": "Cabinet Details",
+    "cabinet.cabinets": "Cabinets",
+    "cabinet.category": "Type",
+    "cabinet.categories": "Categories",
+    "cabinet.group": "Group",
+    "cabinet.unassigned": "Unassigned",
+    "cabinet.status": "Status",
+    "cabinet.rackUnits": "Rack Units",
+    "cabinet.devices": "Devices",
+    "cabinet.ports": "Ports",
+    "cabinet.cables": "Cables",
+    "cabinet.types": "Cabinet Types",
+    "map.cabinetMap": "Cabinet Map",
+    "map.size": "Map size",
+    "rack.units": "Rack Units",
+    "rack.unitLabel": "U{{unit}}",
+    "device.portsCount": "{{count}} ports",
+    "device.statusAndPorts": "{{status}} / {{count}} ports",
+    "connections.connectedDevices": "Connected Devices",
+    "connections.connectedDevicesCount": "{{count}} Connected Devices",
+    "connections.connectedCabinets": "Connected Cabinets",
+    "connections.connectedCabinetsCount": "{{count}} Connected Cabinets",
+    "connections.emptyCabinets": "Connected cabinets will appear here after selection.",
+    "connections.cableCount": "{{count}} cables",
+    "connections.insideCabinet": "Inside {{cabinetUid}}",
+    "connections.intraCabinet": "Device-to-device cables within this cabinet",
+    "connections.targetCabinetRu": "Cabinet {{cabinetUid}} / RU {{rackUnit}}",
+    "connections.viewCables": "View cables",
+    "completion.text": "{{completed}}/{{total}} complete",
+    "completion.aria": "Cable completion",
+    "cable.details": "Cable Details",
+    "cable.routeTitle": "{{source}} to {{target}}",
+    "cable.countVisible": "{{visible}} of {{total}} cables",
+    "cable.closeDetails": "Close cable details",
+    "cable.column.type": "Type",
+    "cable.column.status": "Status",
+    "cable.column.group": "Group",
+    "cable.column.aPort": "A Port",
+    "cable.column.zPort": "Z Port",
+    "cable.column.aOptic": "A Optic",
+    "cable.column.zOptic": "Z Optic",
+    "validation.qa": "QA",
+    "validation.results": "Validation Results",
+    "validation.portCollisions": "Port Collisions",
+    "validation.modelMismatches": "Model Mismatches",
+    "validation.formatIssues": "Format Issues",
+    "validation.deviceModelMismatches": "Device Model Mismatches",
+    "validation.deviceModelFormatIssues": "Device Model Format Issues",
+    "validation.device": "Device",
+    "validation.models": "Models",
+    "validation.findingDetail": "Finding Detail",
+    "validation.closeDetail": "Close validation detail",
+    "validation.deviceName": "Device Name",
+    "validation.aModel": "A Model",
+    "validation.zModel": "Z Model",
+    "validation.classification.model_mismatch": "Model mismatch",
+    "validation.classification.trivial_format_issue": "Format issue",
+    "lifecycle.unknown": "Unknown",
+    "lifecycle.not_constructed": "Not Constructed",
+    "lifecycle.not_installed": "Not Installed",
+    "lifecycle.not_powered": "Not Powered",
+    "lifecycle.installed": "Installed",
+    "lifecycle.powered": "Powered",
+    "lifecycle.active": "Active",
+    "lifecycle.not_planned": "Not Planned",
+    "cableStatus.Cable Is Ran: Complete": "Cable Is Ran: Complete",
+    "cableStatus.Cable Is Ran: Not Terminated": "Cable Is Ran: Not Terminated",
+    "cableStatus.Cable Not Run": "Cable Not Run",
+    "cableStatus.Unknown": "Unknown",
+    "cableProgressState.not_started": "Not Started",
+    "cableProgressState.complete": "Complete",
+    "cableProgressState.blocked": "Blocked",
+    "cableProgressState.not_applicable": "Not Applicable",
+    "cableProgressStep.purchased": "Purchased",
+    "cableProgressStep.received": "Received",
+    "cableProgressStep.categorized_stored": "Categorized and Stored",
+    "cableProgressStep.labeled": "Labeled",
+    "cableProgressStep.bundled_on_ground": "Bundled on Ground",
+    "cableProgressStep.pulled": "Pulled",
+    "cableProgressStep.dressed": "Dressed",
+    "cableProgressStep.a_side_terminated": "A Side Terminated",
+    "cableProgressStep.z_side_terminated": "Z Side Terminated",
+    "cableProgressStep.a_side_dressed_in_cabinet": "A Side Dressed in Cabinet",
+    "cableProgressStep.z_side_dressed_in_cabinet": "Z Side Dressed in Cabinet",
+    "cableProgressStep.validated": "Validated",
+    "cableProgressStep.broken": "Broken",
+  },
+  "zh-CN": {
+    "app.name": "AI 数据中心基础设施图谱",
+    "app.topologyTitle": "基础设施拓扑",
+    "app.validationTitle": "校验结果",
+    "view.topology": "拓扑",
+    "view.validation": "校验",
+    "settings.label": "设置",
+    "settings.language": "语言",
+    "settings.english": "英语",
+    "settings.chineseSimplified": "简体中文",
+    "dataHall.selector": "数据厅",
+    "dataHall.fallback": "数据厅",
+    "dataHall.summary": "数据厅概览",
+    "common.loading": "正在加载 {{target}}",
+    "common.close": "关闭",
+    "common.filter": "筛选",
+    "common.go": "跳转",
+    "common.map": "地图",
+    "common.count": "数量",
+    "common.finding": "问题",
+    "common.examples": "示例",
+    "common.status": "状态",
+    "common.group": "分组",
+    "common.type": "类型",
+    "common.port": "端口",
+    "common.side": "侧",
+    "common.model": "型号",
+    "common.normalized": "规范化",
+    "common.noFindings": "无问题。",
+    "common.noExamples": "没有可显示的行示例。",
+    "cabinet.details": "机柜详情",
+    "cabinet.cabinets": "机柜",
+    "cabinet.category": "类型",
+    "cabinet.categories": "类别",
+    "cabinet.group": "分组",
+    "cabinet.unassigned": "未分配",
+    "cabinet.status": "状态",
+    "cabinet.rackUnits": "机柜 U 位",
+    "cabinet.devices": "设备",
+    "cabinet.ports": "端口",
+    "cabinet.cables": "线缆",
+    "cabinet.types": "机柜类型",
+    "map.cabinetMap": "机柜地图",
+    "map.size": "地图大小",
+    "rack.units": "机柜 U 位",
+    "rack.unitLabel": "U{{unit}}",
+    "device.portsCount": "{{count}} 个端口",
+    "device.statusAndPorts": "{{status}} / {{count}} 个端口",
+    "connections.connectedDevices": "已连接设备",
+    "connections.connectedDevicesCount": "{{count}} 个已连接设备",
+    "connections.connectedCabinets": "已连接机柜",
+    "connections.connectedCabinetsCount": "{{count}} 个已连接机柜",
+    "connections.emptyCabinets": "选择机柜后会显示已连接机柜。",
+    "connections.cableCount": "{{count}} 根线缆",
+    "connections.insideCabinet": "{{cabinetUid}} 内部",
+    "connections.intraCabinet": "此机柜内的设备到设备线缆",
+    "connections.targetCabinetRu": "机柜 {{cabinetUid}} / RU {{rackUnit}}",
+    "connections.viewCables": "查看线缆",
+    "completion.text": "{{completed}}/{{total}} 完成",
+    "completion.aria": "线缆完成度",
+    "cable.details": "线缆详情",
+    "cable.routeTitle": "{{source}} 到 {{target}}",
+    "cable.countVisible": "{{visible}} / {{total}} 根线缆",
+    "cable.closeDetails": "关闭线缆详情",
+    "cable.column.type": "类型",
+    "cable.column.status": "状态",
+    "cable.column.group": "分组",
+    "cable.column.aPort": "A 端端口",
+    "cable.column.zPort": "Z 端端口",
+    "cable.column.aOptic": "A 端光模块",
+    "cable.column.zOptic": "Z 端光模块",
+    "validation.qa": "QA",
+    "validation.results": "校验结果",
+    "validation.portCollisions": "端口冲突",
+    "validation.modelMismatches": "型号不一致",
+    "validation.formatIssues": "格式问题",
+    "validation.deviceModelMismatches": "设备型号不一致",
+    "validation.deviceModelFormatIssues": "设备型号格式问题",
+    "validation.device": "设备",
+    "validation.models": "型号",
+    "validation.findingDetail": "问题详情",
+    "validation.closeDetail": "关闭校验详情",
+    "validation.deviceName": "设备名",
+    "validation.aModel": "A 端型号",
+    "validation.zModel": "Z 端型号",
+    "validation.classification.model_mismatch": "型号不一致",
+    "validation.classification.trivial_format_issue": "格式问题",
+    "lifecycle.unknown": "未知",
+    "lifecycle.not_constructed": "未建设",
+    "lifecycle.not_installed": "未安装",
+    "lifecycle.not_powered": "未上电",
+    "lifecycle.installed": "已安装",
+    "lifecycle.powered": "已上电",
+    "lifecycle.active": "运行中",
+    "lifecycle.not_planned": "不计划安装",
+    "cableStatus.Cable Is Ran: Complete": "线缆已敷设：完成",
+    "cableStatus.Cable Is Ran: Not Terminated": "线缆已敷设：未端接",
+    "cableStatus.Cable Not Run": "线缆未敷设",
+    "cableStatus.Unknown": "未知",
+    "cableProgressState.not_started": "未开始",
+    "cableProgressState.complete": "已完成",
+    "cableProgressState.blocked": "受阻",
+    "cableProgressState.not_applicable": "不适用",
+    "cableProgressStep.purchased": "已采购",
+    "cableProgressStep.received": "已收货",
+    "cableProgressStep.categorized_stored": "已分类入库",
+    "cableProgressStep.labeled": "已贴标",
+    "cableProgressStep.bundled_on_ground": "地面预捆扎",
+    "cableProgressStep.pulled": "已拉线",
+    "cableProgressStep.dressed": "已理线",
+    "cableProgressStep.a_side_terminated": "A 端已端接",
+    "cableProgressStep.z_side_terminated": "Z 端已端接",
+    "cableProgressStep.a_side_dressed_in_cabinet": "A 端柜内已理线",
+    "cableProgressStep.z_side_dressed_in_cabinet": "Z 端柜内已理线",
+    "cableProgressStep.validated": "已验证",
+    "cableProgressStep.broken": "损坏",
+  },
+};
+
+const I18nContext = createContext<I18nContextValue | null>(null);
+
+export function I18nProvider({ children }: { children: React.ReactNode }) {
+  const [locale, setLocaleState] = useState<Locale>(() => {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return stored === "zh-CN" || stored === "en" ? stored : "en";
+  });
+
+  const value = useMemo<I18nContextValue>(() => {
+    function t(key: string, params: TranslationParams = {}) {
+      const template = TRANSLATIONS[locale][key] ?? TRANSLATIONS.en[key] ?? key;
+      return Object.entries(params).reduce(
+        (text, [paramKey, paramValue]) => text.replaceAll(`{{${paramKey}}}`, String(paramValue)),
+        template,
+      );
+    }
+
+    function setLocale(nextLocale: Locale) {
+      window.localStorage.setItem(STORAGE_KEY, nextLocale);
+      setLocaleState(nextLocale);
+    }
+
+    const numberFormatter = new Intl.NumberFormat(locale);
+    const percentFormatter = new Intl.NumberFormat(locale, {
+      maximumFractionDigits: 0,
+      style: "percent",
+    });
+
+    return {
+      locale,
+      setLocale,
+      t,
+      formatNumber: (value: number) => numberFormatter.format(value),
+      formatPercent: (value: number) => percentFormatter.format(value),
+      formatLifecycleStatus: (status: string) => t(`lifecycle.${status}`),
+      formatCableStatus: (status: string) => t(`cableStatus.${status || "Unknown"}`),
+      formatCableProgressStep: (step: string) => t(`cableProgressStep.${step}`),
+      formatCableProgressState: (state: string) => t(`cableProgressState.${state}`),
+      formatValidationClassification: (classification: string) =>
+        t(`validation.classification.${classification}`),
+    };
+  }, [locale]);
+
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
+
+export function useI18n() {
+  const context = useContext(I18nContext);
+  if (!context) throw new Error("useI18n must be used inside I18nProvider");
+  return context;
+}

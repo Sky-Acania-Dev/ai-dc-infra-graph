@@ -7,13 +7,12 @@ from typing import Any, Iterable
 
 from pydantic import BaseModel, Field
 
+from backend.core.config import DEFAULT_BUILDING_ID, DEFAULT_PROJECT_UID
 from backend.ingest.ods import read_ods_sheet_rows
 from backend.models import Cabinet, Cable, ConnectorType, OpticModule, PortConnector, Room
 from backend.validation import BreakoutFanoutRule, PortConnectionFinding, detect_port_collisions
 
 
-DEFAULT_PROJECT_UID = "MSK01"
-DEFAULT_BUILDING_ID = "A"
 class LocationRackUnit(BaseModel):
     raw_value: str
     data_hall_id: str
@@ -132,6 +131,7 @@ def ingest_cutsheet_rows(
 
         cables.append(
             Cable(
+                uid=f"CBL-{len(cables) + 1:06d}",
                 a_side=a_port,
                 z_side=z_port,
                 cable_type=parsed_row.cable_type,

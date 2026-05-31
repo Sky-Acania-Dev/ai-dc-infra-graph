@@ -1,31 +1,41 @@
 import { useMemo, useState } from "react";
-import type { CabinetCableDetail, CabinetCableDetailResponse } from "../types";
+import type { CabinetCableDetail, CableDetailResponse } from "../types";
+import { useI18n } from "../i18n";
 
 type CableDetailOverlayProps = {
-  cableDetail: CabinetCableDetailResponse | null;
+  cableDetail: CableDetailResponse | null;
   onClose: () => void;
 };
 
 type SortDirection = "asc" | "desc";
+type CableColumnKey =
+  | "cable_type"
+  | "status"
+  | "group"
+  | "a_port_uid"
+  | "z_port_uid"
+  | "a_optic"
+  | "z_optic";
 type CableColumn = {
-  key: keyof CabinetCableDetail;
+  key: CableColumnKey;
   label: string;
 };
 
-const COLUMNS: CableColumn[] = [
-  { key: "cable_type", label: "Type" },
-  { key: "status", label: "Status" },
-  { key: "group", label: "Group" },
-  { key: "a_port_uid", label: "A Port" },
-  { key: "z_port_uid", label: "Z Port" },
-  { key: "a_optic", label: "A Optic" },
-  { key: "z_optic", label: "Z Optic" },
+const COLUMNS: Array<CableColumn & { labelKey: string }> = [
+  { key: "cable_type", label: "Type", labelKey: "cable.column.type" },
+  { key: "status", label: "Status", labelKey: "cable.column.status" },
+  { key: "group", label: "Group", labelKey: "cable.column.group" },
+  { key: "a_port_uid", label: "A Port", labelKey: "cable.column.aPort" },
+  { key: "z_port_uid", label: "Z Port", labelKey: "cable.column.zPort" },
+  { key: "a_optic", label: "A Optic", labelKey: "cable.column.aOptic" },
+  { key: "z_optic", label: "Z Optic", labelKey: "cable.column.zOptic" },
 ];
 
 export function CableDetailOverlay({ cableDetail, onClose }: CableDetailOverlayProps) {
-  const [sortKey, setSortKey] = useState<keyof CabinetCableDetail>("cable_type");
+  const { formatCableStatus, formatNumber, t } = useI18n();
+  const [sortKey, setSortKey] = useState<CableColumnKey>("cable_type");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [filters, setFilters] = useState<Partial<Record<keyof CabinetCableDetail, string>>>({});
+  const [filters, setFilters] = useState<Partial<Record<CableColumnKey, string>>>({});
   const visibleCables = useMemo(() => {
     if (!cableDetail) return [];
     return cableDetail.cables
@@ -45,8 +55,10 @@ export function CableDetailOverlay({ cableDetail, onClose }: CableDetailOverlayP
   }, [cableDetail, filters, sortDirection, sortKey]);
 
   if (!cableDetail) return null;
+  const sourceLabel = "source_device_uid" in cableDetail ? cableDetail.source_device_uid : cableDetail.source_cabinet_uid;
+  const targetLabel = "target_device_uid" in cableDetail ? cableDetail.target_device_uid : cableDetail.target_cabinet_uid;
 
-  function toggleSort(columnKey: keyof CabinetCableDetail) {
+  function toggleSort(columnKey: CableColumnKey) {
     if (sortKey === columnKey) {
       setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
       return;
@@ -59,15 +71,18 @@ export function CableDetailOverlay({ cableDetail, onClose }: CableDetailOverlayP
     <div className="cable-overlay">
       <div className="overlay-header">
         <div>
-          <span className="eyebrow">Cable Details</span>
+          <span className="eyebrow">{t("cable.details")}</span>
           <h2>
-            {cableDetail.source_cabinet_uid} to {cableDetail.target_cabinet_uid}
+            {t("cable.routeTitle", { source: sourceLabel, target: targetLabel })}
           </h2>
           <div className="overlay-count">
-            {visibleCables.length.toLocaleString()} of {cableDetail.cables.length.toLocaleString()} cables
+            {t("cable.countVisible", {
+              visible: formatNumber(visibleCables.length),
+              total: formatNumber(cableDetail.cables.length),
+            })}
           </div>
         </div>
-        <button className="icon-button" onClick={onClose} aria-label="Close cable details">
+        <button className="icon-button" onClick={onClose} aria-label={t("cable.closeDetails")}>
           X
         </button>
       </div>
@@ -78,7 +93,7 @@ export function CableDetailOverlay({ cableDetail, onClose }: CableDetailOverlayP
               {COLUMNS.map((column) => (
                 <th key={column.key}>
                   <button className="sort-button" onClick={() => toggleSort(column.key)}>
-                    <span>{column.label}</span>
+                    <span>{t(column.labelKey)}</span>
                     <span className="sort-indicator">
                       {sortKey === column.key ? (sortDirection === "asc" ? "▲" : "▼") : "↕"}
                     </span>
@@ -90,7 +105,7 @@ export function CableDetailOverlay({ cableDetail, onClose }: CableDetailOverlayP
               {COLUMNS.map((column) => (
                 <th key={column.key}>
                   <input
-                    aria-label={`Filter ${column.label}`}
+                    aria-label={`${t("common.filter")} ${t(column.labelKey)}`}
                     value={filters[column.key] ?? ""}
                     onChange={(event) =>
                       setFilters((current) => ({
@@ -98,7 +113,7 @@ export function CableDetailOverlay({ cableDetail, onClose }: CableDetailOverlayP
                         [column.key]: event.target.value,
                       }))
                     }
-                    placeholder="Filter"
+                    placeholder={t("common.filter")}
                   />
                 </th>
               ))}
@@ -108,7 +123,7 @@ export function CableDetailOverlay({ cableDetail, onClose }: CableDetailOverlayP
             {visibleCables.map((cable, index) => (
               <tr key={`${cable.a_port_uid}-${cable.z_port_uid}-${index}`}>
                 {COLUMNS.map((column) => (
-                  <td key={column.key}>{cable[column.key]}</td>
+                  <td key={column.key}>{column.key === "status" ? formatCableStatus(cable.status) : cable[column.key]}</td>
                 ))}
               </tr>
             ))}

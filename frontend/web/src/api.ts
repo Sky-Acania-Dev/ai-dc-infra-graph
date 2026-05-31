@@ -1,4 +1,10 @@
-import type { CabinetCableDetailResponse, CabinetDetailResponse, CabinetLayoutItem } from "./types";
+import type {
+  CableDetailResponse,
+  CabinetDetailResponse,
+  CabinetLayoutItem,
+  DeviceConnectionResponse,
+  ValidationResponse,
+} from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -21,12 +27,43 @@ export async function fetchCabinetDetail(cabinetUid: string): Promise<CabinetDet
 export async function fetchCabinetConnectionCables(
   sourceCabinetUid: string,
   targetCabinetUid: string,
-): Promise<CabinetCableDetailResponse> {
+): Promise<CableDetailResponse> {
   const response = await fetch(
     `${API_BASE_URL}/topology/cabinets/${encodeURIComponent(sourceCabinetUid)}/connections/${encodeURIComponent(targetCabinetUid)}/cables`,
   );
   if (!response.ok) {
     throw new Error(`Failed to load cabinet cable details: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchDeviceConnectionCables(
+  sourceDeviceUid: string,
+  targetDeviceUid: string,
+): Promise<CableDetailResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/topology/devices/${encodeURIComponent(sourceDeviceUid)}/connections/${encodeURIComponent(targetDeviceUid)}/cables`,
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to load device cable details: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchDeviceConnections(cabinetUid: string, rackUnit: number): Promise<DeviceConnectionResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/topology/cabinets/${encodeURIComponent(cabinetUid)}/devices/${rackUnit}/connections`,
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to load device connections: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchValidationReport(): Promise<ValidationResponse> {
+  const response = await fetch(`${API_BASE_URL}/topology/validation`);
+  if (!response.ok) {
+    throw new Error(`Failed to load validation report: ${response.status}`);
   }
   return response.json();
 }

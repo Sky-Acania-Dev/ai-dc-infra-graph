@@ -28,6 +28,8 @@ def main() -> None:
     print(f"ports={database.summary.ports}")
     print(f"cables={database.summary.cables}")
     print(f"port_collision_findings={database.summary.port_collision_findings}")
+    print(f"device_model_mismatches={len(database.device_model_mismatches)}")
+    print(f"device_model_format_issues={len(database.device_model_format_issues)}")
 
 
 if __name__ == "__main__":

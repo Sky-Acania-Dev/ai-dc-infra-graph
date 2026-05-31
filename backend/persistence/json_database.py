@@ -6,20 +6,24 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
+from backend.core.config import DEFAULT_RUNTIME_DATABASE_PATH, SCHEMA_VERSION
 from backend.ingest.cutsheet import CutsheetCableRow, CutsheetIngestionResult, CutsheetSummary
 from backend.models import Cabinet, Cable, PortConnector, Room
 from backend.validation import PortConnectionFinding
+from backend.validation.device_models import DeviceModelFinding, detect_device_model_findings
 
 
-DEFAULT_RUNTIME_DATABASE_PATH = Path("data/runtime/current_database.json")
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 class TopologyDatabase(BaseModel):
+    schema_version: int = SCHEMA_VERSION
     project_uid: str
     building_id: str
     summary: CutsheetSummary
     port_collision_findings: list[PortConnectionFinding] = Field(default_factory=list)
+    device_model_mismatches: list[DeviceModelFinding] = Field(default_factory=list)
+    device_model_format_issues: list[DeviceModelFinding] = Field(default_factory=list)
     data_halls: list[Room] = Field(default_factory=list)
     cabinets: list[Cabinet] = Field(default_factory=list)
     ports: list[PortConnector] = Field(default_factory=list)
@@ -32,7 +36,9 @@ class TopologyDatabase(BaseModel):
 
 
 def database_from_ingestion_result(result: CutsheetIngestionResult) -> TopologyDatabase:
+    device_model_mismatches, device_model_format_issues = detect_device_model_findings(result.rows)
     return TopologyDatabase(
+        schema_version=SCHEMA_VERSION,
         project_uid=result.project_uid,
         building_id=result.building_id,
         summary=CutsheetSummary(
@@ -44,6 +50,8 @@ def database_from_ingestion_result(result: CutsheetIngestionResult) -> TopologyD
             port_collision_findings=len(result.findings),
         ),
         port_collision_findings=result.findings,
+        device_model_mismatches=device_model_mismatches,
+        device_model_format_issues=device_model_format_issues,
         data_halls=result.data_halls,
         cabinets=result.cabinets,
         ports=result.ports,
@@ -59,6 +67,8 @@ def load_topology_database(path: str | Path) -> TopologyDatabase:
 
 def database_from_json_payload(payload: dict[str, Any]) -> TopologyDatabase:
     findings_payload = payload.get("port_collision_findings", payload.get("findings", []))
+    device_model_mismatches_payload = payload.get("device_model_mismatches")
+    device_model_format_issues_payload = payload.get("device_model_format_issues")
     rows_payload = payload.get("rows", [])
     data_halls_payload = payload.get("data_halls", [])
     cabinets_payload = payload.get("cabinets", [])
@@ -73,18 +83,38 @@ def database_from_json_payload(payload: dict[str, Any]) -> TopologyDatabase:
         "port_collision_findings": len(findings_payload),
     }
 
+    rows = [_model_from_payload(CutsheetCableRow, row) for row in rows_payload]
+    if device_model_mismatches_payload is None or device_model_format_issues_payload is None:
+        detected_mismatches, detected_format_issues = detect_device_model_findings(rows)
+        if device_model_mismatches_payload is None:
+            device_model_mismatches_payload = [_model_to_payload(finding) for finding in detected_mismatches]
+        if device_model_format_issues_payload is None:
+            device_model_format_issues_payload = [_model_to_payload(finding) for finding in detected_format_issues]
+
+    cables = [_model_from_payload(Cable, cable) for cable in cables_payload]
+    _backfill_cable_uids(cables)
+
     return TopologyDatabase(
+        schema_version=SCHEMA_VERSION,
         project_uid=payload["project_uid"],
         building_id=payload["building_id"],
         summary=_model_from_payload(CutsheetSummary, summary_payload),
         port_collision_findings=[
             _model_from_payload(PortConnectionFinding, finding) for finding in findings_payload
         ],
+        device_model_mismatches=[
+            _model_from_payload(DeviceModelFinding, _normalize_device_model_finding_payload(finding))
+            for finding in device_model_mismatches_payload
+        ],
+        device_model_format_issues=[
+            _model_from_payload(DeviceModelFinding, _normalize_device_model_finding_payload(finding))
+            for finding in device_model_format_issues_payload
+        ],
         data_halls=[_model_from_payload(Room, data_hall) for data_hall in data_halls_payload],
         cabinets=[_model_from_payload(Cabinet, cabinet) for cabinet in cabinets_payload],
         ports=[_model_from_payload(PortConnector, port) for port in ports_payload],
-        cables=[_model_from_payload(Cable, cable) for cable in cables_payload],
-        rows=[_model_from_payload(CutsheetCableRow, row) for row in rows_payload],
+        cables=cables,
+        rows=rows,
     )
 
 
@@ -107,6 +137,36 @@ def _model_from_payload(model_type: type[ModelT], payload: dict[str, Any]) -> Mo
     if hasattr(model_type, "model_validate"):
         return model_type.model_validate(payload)
     return model_type.parse_obj(payload)
+
+
+def _model_to_payload(model: BaseModel) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(mode="json")
+    return model.dict()
+
+
+def _normalize_device_model_finding_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized_payload = dict(payload)
+    for key in ("models", "normalized_models"):
+        value = normalized_payload.get(key, [])
+        if isinstance(value, dict):
+            normalized_payload[key] = [
+                {"value": model_value, "count": count} for model_value, count in sorted(value.items())
+            ]
+    return normalized_payload
+
+
+def _backfill_cable_uids(cables: list[Cable]) -> None:
+    used_uids = {cable.uid for cable in cables if cable.uid}
+    for index, cable in enumerate(cables, start=1):
+        if cable.uid:
+            continue
+        candidate = f"CBL-{index:06d}"
+        while candidate in used_uids:
+            index += 1
+            candidate = f"CBL-{index:06d}"
+        cable.uid = candidate
+        used_uids.add(candidate)
 
 
 def _read_json_text(path: Path) -> str:

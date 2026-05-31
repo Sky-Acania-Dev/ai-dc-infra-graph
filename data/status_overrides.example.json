@@ -1,0 +1,33 @@
+{
+  "data_halls": {
+    "DH1": "not_constructed"
+  },
+  "cabinets": {
+    "DH1:055": "not_powered"
+  },
+  "cabinet_max_rack_units": {
+    "DH1:055": 42
+  },
+  "devices": {
+    "DH1:001:06": {
+      "lifecycle_status": "not_installed",
+      "device_model": "Unknown",
+      "note": "Manual placeholder until device inventory is available."
+    }
+  },
+  "cables": {
+    "CBL-000001": {
+      "progress": {
+        "purchased": "complete",
+        "received": "complete",
+        "categorized_stored": "complete",
+        "labeled": "complete",
+        "pulled": "complete",
+        "a_side_terminated": "complete",
+        "z_side_terminated": "blocked"
+      },
+      "length_meters": 42.5,
+      "note": "Z side waiting for patch panel access."
+    }
+  }
+}

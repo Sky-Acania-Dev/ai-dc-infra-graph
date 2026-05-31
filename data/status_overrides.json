@@ -1,0 +1,14 @@
+{
+  "data_halls": {},
+  "cabinets": {
+    "DH1:055": "not_installed"
+  },
+  "cabinet_max_rack_units": {},
+  "devices": {
+    "DH1:001:06": {
+      "lifecycle_status": "not_installed",
+      "device_model": "Unknown",
+      "note": "Manual placeholder until device inventory is available."
+    }
+  }
+}

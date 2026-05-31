@@ -1,17 +1,8 @@
 from __future__ import annotations
 
-from enum import StrEnum
-
 from pydantic import BaseModel, Field
 
-
-class ConnectorType(StrEnum):
-    CAT6 = "CAT6"
-    LC = "LC"
-    SC = "SC"
-    MPO = "MPO"
-    POWER = "power"
-    OTHER = "other"
+from backend.core.enums import CableProgressState, CableProgressStep, ConnectorType, LifecycleStatus
 
 
 class Project(BaseModel):
@@ -35,6 +26,9 @@ class Device(BaseModel):
     cabinet_id: str
     rack_unit: int
     device_model: str
+    lifecycle_status: LifecycleStatus = LifecycleStatus.NOT_INSTALLED
+    aliases: list[str] = Field(default_factory=list)
+    model_aliases: list[str] = Field(default_factory=list)
     ports_by_type: dict[ConnectorType, list[PortConnector]] = Field(default_factory=dict)
     note: str = ""
 
@@ -45,6 +39,8 @@ class Cabinet(BaseModel):
     cabinet_id: str
     category: str = ""
     cabinet_group: str = ""
+    lifecycle_status: LifecycleStatus = LifecycleStatus.NOT_INSTALLED
+    max_rack_unit: int = 48
     source_row: int | None = None
     source_col: int | None = None
     devices: list[Device] = Field(default_factory=list)
@@ -53,6 +49,7 @@ class Cabinet(BaseModel):
 class Room(BaseModel):
     building_id: str
     room_id: str
+    lifecycle_status: LifecycleStatus = LifecycleStatus.UNKNOWN
     cabinets: list[Cabinet] = Field(default_factory=list)
 
 
@@ -63,11 +60,14 @@ class Building(BaseModel):
 
 
 class Cable(BaseModel):
+    uid: str = ""
     a_side: PortConnector
     z_side: PortConnector
     cable_type: str
     group: str = ""
     status: str = ""
+    progress: dict[CableProgressStep, CableProgressState] = Field(default_factory=dict)
+    length_meters: float | None = None
     a_optic: OpticModule | None = None
     z_optic: OpticModule | None = None
     note: str = ""

@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 from backend.api.database import LoadJsonDatabaseRequest, load_json_database
+from backend.core.config import SCHEMA_VERSION
 from backend.ingest.cutsheet import cutsheet_result_to_json, ingest_cutsheet_rows
 from backend.persistence import load_topology_database, save_topology_database
 
@@ -33,8 +34,10 @@ class JsonDatabaseTests(unittest.TestCase):
         database = load_topology_database(source_path)
 
         self.assertEqual(database.project_uid, "MSK01")
+        self.assertEqual(database.schema_version, SCHEMA_VERSION)
         self.assertEqual(database.summary.rows, 1)
         self.assertEqual(database.summary.cabinets, 2)
+        self.assertEqual(database.cables[0].uid, "CBL-000001")
         self.assertFalse(database.has_port_collisions)
 
     def test_saves_runtime_database_snapshot(self) -> None:
@@ -60,6 +63,8 @@ class JsonDatabaseTests(unittest.TestCase):
         saved_payload = json.loads(saved_path.read_text(encoding="utf-8"))
 
         self.assertEqual(saved_payload["summary"]["rows"], 1)
+        self.assertEqual(saved_payload["schema_version"], SCHEMA_VERSION)
+        self.assertEqual(saved_payload["cables"][0]["uid"], "CBL-000001")
         self.assertEqual(saved_payload["port_collision_findings"], [])
 
     def test_load_json_database_api_handler(self) -> None:

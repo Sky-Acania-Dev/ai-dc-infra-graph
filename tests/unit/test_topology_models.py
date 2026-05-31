@@ -4,8 +4,11 @@ from backend.models import (
     Building,
     Cabinet,
     Cable,
+    CableProgressState,
+    CableProgressStep,
     ConnectorType,
     Device,
+    LifecycleStatus,
     PortConnector,
     Project,
     Room,
@@ -32,7 +35,15 @@ class TopologyModelTests(unittest.TestCase):
         )
         room = Room(building_id="A", room_id="DH1", cabinets=[cabinet])
         building = Building(project_uid=project.uid, building_id="A", rooms=[room])
-        cable = Cable(a_side=port_a, z_side=port_z, cable_type="OS2 fiber")
+        cable = Cable(
+            uid="CBL-000001",
+            a_side=port_a,
+            z_side=port_z,
+            cable_type="OS2 fiber",
+            progress={CableProgressStep.PURCHASED: CableProgressState.COMPLETE},
+            length_meters=31.5,
+            note="Spare length coiled above cabinet.",
+        )
 
         self.assertEqual(
             building.rooms[0].cabinets[0].devices[0].ports_by_type[ConnectorType.LC][0],
@@ -40,6 +51,13 @@ class TopologyModelTests(unittest.TestCase):
         )
         self.assertEqual(cable.a_side.uid, "CAB-A01:LEAF-01:Eth1/1")
         self.assertEqual(cable.z_side.uid, "CAB-B01:SPINE-01:Eth1/17")
+        self.assertEqual(cable.progress[CableProgressStep.PURCHASED], CableProgressState.COMPLETE)
+        self.assertEqual(cable.length_meters, 31.5)
+        self.assertEqual(cable.note, "Spare length coiled above cabinet.")
+        self.assertEqual(device.lifecycle_status, LifecycleStatus.NOT_INSTALLED)
+        self.assertEqual(cabinet.lifecycle_status, LifecycleStatus.NOT_INSTALLED)
+        self.assertEqual(cabinet.max_rack_unit, 48)
+        self.assertEqual(room.lifecycle_status, LifecycleStatus.UNKNOWN)
 
 
 if __name__ == "__main__":

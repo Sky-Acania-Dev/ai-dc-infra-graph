@@ -1,31 +1,73 @@
+import { useEffect, useRef } from "react";
 import type { Device } from "../types";
+import { useI18n } from "../i18n";
 
 type CabinetDeviceLayoutProps = {
   devices: Device[];
+  maxRackUnit: number;
+  selectedDeviceUid: string | null;
+  connectedDeviceUids: Set<string>;
+  onSelectDevice: (device: Device) => void;
 };
 
-export function CabinetDeviceLayout({ devices }: CabinetDeviceLayoutProps) {
+export function CabinetDeviceLayout({
+  devices,
+  maxRackUnit,
+  selectedDeviceUid,
+  connectedDeviceUids,
+  onSelectDevice,
+}: CabinetDeviceLayoutProps) {
+  const { formatLifecycleStatus, formatNumber, t } = useI18n();
+  const rackGridRef = useRef<HTMLDivElement | null>(null);
   const devicesByRu = new Map<number, Device[]>();
   for (const device of devices) {
     devicesByRu.set(device.rack_unit, [...(devicesByRu.get(device.rack_unit) ?? []), device]);
   }
 
+  useEffect(() => {
+    if (!selectedDeviceUid || !rackGridRef.current) return;
+    const selectedElement = rackGridRef.current.querySelector<HTMLElement>(
+      `[data-device-uid="${cssEscape(selectedDeviceUid)}"]`,
+    );
+    selectedElement?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [devices, selectedDeviceUid]);
+
   return (
     <section className="device-layout">
-      <div className="section-title">Rack Units</div>
-      <div className="rack-grid">
-        {Array.from({ length: 42 }, (_, index) => 42 - index).map((rackUnit) => {
+      <div className="section-title">{t("rack.units")}</div>
+      <div className="rack-grid" ref={rackGridRef}>
+        {Array.from({ length: maxRackUnit }, (_, index) => maxRackUnit - index).map((rackUnit) => {
           const unitDevices = devicesByRu.get(rackUnit) ?? [];
           return (
             <div className={`rack-row ${unitDevices.length ? "has-device" : ""}`} key={rackUnit}>
-              <span className="rack-unit">U{rackUnit}</span>
+              <span className="rack-unit">{t("rack.unitLabel", { unit: rackUnit })}</span>
               <div className="rack-device">
-                {unitDevices.map((device, index) => (
-                  <div className="device-chip" key={`${device.rack_unit}-${device.device_model}-${index}`} title={device.note}>
+                {unitDevices.map((device, index) => {
+                  const deviceUid = deviceKey(device);
+                  return (
+                  <button
+                    className={`device-chip ${selectedDeviceUid === deviceUid ? "is-selected" : ""} ${connectedDeviceUids.has(deviceUid) ? "is-connected" : ""}`}
+                    data-device-uid={deviceUid}
+                    key={`${device.rack_unit}-${device.device_model}-${index}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelectDevice(device);
+                    }}
+                    title={`${formatLifecycleStatus(device.lifecycle_status)}${device.note ? `\n${device.note}` : ""}`}
+                  >
                     <span>{device.device_model}</span>
-                    <small>{portCount(device)} ports</small>
-                  </div>
-                ))}
+                    {device.aliases.length || device.model_aliases.length ? (
+                      <em>{[...device.aliases, ...device.model_aliases].join(", ")}</em>
+                    ) : null}
+                    <small>
+                      {t("device.statusAndPorts", {
+                        count: formatNumber(portCount(device)),
+                        status: formatLifecycleStatus(device.lifecycle_status),
+                      })}
+                    </small>
+                  </button>
+                );
+                })}
               </div>
             </div>
           );
@@ -37,4 +79,13 @@ export function CabinetDeviceLayout({ devices }: CabinetDeviceLayoutProps) {
 
 function portCount(device: Device): number {
   return Object.values(device.ports_by_type).reduce((total, ports) => total + (ports?.length ?? 0), 0);
+}
+
+function deviceKey(device: Device): string {
+  return `${device.cabinet_id}:${device.rack_unit}`;
+}
+
+function cssEscape(value: string) {
+  if (typeof CSS !== "undefined" && CSS.escape) return CSS.escape(value);
+  return value.replace(/["\\]/g, "\\$&");
 }

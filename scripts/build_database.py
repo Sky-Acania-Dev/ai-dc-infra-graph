@@ -8,7 +8,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.persistence import DEFAULT_RUNTIME_DATABASE_PATH, save_topology_database
+from backend.core.config import DEFAULT_BUILDING_ID, DEFAULT_MAX_RACK_UNIT, DEFAULT_PROJECT_UID, DEFAULT_RUNTIME_DATABASE_PATH
+from backend.persistence import save_topology_database
 from backend.services import build_topology_database_from_sources
 from backend.validation import BreakoutFanoutRule
 
@@ -18,11 +19,13 @@ def main() -> None:
     parser.add_argument("--cutsheet-path", required=True)
     parser.add_argument("--overhead-path", required=True)
     parser.add_argument("--runtime-path", default=str(DEFAULT_RUNTIME_DATABASE_PATH))
-    parser.add_argument("--project-uid", default="MSK01")
-    parser.add_argument("--building-id", default="A")
+    parser.add_argument("--project-uid", default=DEFAULT_PROJECT_UID)
+    parser.add_argument("--building-id", default=DEFAULT_BUILDING_ID)
     parser.add_argument("--cutsheet-sheet-name", default=None)
     parser.add_argument("--overhead-sheet-name", default=None)
     parser.add_argument("--breakout-max-children", type=int, default=4)
+    parser.add_argument("--status-overrides-path", default="data/status_overrides.json")
+    parser.add_argument("--default-max-rack-unit", type=int, default=DEFAULT_MAX_RACK_UNIT)
     args = parser.parse_args()
 
     database = build_topology_database_from_sources(
@@ -33,6 +36,8 @@ def main() -> None:
         cutsheet_sheet_name=args.cutsheet_sheet_name,
         overhead_sheet_name=args.overhead_sheet_name,
         breakout_rules=[BreakoutFanoutRule(max_child_connections=args.breakout_max_children)],
+        status_overrides_path=args.status_overrides_path,
+        default_max_rack_unit=args.default_max_rack_unit,
     )
     saved_path = save_topology_database(database, args.runtime_path)
 
@@ -44,6 +49,8 @@ def main() -> None:
     print(f"ports={database.summary.ports}")
     print(f"cables={database.summary.cables}")
     print(f"port_collision_findings={database.summary.port_collision_findings}")
+    print(f"device_model_mismatches={len(database.device_model_mismatches)}")
+    print(f"device_model_format_issues={len(database.device_model_format_issues)}")
 
 
 if __name__ == "__main__":

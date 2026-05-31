@@ -1,0 +1,29 @@
+{
+  "summary": {
+    "cabinets": 20,
+    "data_halls": 1,
+    "unknown_category_cabinets": 0
+  },
+  "cabinets": [
+    {"cabinet_uid": "DH1:001", "data_hall_id": "DH1", "cabinet_id": "001", "category": "DPR-H1", "cabinet_group": "CORE", "source_row": 1, "source_col": 1},
+    {"cabinet_uid": "DH1:002", "data_hall_id": "DH1", "cabinet_id": "002", "category": "T1-FE", "cabinet_group": "END-ROW", "source_row": 1, "source_col": 2},
+    {"cabinet_uid": "DH1:003", "data_hall_id": "DH1", "cabinet_id": "003", "category": "T1-FE", "cabinet_group": "END-ROW", "source_row": 1, "source_col": 3},
+    {"cabinet_uid": "DH1:004", "data_hall_id": "DH1", "cabinet_id": "004", "category": "T1-FE", "cabinet_group": "END-ROW", "source_row": 1, "source_col": 4},
+    {"cabinet_uid": "DH1:005", "data_hall_id": "DH1", "cabinet_id": "005", "category": "STOR", "cabinet_group": "STORAGE", "source_row": 1, "source_col": 5},
+    {"cabinet_uid": "DH1:006", "data_hall_id": "DH1", "cabinet_id": "006", "category": "CP5", "cabinet_group": "STORAGE", "source_row": 1, "source_col": 6},
+    {"cabinet_uid": "DH1:007", "data_hall_id": "DH1", "cabinet_id": "007", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 1, "source_col": 7},
+    {"cabinet_uid": "DH1:008", "data_hall_id": "DH1", "cabinet_id": "008", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 1, "source_col": 8},
+    {"cabinet_uid": "DH1:009", "data_hall_id": "DH1", "cabinet_id": "009", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 1, "source_col": 9},
+    {"cabinet_uid": "DH1:010", "data_hall_id": "DH1", "cabinet_id": "010", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 1, "source_col": 10},
+    {"cabinet_uid": "DH1:011", "data_hall_id": "DH1", "cabinet_id": "011", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 2, "source_col": 1},
+    {"cabinet_uid": "DH1:012", "data_hall_id": "DH1", "cabinet_id": "012", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 2, "source_col": 2},
+    {"cabinet_uid": "DH1:013", "data_hall_id": "DH1", "cabinet_id": "013", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 2, "source_col": 3},
+    {"cabinet_uid": "DH1:014", "data_hall_id": "DH1", "cabinet_id": "014", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 2, "source_col": 4},
+    {"cabinet_uid": "DH1:015", "data_hall_id": "DH1", "cabinet_id": "015", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 2, "source_col": 5},
+    {"cabinet_uid": "DH1:016", "data_hall_id": "DH1", "cabinet_id": "016", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 2, "source_col": 6},
+    {"cabinet_uid": "DH1:017", "data_hall_id": "DH1", "cabinet_id": "017", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 2, "source_col": 7},
+    {"cabinet_uid": "DH1:018", "data_hall_id": "DH1", "cabinet_id": "018", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 2, "source_col": 8},
+    {"cabinet_uid": "DH1:019", "data_hall_id": "DH1", "cabinet_id": "019", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 2, "source_col": 9},
+    {"cabinet_uid": "DH1:020", "data_hall_id": "DH1", "cabinet_id": "020", "category": "HD-GB3c", "cabinet_group": "GPU", "source_row": 2, "source_col": 10}
+  ]
+}
