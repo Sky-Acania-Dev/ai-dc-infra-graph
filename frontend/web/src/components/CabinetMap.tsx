@@ -12,6 +12,7 @@ type CabinetMapProps = {
   selectedCabinetUid: string | null;
   connectedCabinetUids: Set<string>;
   onSelectCabinet: (cabinetUid: string) => void;
+  onClearSelection: () => void;
 };
 
 const CELL_WIDTH = 34;
@@ -21,7 +22,13 @@ const HOT_AISLE_GAP = 8;
 const COLD_AISLE_GAP = 26;
 const PADDING = 24;
 
-export function CabinetMap({ cabinets, selectedCabinetUid, connectedCabinetUids, onSelectCabinet }: CabinetMapProps) {
+export function CabinetMap({
+  cabinets,
+  selectedCabinetUid,
+  connectedCabinetUids,
+  onSelectCabinet,
+  onClearSelection,
+}: CabinetMapProps) {
   const positioned = normalizeCabinets(cabinets);
   const maxBlock = Math.max(...positioned.map((cabinet) => cabinet.block), 0);
   const maxRow = Math.max(...positioned.map((cabinet) => cabinet.row), 0);
@@ -38,7 +45,14 @@ export function CabinetMap({ cabinets, selectedCabinetUid, connectedCabinetUids,
         </div>
       </div>
       <div className="map-scroll">
-        <svg className="cabinet-map" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img">
+        <svg
+          className="cabinet-map"
+          width={width}
+          height={height}
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          onClick={onClearSelection}
+        >
           {positioned.map((cabinet) => {
             const fill = categoryColor(cabinet.category);
             const label = labelColors(fill);
@@ -54,7 +68,10 @@ export function CabinetMap({ cabinets, selectedCabinetUid, connectedCabinetUids,
                 className={`map-cabinet ${isSelected ? "is-selected" : ""} ${isConnected ? "is-connected" : ""} ${isDimmed ? "is-dimmed" : ""}`}
                 role="button"
                 tabIndex={0}
-                onClick={() => onSelectCabinet(cabinet.cabinet_uid)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelectCabinet(cabinet.cabinet_uid);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") onSelectCabinet(cabinet.cabinet_uid);
                 }}

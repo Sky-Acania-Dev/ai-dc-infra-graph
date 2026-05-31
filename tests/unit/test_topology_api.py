@@ -1,6 +1,6 @@
 import unittest
 
-from backend.api.topology import cabinet_detail, cabinet_layout
+from backend.api.topology import cabinet_connection_cables, cabinet_detail, cabinet_layout
 from backend.ingest.cutsheet import ingest_cutsheet_rows
 from backend.ingest.overhead import CabinetInventoryRecord, OverheadIngestionResult, OverheadIngestionSummary
 from backend.persistence import save_topology_database
@@ -55,11 +55,14 @@ class TopologyApiTests(unittest.TestCase):
 
         layout = cabinet_layout(data_hall="DH1", database_path=str(runtime_path))
         detail = cabinet_detail("DH1:001", database_path=str(runtime_path))
+        cable_detail = cabinet_connection_cables("DH1:001", "DH1:002", database_path=str(runtime_path))
 
         self.assertEqual(len(layout), 2)
         self.assertEqual(detail.stats.devices, 1)
         self.assertEqual(detail.devices[0].device_model, "NVIDIA Spectrum SN5600")
         self.assertEqual(detail.connections[0].target_cabinet_uid, "DH1:002")
+        self.assertEqual(len(cable_detail.cables), 1)
+        self.assertEqual(cable_detail.cables[0].a_port_uid, "DH1:001:10:swp1")
 
 
 if __name__ == "__main__":

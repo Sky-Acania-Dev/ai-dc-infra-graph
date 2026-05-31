@@ -46,3 +46,19 @@ export type CabinetDetailResponse = {
   devices: Device[];
   connections: CabinetConnection[];
 };
+
+export type CabinetCableDetail = {
+  group: string;
+  status: string;
+  cable_type: string;
+  a_port_uid: string;
+  z_port_uid: string;
+  a_optic: string;
+  z_optic: string;
+};
+
+export type CabinetCableDetailResponse = {
+  source_cabinet_uid: string;
+  target_cabinet_uid: string;
+  cables: CabinetCableDetail[];
+};

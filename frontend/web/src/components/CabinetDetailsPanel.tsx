@@ -1,16 +1,38 @@
-import type { CabinetDetailResponse } from "../types";
+import type { CabinetDetailResponse, CabinetLayoutItem } from "../types";
 import { CabinetDeviceLayout } from "./CabinetDeviceLayout";
 
 type CabinetDetailsPanelProps = {
   detail: CabinetDetailResponse | null;
+  dataHall: string;
+  cabinets: CabinetLayoutItem[];
 };
 
-export function CabinetDetailsPanel({ detail }: CabinetDetailsPanelProps) {
+export function CabinetDetailsPanel({ detail, dataHall, cabinets }: CabinetDetailsPanelProps) {
   if (!detail) {
+    const categories = categoryCounts(cabinets);
     return (
       <aside className="side-pane">
-        <span className="eyebrow">Cabinet Details</span>
-        <p className="empty-state">Select a cabinet to inspect devices and rack-unit layout.</p>
+        <span className="eyebrow">Data Hall Summary</span>
+        <h1>{dataHall}</h1>
+        <dl className="facts">
+          <div>
+            <dt>Cabinets</dt>
+            <dd>{cabinets.length.toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt>Categories</dt>
+            <dd>{categories.length.toLocaleString()}</dd>
+          </div>
+        </dl>
+        <section className="category-summary">
+          <div className="section-title">Cabinet Types</div>
+          {categories.map(([category, count]) => (
+            <div className="category-row" key={category}>
+              <span>{category}</span>
+              <b>{count}</b>
+            </div>
+          ))}
+        </section>
       </aside>
     );
   }
@@ -44,4 +66,12 @@ export function CabinetDetailsPanel({ detail }: CabinetDetailsPanelProps) {
       <CabinetDeviceLayout devices={detail.devices} />
     </aside>
   );
+}
+
+function categoryCounts(cabinets: CabinetLayoutItem[]): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const cabinet of cabinets) {
+    counts.set(cabinet.category, (counts.get(cabinet.category) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }

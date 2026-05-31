@@ -49,6 +49,22 @@ class CabinetDetailResponse(BaseModel):
     connections: list[CabinetConnection]
 
 
+class CabinetCableDetail(BaseModel):
+    group: str
+    status: str
+    cable_type: str
+    a_port_uid: str
+    z_port_uid: str
+    a_optic: str = ""
+    z_optic: str = ""
+
+
+class CabinetCableDetailResponse(BaseModel):
+    source_cabinet_uid: str
+    target_cabinet_uid: str
+    cables: list[CabinetCableDetail]
+
+
 @router.get("/layout/cabinets", response_model=list[CabinetLayoutItem])
 def cabinet_layout(
     data_hall: str | None = None,
@@ -62,7 +78,7 @@ def cabinet_layout(
     return [_layout_item(cabinet) for cabinet in sorted(cabinets, key=_cabinet_sort_key)]
 
 
-@router.get("/cabinets/{cabinet_uid:path}", response_model=CabinetDetailResponse)
+@router.get("/cabinets/{cabinet_uid}", response_model=CabinetDetailResponse)
 def cabinet_detail(
     cabinet_uid: str,
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
@@ -88,6 +104,47 @@ def cabinet_detail(
         ),
         devices=sorted(cabinet.devices, key=lambda device: (device.rack_unit, device.device_model, device.note)),
         connections=connections,
+    )
+
+
+@router.get(
+    "/cabinets/{source_cabinet_uid}/connections/{target_cabinet_uid}/cables",
+    response_model=CabinetCableDetailResponse,
+)
+def cabinet_connection_cables(
+    source_cabinet_uid: str,
+    target_cabinet_uid: str,
+    database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
+) -> CabinetCableDetailResponse:
+    source_cabinet_uid = source_cabinet_uid.upper()
+    target_cabinet_uid = target_cabinet_uid.upper()
+    database = _load_cached_database(database_path)
+    source_prefix = f"{source_cabinet_uid}:"
+    target_prefix = f"{target_cabinet_uid}:"
+    cables = [
+        CabinetCableDetail(
+            group=cable.group,
+            status=cable.status,
+            cable_type=cable.cable_type,
+            a_port_uid=cable.a_side.uid,
+            z_port_uid=cable.z_side.uid,
+            a_optic=cable.a_optic.model if cable.a_optic else "",
+            z_optic=cable.z_optic.model if cable.z_optic else "",
+        )
+        for cable in database.cables
+        if (
+            cable.a_side.uid.startswith(source_prefix)
+            and cable.z_side.uid.startswith(target_prefix)
+        )
+        or (
+            cable.a_side.uid.startswith(target_prefix)
+            and cable.z_side.uid.startswith(source_prefix)
+        )
+    ]
+    return CabinetCableDetailResponse(
+        source_cabinet_uid=source_cabinet_uid,
+        target_cabinet_uid=target_cabinet_uid,
+        cables=sorted(cables, key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid)),
     )
 
 

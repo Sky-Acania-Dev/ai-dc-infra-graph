@@ -2,9 +2,10 @@ import type { CabinetDetailResponse } from "../types";
 
 type CabinetConnectionsPanelProps = {
   detail: CabinetDetailResponse | null;
+  onViewCables: (targetCabinetUid: string) => void;
 };
 
-export function CabinetConnectionsPanel({ detail }: CabinetConnectionsPanelProps) {
+export function CabinetConnectionsPanel({ detail, onViewCables }: CabinetConnectionsPanelProps) {
   if (!detail) {
     return (
       <aside className="side-pane">
@@ -36,6 +37,9 @@ export function CabinetConnectionsPanel({ detail }: CabinetConnectionsPanelProps
                 </li>
               ))}
             </ul>
+            <button className="detail-button" onClick={() => onViewCables(connection.target_cabinet_uid)}>
+              View cables
+            </button>
           </article>
         ))}
       </div>
