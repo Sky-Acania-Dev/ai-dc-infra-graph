@@ -39,13 +39,54 @@ Known imported status examples:
 
 ## Cable Progress Tracker
 
-Cable progress is separate from imported cable status. It is a manual/project-management tracker represented as:
+Cable progress is separate from imported cable status. The primary model is a current-phase tracker because most cable work is sequential, with only a few phases requiring parallel subtasks or mutually exclusive enum states.
+
+```json
+{
+  "current_phase": {
+    "name": "termination",
+    "phase_type": "parallel_percent",
+    "tasks": {
+      "a_side_terminated": 100,
+      "z_side_terminated": 40
+    },
+    "enum_values": []
+  }
+}
+```
+
+Older runtime files may still contain the legacy `progress` dictionary. The API keeps accepting it for backward compatibility, but new UI work should use `current_phase`.
+
+### Phase Types
+
+| Value | Meaning | Example |
+| --- | --- | --- |
+| `single_percent` | One sequential phase represented by a percentage. | `pulled = 75%` |
+| `parallel_percent` | Multiple subtasks can advance independently, each represented by a percentage. | `a_side_terminated = 100%`, `z_side_terminated = 40%` |
+| `enum_state` | The phase is represented by one value from a constrained enum list. | `validated` or `broken` |
+
+### Recommended Phase Names
+
+| Phase | Type | Meaning |
+| --- | --- | --- |
+| `purchased` | `single_percent` | Cable or cable material has been purchased. |
+| `received` | `single_percent` | Cable has arrived on site or in controlled inventory. |
+| `categorized_stored` | `single_percent` | Cable has been sorted into the correct work package, location, type, or cabinet group and stored where crews can find it. |
+| `labeled` | `single_percent` | Cable label has been applied or otherwise prepared according to the installation standard. |
+| `bundled_on_ground` | `single_percent` | Optional pre-bundling/staging on the ground before pulling. |
+| `pulled` | `single_percent` | Cable has been physically pulled/ran along the route. |
+| `routing_dress` | `parallel_percent` | Cable dressing outside endpoint cabinets, usually pathway/tray/bundle dressing. |
+| `termination` | `parallel_percent` | A-side and Z-side termination/patching can move independently. |
+| `cabinet_dress` | `parallel_percent` | A-side and Z-side cabinet dressing can move independently. |
+| `final_result` | `enum_state` | Final outcome. Allowed values should usually be `validated` and `broken`. |
+
+### Legacy Progress States
+
+The legacy dictionary shape is:
 
 ```json
 {
   "progress": {
-    "purchased": "complete",
-    "received": "complete",
     "pulled": "complete",
     "a_side_terminated": "complete",
     "z_side_terminated": "blocked"
@@ -53,7 +94,7 @@ Cable progress is separate from imported cable status. It is a manual/project-ma
 }
 ```
 
-Each key is a `CableProgressStep`. Each value is a `CableProgressState`.
+Each key is a `CableProgressStep`. Each value is a `CableProgressState`. Keep this readable for old data, but prefer `current_phase` for new changes.
 
 ### Progress States
 
@@ -100,7 +141,9 @@ validated | broken
 
 ## Cable Length and Notes
 
-`Cable.length_meters` is a nullable numeric field for future PM/foreman input. It should remain empty until a user enters a measured or planned length.
+`Cable.designed_length_meters` is a nullable numeric field for planned/design length. Frontend editors should not change it directly; it should come from ingestion, backend database operations, or other controlled administrative workflows.
+
+`Cable.length_used_meters` is the field-editable installed/used length. A value of `0` means no used length has been selected yet. Frontend editors must only submit positive values greater than `0`.
 
 `Cable.note` is a free-text human note for unusual field conditions, blockers, rework, or context that does not fit a structured status. Use it sparingly. If notes become common enough to cause large JSON churn, the same concept can be moved into a sidecar dictionary keyed by cable UID:
 

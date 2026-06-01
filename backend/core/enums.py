@@ -44,3 +44,9 @@ class CableProgressState(StrEnum):
     COMPLETE = "complete"
     BLOCKED = "blocked"
     NOT_APPLICABLE = "not_applicable"
+
+
+class CableProgressPhaseType(StrEnum):
+    SINGLE_PERCENT = "single_percent"
+    PARALLEL_PERCENT = "parallel_percent"
+    ENUM_STATE = "enum_state"

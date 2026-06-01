@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from backend.models import CableProgressState, CableProgressStep, Device, LifecycleStatus
+from backend.models import CableProgressPhase, CableProgressState, CableProgressStep, Device, LifecycleStatus
 
 
 class DeviceStatusOverride(BaseModel):
@@ -18,6 +18,9 @@ class DeviceStatusOverride(BaseModel):
 class CableOverride(BaseModel):
     cable_uid: str
     progress: dict[CableProgressStep, CableProgressState] = Field(default_factory=dict)
+    current_phase: CableProgressPhase | None = None
+    designed_length_meters: float | None = None
+    length_used_meters: float | None = None
     length_meters: float | None = None
     note: str = ""
 
@@ -76,8 +79,13 @@ def _apply_cable_overrides(cables, overrides: StatusOverrides) -> None:
             continue
         if override.progress:
             cable.progress.update(override.progress)
-        if override.length_meters is not None:
-            cable.length_meters = override.length_meters
+        if override.current_phase is not None:
+            cable.current_phase = override.current_phase
+        if override.designed_length_meters is not None:
+            cable.designed_length_meters = override.designed_length_meters
+        length_used = override.length_used_meters if override.length_used_meters is not None else override.length_meters
+        if length_used is not None:
+            cable.length_used_meters = length_used
         if override.note:
             cable.note = override.note
 

@@ -41,7 +41,8 @@ Cable rows include:
 - `uid`
 - imported `status`
 - manual `progress`
-- `length_meters`
+- `designed_length_meters`
+- `length_used_meters`
 - `note`
 - cable type/group
 - A/Z port IDs

@@ -26,7 +26,17 @@
         "a_side_terminated": "complete",
         "z_side_terminated": "blocked"
       },
-      "length_meters": 42.5,
+      "current_phase": {
+        "name": "termination",
+        "phase_type": "parallel_percent",
+        "tasks": {
+          "a_side_terminated": 100,
+          "z_side_terminated": 50
+        },
+        "enum_values": []
+      },
+      "designed_length_meters": 45,
+      "length_used_meters": 42.5,
       "note": "Z side waiting for patch panel access."
     }
   }

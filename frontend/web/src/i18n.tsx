@@ -13,6 +13,8 @@ type I18nContextValue = {
   formatCableStatus: (status: string) => string;
   formatCableProgressStep: (step: string) => string;
   formatCableProgressState: (state: string) => string;
+  formatCableProgressPhaseName: (phase: string) => string;
+  formatCableProgressPhaseType: (phaseType: string) => string;
   formatValidationClassification: (classification: string) => string;
 };
 
@@ -29,6 +31,10 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
     "settings.language": "Language",
     "settings.english": "English",
     "settings.chineseSimplified": "Chinese Simplified",
+    "auth.loading": "Role...",
+    "auth.role.manager": "Manager",
+    "auth.role.editor": "Editor",
+    "auth.role.viewer": "Viewer",
     "dataHall.selector": "Data hall",
     "dataHall.fallback": "Data Hall",
     "dataHall.summary": "Data Hall Summary",
@@ -90,6 +96,21 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
     "cable.column.zPort": "Z Port",
     "cable.column.aOptic": "A Optic",
     "cable.column.zOptic": "Z Optic",
+    "cable.column.uid": "Cable ID",
+    "cable.column.lengthMeters": "Length (m)",
+    "cable.column.progress": "Progress",
+    "cable.column.note": "Note",
+    "cable.filterAll": "All",
+    "cable.filterNone": "None",
+    "cable.filterHiddenOn": "{{count}} hidden selected",
+    "cable.filterHiddenOff": "{{count}} hidden excluded",
+    "cable.phaseType.single_percent": "Single Task",
+    "cable.phaseType.parallel_percent": "Parallel Tasks",
+    "cable.phaseType.enum_state": "Enum State",
+    "cable.phaseName.routing_dress": "Routing Dress",
+    "cable.phaseName.termination": "Termination",
+    "cable.phaseName.cabinet_dress": "Cabinet Dress",
+    "cable.phaseName.final_result": "Final Result",
     "validation.qa": "QA",
     "validation.results": "Validation Results",
     "validation.portCollisions": "Port Collisions",
@@ -146,6 +167,10 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
     "settings.language": "语言",
     "settings.english": "英语",
     "settings.chineseSimplified": "简体中文",
+    "auth.loading": "权限...",
+    "auth.role.manager": "管理员",
+    "auth.role.editor": "编辑者",
+    "auth.role.viewer": "查看者",
     "dataHall.selector": "数据厅",
     "dataHall.fallback": "数据厅",
     "dataHall.summary": "数据厅概览",
@@ -207,6 +232,21 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
     "cable.column.zPort": "Z 端端口",
     "cable.column.aOptic": "A 端光模块",
     "cable.column.zOptic": "Z 端光模块",
+    "cable.column.uid": "线缆 ID",
+    "cable.column.lengthMeters": "长度 (m)",
+    "cable.column.progress": "进度",
+    "cable.column.note": "备注",
+    "cable.filterAll": "全选",
+    "cable.filterNone": "全不选",
+    "cable.filterHiddenOn": "{{count}} 个隐藏值已选中",
+    "cable.filterHiddenOff": "{{count}} 个隐藏值已排除",
+    "cable.phaseType.single_percent": "单任务",
+    "cable.phaseType.parallel_percent": "并行任务",
+    "cable.phaseType.enum_state": "枚举状态",
+    "cable.phaseName.routing_dress": "路径理线",
+    "cable.phaseName.termination": "端接",
+    "cable.phaseName.cabinet_dress": "柜内理线",
+    "cable.phaseName.final_result": "最终结果",
     "validation.qa": "QA",
     "validation.results": "校验结果",
     "validation.portCollisions": "端口冲突",
@@ -293,6 +333,8 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
       formatCableStatus: (status: string) => t(`cableStatus.${status || "Unknown"}`),
       formatCableProgressStep: (step: string) => t(`cableProgressStep.${step}`),
       formatCableProgressState: (state: string) => t(`cableProgressState.${state}`),
+      formatCableProgressPhaseName: (phase: string) => t(`cable.phaseName.${phase}`),
+      formatCableProgressPhaseType: (phaseType: string) => t(`cable.phaseType.${phaseType}`),
       formatValidationClassification: (classification: string) =>
         t(`validation.classification.${classification}`),
     };

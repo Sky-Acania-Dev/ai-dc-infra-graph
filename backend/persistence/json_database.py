@@ -91,7 +91,7 @@ def database_from_json_payload(payload: dict[str, Any]) -> TopologyDatabase:
         if device_model_format_issues_payload is None:
             device_model_format_issues_payload = [_model_to_payload(finding) for finding in detected_format_issues]
 
-    cables = [_model_from_payload(Cable, cable) for cable in cables_payload]
+    cables = [_model_from_payload(Cable, _normalize_cable_payload(cable)) for cable in cables_payload]
     _backfill_cable_uids(cables)
 
     return TopologyDatabase(
@@ -153,6 +153,15 @@ def _normalize_device_model_finding_payload(payload: dict[str, Any]) -> dict[str
             normalized_payload[key] = [
                 {"value": model_value, "count": count} for model_value, count in sorted(value.items())
             ]
+    return normalized_payload
+
+
+def _normalize_cable_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized_payload = dict(payload)
+    if "length_used_meters" not in normalized_payload:
+        normalized_payload["length_used_meters"] = normalized_payload.get("length_meters") or 0
+    if "designed_length_meters" not in normalized_payload:
+        normalized_payload["designed_length_meters"] = None
     return normalized_payload
 
 

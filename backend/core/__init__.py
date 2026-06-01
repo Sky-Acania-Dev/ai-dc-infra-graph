@@ -8,12 +8,19 @@ from backend.core.config import (
     AppConfig,
     default_config,
 )
-from backend.core.enums import CableProgressState, CableProgressStep, ConnectorType, LifecycleStatus
+from backend.core.enums import (
+    CableProgressPhaseType,
+    CableProgressState,
+    CableProgressStep,
+    ConnectorType,
+    LifecycleStatus,
+)
 
 __all__ = [
     "AppConfig",
     "CableProgressState",
     "CableProgressStep",
+    "CableProgressPhaseType",
     "ConnectorType",
     "DEFAULT_BUILDING_ID",
     "DEFAULT_MAX_RACK_UNIT",

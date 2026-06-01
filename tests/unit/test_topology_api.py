@@ -1,13 +1,20 @@
 import unittest
 
+from backend.api.auth import AuthUser, UserRole
 from backend.api.topology import (
     cabinet_connection_cables,
     cabinet_detail,
     cabinet_layout,
     device_connection_cables,
     device_connections,
+    update_cabinet_status,
+    update_cable,
+    update_device_status,
+    UpdateCableRequest,
+    UpdateLifecycleStatusRequest,
     validation_report,
 )
+from backend.core.enums import CableProgressState, CableProgressStep, LifecycleStatus
 from backend.ingest.cutsheet import ingest_cutsheet_rows
 from backend.ingest.overhead import CabinetInventoryRecord, OverheadIngestionResult, OverheadIngestionSummary
 from backend.persistence import save_topology_database
@@ -84,7 +91,7 @@ class TopologyApiTests(unittest.TestCase):
         self.assertEqual(detail.connections[0].status_summary.status_counts["Cable Is Ran: Not Terminated"], 1)
         self.assertEqual(len(cable_detail.cables), 2)
         self.assertEqual(cable_detail.cables[0].uid, "CBL-000001")
-        self.assertIsNone(cable_detail.cables[0].length_meters)
+        self.assertEqual(cable_detail.cables[0].length_used_meters, 0)
         self.assertEqual(cable_detail.cables[0].a_port_uid, "DH1:001:10:swp1")
 
         device_detail = device_connections("DH1:001", 10, database_path=str(runtime_path))
@@ -154,6 +161,86 @@ class TopologyApiTests(unittest.TestCase):
         self.assertEqual(device_detail.connected_cabinet_uids, ["DH1:001"])
         self.assertEqual(len(device_cable_detail.cables), 1)
         self.assertEqual(device_cable_detail.cables[0].z_port_uid, "DH1:001:20:swp2")
+
+    def test_editor_can_persist_status_and_cable_updates(self) -> None:
+        _, runtime_path = _test_paths()
+        database = build_topology_database_from_results(
+            cutsheet_result=ingest_cutsheet_rows(
+                [
+                    {
+                        "STATUS": "Cable Not Run",
+                        "A-LOC:CAB:RU": "dh1:001:10",
+                        "A-PORT": "swp1",
+                        "A_MODEL": "Switch",
+                        "Z-LOC:CAB:RU": "dh1:002:20",
+                        "Z-PORT": "swp2",
+                        "Z_MODEL": "Patch Panel",
+                        "CABLE": "LC",
+                    },
+                ]
+            ),
+            overhead_result=OverheadIngestionResult(
+                summary=OverheadIngestionSummary(cabinets=2, data_halls=1, unknown_category_cabinets=0),
+                cabinets=[
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:001",
+                        data_hall_id="DH1",
+                        cabinet_id="001",
+                        category="DPR-H1",
+                        cabinet_group="Fabric Core",
+                        source_row=7,
+                        source_col=5,
+                    ),
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:002",
+                        data_hall_id="DH1",
+                        cabinet_id="002",
+                        category="HD-GB3c",
+                        cabinet_group="GPU",
+                        source_row=7,
+                        source_col=6,
+                    ),
+                ],
+            ),
+        )
+        save_topology_database(database, runtime_path)
+        editor = AuthUser(uid="editor", display_name="Editor", role=UserRole.EDITOR)
+
+        cabinet = update_cabinet_status(
+            "DH1:001",
+            UpdateLifecycleStatusRequest(lifecycle_status=LifecycleStatus.POWERED),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+        device = update_device_status(
+            "DH1:001:10",
+            UpdateLifecycleStatusRequest(lifecycle_status=LifecycleStatus.INSTALLED),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+        cable = update_cable(
+            "CBL-000001",
+            UpdateCableRequest(
+                status="Cable Is Ran: Not Terminated",
+                progress={CableProgressStep.PULLED: CableProgressState.COMPLETE},
+                current_phase={
+                    "name": "termination",
+                    "phase_type": "parallel_percent",
+                    "tasks": {"a_side_terminated": 100, "z_side_terminated": 25},
+                },
+                length_used_meters=12.5,
+            ),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+
+        self.assertEqual(cabinet.lifecycle_status, LifecycleStatus.POWERED.value)
+        self.assertEqual(device.lifecycle_status, LifecycleStatus.INSTALLED)
+        self.assertEqual(cable.status, "Cable Is Ran: Not Terminated")
+        self.assertEqual(cable.progress["pulled"], "complete")
+        self.assertEqual(cable.current_phase.name, "termination")
+        self.assertEqual(cable.current_phase.tasks["z_side_terminated"], 25)
+        self.assertEqual(cable.length_used_meters, 12.5)
 
 
 if __name__ == "__main__":

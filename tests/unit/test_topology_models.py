@@ -41,7 +41,8 @@ class TopologyModelTests(unittest.TestCase):
             z_side=port_z,
             cable_type="OS2 fiber",
             progress={CableProgressStep.PURCHASED: CableProgressState.COMPLETE},
-            length_meters=31.5,
+            designed_length_meters=35,
+            length_used_meters=31.5,
             note="Spare length coiled above cabinet.",
         )
 
@@ -52,7 +53,8 @@ class TopologyModelTests(unittest.TestCase):
         self.assertEqual(cable.a_side.uid, "CAB-A01:LEAF-01:Eth1/1")
         self.assertEqual(cable.z_side.uid, "CAB-B01:SPINE-01:Eth1/17")
         self.assertEqual(cable.progress[CableProgressStep.PURCHASED], CableProgressState.COMPLETE)
-        self.assertEqual(cable.length_meters, 31.5)
+        self.assertEqual(cable.designed_length_meters, 35)
+        self.assertEqual(cable.length_used_meters, 31.5)
         self.assertEqual(cable.note, "Spare length coiled above cabinet.")
         self.assertEqual(device.lifecycle_status, LifecycleStatus.NOT_INSTALLED)
         self.assertEqual(cabinet.lifecycle_status, LifecycleStatus.NOT_INSTALLED)

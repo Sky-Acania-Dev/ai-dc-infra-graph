@@ -3,8 +3,10 @@ import {
   fetchCabinetConnectionCables,
   fetchCabinetDetail,
   fetchCabinetLayout,
+  fetchCurrentUser,
   fetchDeviceConnectionCables,
   fetchDeviceConnections,
+  fetchTopologyEnums,
 } from "./api";
 import { CableDetailOverlay } from "./components/CableDetailOverlay";
 import { CabinetConnectionsPanel } from "./components/CabinetConnectionsPanel";
@@ -16,8 +18,10 @@ import type {
   CableDetailResponse,
   CabinetDetailResponse,
   CabinetLayoutItem,
+  AuthUser,
   Device,
   DeviceConnectionResponse,
+  TopologyEnums,
 } from "./types";
 import { useI18n, type Locale } from "./i18n";
 
@@ -37,6 +41,18 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [mapSize, setMapSize] = useState<MapSize>("normal");
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [topologyEnums, setTopologyEnums] = useState<TopologyEnums | null>(null);
+  const canEdit = currentUser?.role === "manager" || currentUser?.role === "editor";
+
+  useEffect(() => {
+    fetchCurrentUser()
+      .then(setCurrentUser)
+      .catch((requestError: Error) => setError(requestError.message));
+    fetchTopologyEnums()
+      .then(setTopologyEnums)
+      .catch((requestError: Error) => setError(requestError.message));
+  }, []);
 
   useEffect(() => {
     setIsLoading(true);
@@ -149,6 +165,7 @@ export function App() {
               <option value="zh-CN">{t("settings.chineseSimplified")}</option>
             </select>
           </label>
+          <div className="role-pill">{currentUser ? t(`auth.role.${currentUser.role}`) : t("auth.loading")}</div>
           {mode === "topology" ? (
             <div className="segmented-control" role="tablist" aria-label={t("dataHall.selector")}>
               {DATA_HALLS.map((hall) => (
@@ -179,6 +196,18 @@ export function App() {
             connectedDeviceUids={connectedDeviceUids}
             onSelectDevice={selectDevice}
             onClearDeviceSelection={clearDeviceSelection}
+            canEdit={canEdit}
+            lifecycleStatuses={topologyEnums?.lifecycle_statuses ?? []}
+            onStatusChanged={() => {
+              if (selectedCabinetUid) {
+                fetchCabinetDetail(selectedCabinetUid)
+                  .then(setDetail)
+                  .catch((requestError: Error) => setError(requestError.message));
+              }
+              fetchCabinetLayout(dataHall)
+                .then(setCabinets)
+                .catch((requestError: Error) => setError(requestError.message));
+            }}
           />
           {isLoading ? (
             <section className="map-pane loading-pane">{t("common.loading", { target: dataHall })}</section>
@@ -199,7 +228,21 @@ export function App() {
                 onClearSelection={clearSelection}
                 onMapSizeChange={setMapSize}
               />
-              <CableDetailOverlay cableDetail={cableDetail} onClose={() => setCableDetail(null)} />
+              <CableDetailOverlay
+                cableDetail={cableDetail}
+                canEdit={canEdit}
+                topologyEnums={topologyEnums}
+                onClose={() => setCableDetail(null)}
+                onCableUpdated={(updatedCable) => {
+                  setCableDetail((current) => {
+                    if (!current) return current;
+                    return {
+                      ...current,
+                      cables: current.cables.map((cable) => (cable.uid === updatedCable.uid ? updatedCable : cable)),
+                    };
+                  });
+                }}
+              />
             </div>
           )}
           <CabinetConnectionsPanel

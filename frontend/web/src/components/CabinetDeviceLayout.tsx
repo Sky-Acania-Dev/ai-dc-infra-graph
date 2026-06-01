@@ -8,6 +8,9 @@ type CabinetDeviceLayoutProps = {
   selectedDeviceUid: string | null;
   connectedDeviceUids: Set<string>;
   onSelectDevice: (device: Device) => void;
+  canEdit: boolean;
+  lifecycleStatuses: string[];
+  onDeviceStatusChange: (device: Device, lifecycleStatus: string) => void;
 };
 
 export function CabinetDeviceLayout({
@@ -16,6 +19,9 @@ export function CabinetDeviceLayout({
   selectedDeviceUid,
   connectedDeviceUids,
   onSelectDevice,
+  canEdit,
+  lifecycleStatuses,
+  onDeviceStatusChange,
 }: CabinetDeviceLayoutProps) {
   const { formatLifecycleStatus, formatNumber, t } = useI18n();
   const rackGridRef = useRef<HTMLDivElement | null>(null);
@@ -45,27 +51,44 @@ export function CabinetDeviceLayout({
                 {unitDevices.map((device, index) => {
                   const deviceUid = deviceKey(device);
                   return (
-                  <button
-                    className={`device-chip ${selectedDeviceUid === deviceUid ? "is-selected" : ""} ${connectedDeviceUids.has(deviceUid) ? "is-connected" : ""}`}
-                    data-device-uid={deviceUid}
-                    key={`${device.rack_unit}-${device.device_model}-${index}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onSelectDevice(device);
-                    }}
-                    title={`${formatLifecycleStatus(device.lifecycle_status)}${device.note ? `\n${device.note}` : ""}`}
-                  >
-                    <span>{device.device_model}</span>
-                    {device.aliases.length || device.model_aliases.length ? (
-                      <em>{[...device.aliases, ...device.model_aliases].join(", ")}</em>
-                    ) : null}
-                    <small>
-                      {t("device.statusAndPorts", {
-                        count: formatNumber(portCount(device)),
-                        status: formatLifecycleStatus(device.lifecycle_status),
-                      })}
-                    </small>
-                  </button>
+                    <div
+                      className={`device-chip ${selectedDeviceUid === deviceUid ? "is-selected" : ""} ${connectedDeviceUids.has(deviceUid) ? "is-connected" : ""}`}
+                      data-device-uid={deviceUid}
+                      key={`${device.rack_unit}-${device.device_model}-${index}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelectDevice(device);
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      title={`${formatLifecycleStatus(device.lifecycle_status)}${device.note ? `\n${device.note}` : ""}`}
+                    >
+                      <span>{device.device_model}</span>
+                      {device.aliases.length || device.model_aliases.length ? (
+                        <em>{[...device.aliases, ...device.model_aliases].join(", ")}</em>
+                      ) : null}
+                      {canEdit ? (
+                        <select
+                          className="inline-select device-status-select"
+                          value={device.lifecycle_status}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => onDeviceStatusChange(device, event.target.value)}
+                        >
+                          {lifecycleStatuses.map((status) => (
+                            <option key={status} value={status}>
+                              {formatLifecycleStatus(status)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <small>
+                          {t("device.statusAndPorts", {
+                            count: formatNumber(portCount(device)),
+                            status: formatLifecycleStatus(device.lifecycle_status),
+                          })}
+                        </small>
+                      )}
+                    </div>
                 );
                 })}
               </div>

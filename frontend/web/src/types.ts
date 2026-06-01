@@ -1,4 +1,31 @@
 export type ConnectorType = "CAT6" | "LC" | "SC" | "MPO" | "power" | "other";
+export type UserRole = "manager" | "editor" | "viewer";
+
+export type AuthUser = {
+  uid: string;
+  display_name: string;
+  role: UserRole;
+  is_dev_default: boolean;
+};
+
+export type TopologyEnums = {
+  lifecycle_statuses: string[];
+  cable_import_statuses: string[];
+  cable_progress_steps: string[];
+  cable_progress_states: string[];
+  cable_progress_phase_types: CableProgressPhaseType[];
+  cable_progress_phase_names: string[];
+};
+
+export type CableProgressPhaseType = "single_percent" | "parallel_percent" | "enum_state";
+
+export type CableProgressPhase = {
+  name: string;
+  phase_type: CableProgressPhaseType;
+  value: number | string | null;
+  tasks: Record<string, number>;
+  enum_values: string[];
+};
 
 export type PortConnector = {
   uid: string;
@@ -66,6 +93,9 @@ export type CabinetCableDetail = {
   status: string;
   cable_type: string;
   progress: Record<string, string>;
+  current_phase: CableProgressPhase | null;
+  designed_length_meters: number | null;
+  length_used_meters: number;
   length_meters: number | null;
   note: string;
   a_port_uid: string;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CabinetDetailResponse, CabinetLayoutItem, Device } from "../types";
 import { CabinetDeviceLayout } from "./CabinetDeviceLayout";
 import { useI18n } from "../i18n";
+import { updateCabinetStatus, updateDeviceStatus } from "../api";
 
 type CabinetDetailsPanelProps = {
   detail: CabinetDetailResponse | null;
@@ -11,6 +12,9 @@ type CabinetDetailsPanelProps = {
   connectedDeviceUids: Set<string>;
   onSelectDevice: (device: Device) => void;
   onClearDeviceSelection: () => void;
+  canEdit: boolean;
+  lifecycleStatuses: string[];
+  onStatusChanged: () => void;
 };
 
 export function CabinetDetailsPanel({
@@ -21,6 +25,9 @@ export function CabinetDetailsPanel({
   connectedDeviceUids,
   onSelectDevice,
   onClearDeviceSelection,
+  canEdit,
+  lifecycleStatuses,
+  onStatusChanged,
 }: CabinetDetailsPanelProps) {
   const { formatLifecycleStatus, formatNumber, t } = useI18n();
   const categorySummaryRef = useRef<HTMLElement | null>(null);
@@ -86,7 +93,26 @@ export function CabinetDetailsPanel({
         </div>
         <div>
           <dt>{t("cabinet.status")}</dt>
-          <dd>{formatLifecycleStatus(detail.cabinet.lifecycle_status)}</dd>
+          <dd>
+            {canEdit ? (
+              <select
+                className="inline-select"
+                value={detail.cabinet.lifecycle_status}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => {
+                  updateCabinetStatus(detail.cabinet.cabinet_uid, event.target.value).then(onStatusChanged);
+                }}
+              >
+                {lifecycleStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {formatLifecycleStatus(status)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              formatLifecycleStatus(detail.cabinet.lifecycle_status)
+            )}
+          </dd>
         </div>
         <div>
           <dt>{t("cabinet.rackUnits")}</dt>
@@ -111,6 +137,11 @@ export function CabinetDetailsPanel({
         selectedDeviceUid={selectedDeviceUid}
         connectedDeviceUids={connectedDeviceUids}
         onSelectDevice={onSelectDevice}
+        canEdit={canEdit}
+        lifecycleStatuses={lifecycleStatuses}
+        onDeviceStatusChange={(device, lifecycleStatus) => {
+          updateDeviceStatus(`${device.cabinet_id}:${device.rack_unit}`, lifecycleStatus).then(onStatusChanged);
+        }}
       />
     </aside>
   );

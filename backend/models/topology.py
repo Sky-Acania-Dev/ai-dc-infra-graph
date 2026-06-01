@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from backend.core.enums import CableProgressState, CableProgressStep, ConnectorType, LifecycleStatus
+from backend.core.enums import (
+    CableProgressPhaseType,
+    CableProgressState,
+    CableProgressStep,
+    ConnectorType,
+    LifecycleStatus,
+)
 
 
 class Project(BaseModel):
@@ -59,6 +65,14 @@ class Building(BaseModel):
     rooms: list[Room] = Field(default_factory=list)
 
 
+class CableProgressPhase(BaseModel):
+    name: str = ""
+    phase_type: CableProgressPhaseType = CableProgressPhaseType.SINGLE_PERCENT
+    value: float | str | None = None
+    tasks: dict[str, float] = Field(default_factory=dict)
+    enum_values: list[str] = Field(default_factory=list)
+
+
 class Cable(BaseModel):
     uid: str = ""
     a_side: PortConnector
@@ -67,7 +81,9 @@ class Cable(BaseModel):
     group: str = ""
     status: str = ""
     progress: dict[CableProgressStep, CableProgressState] = Field(default_factory=dict)
-    length_meters: float | None = None
+    current_phase: CableProgressPhase | None = None
+    designed_length_meters: float | None = None
+    length_used_meters: float = 0
     a_optic: OpticModule | None = None
     z_optic: OpticModule | None = None
     note: str = ""
