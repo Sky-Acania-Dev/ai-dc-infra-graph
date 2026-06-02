@@ -7,6 +7,7 @@ from backend.api.topology import (
     cabinet_layout,
     device_connection_cables,
     device_connections,
+    topology_enums,
     update_cabinet_status,
     update_cable,
     update_device_status,
@@ -224,9 +225,12 @@ class TopologyApiTests(unittest.TestCase):
                 status="Cable Is Ran: Not Terminated",
                 progress={CableProgressStep.PULLED: CableProgressState.COMPLETE},
                 current_phase={
-                    "name": "termination",
-                    "phase_type": "parallel_percent",
-                    "tasks": {"a_side_terminated": 100, "z_side_terminated": 25},
+                    "name": "dress_termination",
+                    "task_values": {
+                        "routing_dress": {"task_type": "percent", "value": 40},
+                        "a_side": {"task_type": "enum", "value": "terminated"},
+                        "z_side": {"task_type": "enum", "value": "dressed"},
+                    },
                 },
                 length_used_meters=12.5,
             ),
@@ -238,9 +242,18 @@ class TopologyApiTests(unittest.TestCase):
         self.assertEqual(device.lifecycle_status, LifecycleStatus.INSTALLED)
         self.assertEqual(cable.status, "Cable Is Ran: Not Terminated")
         self.assertEqual(cable.progress["pulled"], "complete")
-        self.assertEqual(cable.current_phase.name, "termination")
-        self.assertEqual(cable.current_phase.tasks["z_side_terminated"], 25)
+        self.assertEqual(cable.current_phase.name, "dress_termination")
+        self.assertEqual(cable.current_phase.phase_type.value, "parallel_percent")
+        self.assertEqual(cable.current_phase.task_values["routing_dress"].value, 40)
+        self.assertEqual(cable.current_phase.task_values["a_side"].value, "terminated")
+        self.assertEqual(cable.current_phase.task_values["z_side"].value, "dressed")
         self.assertEqual(cable.length_used_meters, 12.5)
+
+        enums = topology_enums(database_path=str(runtime_path))
+        termination = next(phase for phase in enums.cable_progress_phases if phase.name == "dress_termination")
+        self.assertEqual([task.name for task in termination.tasks], ["routing_dress", "a_side", "z_side"])
+        self.assertEqual(termination.tasks[0].task_type, "percent")
+        self.assertEqual(termination.tasks[1].enum_values, ["not_terminated", "terminated", "dressed"])
 
 
 if __name__ == "__main__":

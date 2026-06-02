@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCabinetConnectionCables,
   fetchCabinetDetail,
   fetchCabinetLayout,
   fetchCurrentUser,
+  fetchDataHallCableSummary,
+  fetchDataHallCables,
   fetchDeviceConnectionCables,
   fetchDeviceConnections,
   fetchTopologyEnums,
@@ -13,12 +15,14 @@ import { CabinetConnectionsPanel } from "./components/CabinetConnectionsPanel";
 import { CabinetDetailsPanel } from "./components/CabinetDetailsPanel";
 import { CabinetMap } from "./components/CabinetMap";
 import { ValidationView } from "./components/ValidationView";
-import type { MapSize } from "./components/CabinetMap";
+import type { MapProgressDisplay, MapSize } from "./components/CabinetMap";
 import type {
   CableDetailResponse,
   CabinetDetailResponse,
   CabinetLayoutItem,
   AuthUser,
+  DataHallCableBucket,
+  DataHallCableSummaryResponse,
   Device,
   DeviceConnectionResponse,
   TopologyEnums,
@@ -41,8 +45,12 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [mapSize, setMapSize] = useState<MapSize>("normal");
+  const [mapProgressDisplay, setMapProgressDisplay] = useState<MapProgressDisplay>("text");
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [topologyEnums, setTopologyEnums] = useState<TopologyEnums | null>(null);
+  const [dataHallCableSummary, setDataHallCableSummary] = useState<DataHallCableSummaryResponse | null>(null);
+  const cabinetLayoutCacheRef = useRef<Record<string, CabinetLayoutItem[]>>({});
+  const dataHallCableSummaryCacheRef = useRef<Record<string, DataHallCableSummaryResponse>>({});
   const canEdit = currentUser?.role === "manager" || currentUser?.role === "editor";
 
   useEffect(() => {
@@ -55,12 +63,54 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const cachedLayout = cabinetLayoutCacheRef.current[dataHall];
+    if (cachedLayout) {
+      setCabinets(cachedLayout);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
+    let cancelled = false;
     setIsLoading(true);
     setError(null);
     fetchCabinetLayout(dataHall)
-      .then(setCabinets)
-      .catch((requestError: Error) => setError(requestError.message))
-      .finally(() => setIsLoading(false));
+      .then((layout) => {
+        if (cancelled) return;
+        cabinetLayoutCacheRef.current[dataHall] = layout;
+        setCabinets(layout);
+      })
+      .catch((requestError: Error) => {
+        if (!cancelled) setError(requestError.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataHall]);
+
+  useEffect(() => {
+    const cachedSummary = dataHallCableSummaryCacheRef.current[dataHall];
+    if (cachedSummary) {
+      setDataHallCableSummary(cachedSummary);
+      return;
+    }
+
+    let cancelled = false;
+    fetchDataHallCableSummary(dataHall)
+      .then((summary) => {
+        if (cancelled) return;
+        dataHallCableSummaryCacheRef.current[dataHall] = summary;
+        setDataHallCableSummary(summary);
+      })
+      .catch((requestError: Error) => {
+        if (!cancelled) setError(requestError.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [dataHall]);
 
   useEffect(() => {
@@ -112,6 +162,13 @@ export function App() {
       .catch((requestError: Error) => setError(requestError.message));
   }
 
+  function viewDataHallCables(bucket: DataHallCableBucket, cableType: string) {
+    setError(null);
+    fetchDataHallCables(dataHall, bucket.scope, cableType, bucket.target_data_hall)
+      .then(setCableDetail)
+      .catch((requestError: Error) => setError(requestError.message));
+  }
+
   function selectDevice(device: Device) {
     const deviceUid = `${device.cabinet_id}:${device.rack_unit}`;
     setSelectedDeviceUid(deviceUid);
@@ -140,6 +197,22 @@ export function App() {
     const parsed = parseDeviceUid(portUid);
     if (!parsed) return;
     jumpToDevice(parsed.deviceUid);
+  }
+
+  function refreshTopologyContext() {
+    cabinetLayoutCacheRef.current = {};
+    dataHallCableSummaryCacheRef.current = {};
+    if (selectedCabinetUid) {
+      fetchCabinetDetail(selectedCabinetUid)
+        .then(setDetail)
+        .catch((requestError: Error) => setError(requestError.message));
+    }
+    fetchCabinetLayout(dataHall)
+      .then((layout) => {
+        cabinetLayoutCacheRef.current[dataHall] = layout;
+        setCabinets(layout);
+      })
+      .catch((requestError: Error) => setError(requestError.message));
   }
 
   return (
@@ -199,13 +272,17 @@ export function App() {
             canEdit={canEdit}
             lifecycleStatuses={topologyEnums?.lifecycle_statuses ?? []}
             onStatusChanged={() => {
+              dataHallCableSummaryCacheRef.current = {};
               if (selectedCabinetUid) {
                 fetchCabinetDetail(selectedCabinetUid)
                   .then(setDetail)
                   .catch((requestError: Error) => setError(requestError.message));
               }
               fetchCabinetLayout(dataHall)
-                .then(setCabinets)
+                .then((layout) => {
+                  cabinetLayoutCacheRef.current[dataHall] = layout;
+                  setCabinets(layout);
+                })
                 .catch((requestError: Error) => setError(requestError.message));
             }}
           />
@@ -220,6 +297,7 @@ export function App() {
                 connectedCabinetUids={connectedCabinetUids}
                 isDeviceMode={Boolean(selectedDeviceUid)}
                 mapSize={mapSize}
+                progressDisplay={mapProgressDisplay}
                 onSelectCabinet={(cabinetUid) => {
                   setSelectedCabinetUid(cabinetUid);
                   setCableDetail(null);
@@ -227,6 +305,7 @@ export function App() {
                 }}
                 onClearSelection={clearSelection}
                 onMapSizeChange={setMapSize}
+                onProgressDisplayChange={setMapProgressDisplay}
               />
               <CableDetailOverlay
                 cableDetail={cableDetail}
@@ -241,6 +320,7 @@ export function App() {
                       cables: current.cables.map((cable) => (cable.uid === updatedCable.uid ? updatedCable : cable)),
                     };
                   });
+                  refreshTopologyContext();
                 }}
               />
             </div>
@@ -248,8 +328,10 @@ export function App() {
           <CabinetConnectionsPanel
             detail={detail}
             deviceDetail={deviceDetail}
+            dataHallCableSummary={dataHallCableSummary}
             onViewCables={viewConnectionCables}
             onViewDeviceCables={viewDeviceConnectionCables}
+            onViewDataHallCables={viewDataHallCables}
           />
         </div>
       )}

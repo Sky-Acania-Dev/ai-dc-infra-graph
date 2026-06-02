@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from backend.core.enums import (
     CableProgressPhaseType,
+    CableProgressTaskType,
     CableProgressState,
     CableProgressStep,
     ConnectorType,
@@ -70,6 +71,13 @@ class CableProgressPhase(BaseModel):
     phase_type: CableProgressPhaseType = CableProgressPhaseType.SINGLE_PERCENT
     value: float | str | None = None
     tasks: dict[str, float] = Field(default_factory=dict)
+    enum_values: list[str] = Field(default_factory=list)
+    task_values: dict[str, "CableProgressTask"] = Field(default_factory=dict)
+
+
+class CableProgressTask(BaseModel):
+    task_type: CableProgressTaskType = CableProgressTaskType.PERCENT
+    value: float | str | None = None
     enum_values: list[str] = Field(default_factory=list)
 
 

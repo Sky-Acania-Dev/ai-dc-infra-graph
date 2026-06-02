@@ -15,15 +15,36 @@ export type TopologyEnums = {
   cable_progress_states: string[];
   cable_progress_phase_types: CableProgressPhaseType[];
   cable_progress_phase_names: string[];
+  cable_progress_phases: CableProgressPhaseDefinition[];
 };
 
 export type CableProgressPhaseType = "single_percent" | "parallel_percent" | "enum_state";
+export type CableProgressTaskType = "percent" | "enum";
 
 export type CableProgressPhase = {
   name: string;
   phase_type: CableProgressPhaseType;
   value: number | string | null;
   tasks: Record<string, number>;
+  enum_values: string[];
+  task_values: Record<string, CableProgressTask>;
+};
+
+export type CableProgressPhaseDefinition = {
+  name: string;
+  tasks: CableProgressTaskDefinition[];
+};
+
+export type CableProgressTaskDefinition = {
+  name: string;
+  task_type: CableProgressTaskType;
+  enum_values: string[];
+  default_value: number | string | null;
+};
+
+export type CableProgressTask = {
+  task_type: CableProgressTaskType;
+  value: number | string | null;
   enum_values: string[];
 };
 
@@ -52,6 +73,8 @@ export type CabinetLayoutItem = {
   cabinet_group: string;
   lifecycle_status: string;
   max_rack_unit: number;
+  cable_termination_percent: number;
+  cable_dress_percent: number;
   source_row: number | null;
   source_col: number | null;
 };
@@ -61,6 +84,8 @@ export type CabinetStats = {
   ports: number;
   cables: number;
   connected_cabinets: number;
+  cable_termination_percent: number;
+  cable_dress_percent: number;
   cable_type_counts: Record<string, number>;
 };
 
@@ -77,6 +102,20 @@ export type CabinetConnection = {
   total_cables: number;
   cable_type_counts: Record<string, number>;
   status_summary: CableStatusSummary;
+};
+
+export type DataHallCableBucket = {
+  scope: "internal" | "external";
+  target_data_hall: string | null;
+  total_cables: number;
+  cable_type_counts: Record<string, number>;
+  status_summary: CableStatusSummary;
+};
+
+export type DataHallCableSummaryResponse = {
+  data_hall_id: string;
+  internal: DataHallCableBucket;
+  external: DataHallCableBucket[];
 };
 
 export type CabinetDetailResponse = {

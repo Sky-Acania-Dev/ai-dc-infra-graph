@@ -8,8 +8,13 @@ from pydantic import BaseModel, Field
 
 from backend.api.auth import AuthUser, current_user, require_editor
 from backend.core.enums import CableProgressPhaseType, CableProgressState, CableProgressStep, LifecycleStatus
+from backend.core.progress_config import (
+    cable_endpoint_termination_and_dress_percent,
+    cable_progress_phase_definitions,
+    normalize_cable_progress_phase,
+)
 from backend.graph import build_cabinet_graph
-from backend.models import Cabinet, Cable, CableProgressPhase, Device
+from backend.models import Cabinet, Cable, CableProgressPhase, CableProgressTask, Device
 from backend.persistence import DEFAULT_RUNTIME_DATABASE_PATH, TopologyDatabase, load_topology_database, save_topology_database
 from backend.validation.device_models import DeviceModelFinding
 from backend.validation.port_collisions import PortConnectionFinding
@@ -18,6 +23,7 @@ from backend.validation.port_collisions import PortConnectionFinding
 router = APIRouter(prefix="/topology", tags=["topology"])
 _DATABASE_CACHE: dict[tuple[str, float], TopologyDatabase] = {}
 _GRAPH_CACHE: dict[tuple[str, float], object] = {}
+_CABINET_PROGRESS_CACHE: dict[tuple[str, float], dict[str, tuple[float, float]]] = {}
 
 
 class CabinetLayoutItem(BaseModel):
@@ -28,6 +34,8 @@ class CabinetLayoutItem(BaseModel):
     cabinet_group: str
     lifecycle_status: str
     max_rack_unit: int
+    cable_termination_percent: float = 0
+    cable_dress_percent: float = 0
     source_row: int | None = None
     source_col: int | None = None
 
@@ -37,6 +45,8 @@ class CabinetStats(BaseModel):
     ports: int
     cables: int
     connected_cabinets: int
+    cable_termination_percent: float = 0
+    cable_dress_percent: float = 0
     cable_type_counts: dict[str, int] = Field(default_factory=dict)
 
 
@@ -53,6 +63,20 @@ class CabinetConnection(BaseModel):
     total_cables: int
     cable_type_counts: dict[str, int]
     status_summary: CableStatusSummary
+
+
+class DataHallCableBucket(BaseModel):
+    scope: str
+    target_data_hall: str | None = None
+    total_cables: int
+    cable_type_counts: dict[str, int]
+    status_summary: CableStatusSummary
+
+
+class DataHallCableSummaryResponse(BaseModel):
+    data_hall_id: str
+    internal: DataHallCableBucket
+    external: list[DataHallCableBucket]
 
 
 class CabinetDetailResponse(BaseModel):
@@ -136,6 +160,18 @@ class ValidationResponse(BaseModel):
     device_model_format_issues: list[DeviceModelFinding]
 
 
+class CableProgressTaskDefinitionResponse(BaseModel):
+    name: str
+    task_type: str
+    enum_values: list[str] = Field(default_factory=list)
+    default_value: float | str | None = None
+
+
+class CableProgressPhaseDefinitionResponse(BaseModel):
+    name: str
+    tasks: list[CableProgressTaskDefinitionResponse]
+
+
 class TopologyEnumResponse(BaseModel):
     lifecycle_statuses: list[str]
     cable_import_statuses: list[str]
@@ -143,16 +179,24 @@ class TopologyEnumResponse(BaseModel):
     cable_progress_states: list[str]
     cable_progress_phase_types: list[str]
     cable_progress_phase_names: list[str]
+    cable_progress_phases: list[CableProgressPhaseDefinitionResponse]
 
 
 class UpdateLifecycleStatusRequest(BaseModel):
     lifecycle_status: LifecycleStatus
 
 
+class UpdateCableProgressPhaseRequest(BaseModel):
+    name: str
+    value: float | str | None = None
+    tasks: dict[str, float] = Field(default_factory=dict)
+    task_values: dict[str, CableProgressTask] = Field(default_factory=dict)
+
+
 class UpdateCableRequest(BaseModel):
     status: str | None = None
     progress: dict[CableProgressStep, CableProgressState] | None = None
-    current_phase: CableProgressPhase | None = None
+    current_phase: UpdateCableProgressPhaseRequest | None = None
     length_used_meters: float | None = None
     length_meters: float | None = None
     note: str | None = None
@@ -168,30 +212,96 @@ def cabinet_layout(
     if data_hall:
         cabinets = [cabinet for cabinet in cabinets if cabinet.data_hall_id == data_hall.upper()]
 
-    return [_layout_item(cabinet) for cabinet in sorted(cabinets, key=_cabinet_sort_key)]
+    progress_stats = _load_cached_cabinet_progress(database_path, database)
+    return [_layout_item(cabinet, progress_stats) for cabinet in sorted(cabinets, key=_cabinet_sort_key)]
+
+
+@router.get("/data-halls/{data_hall_id}/cables/summary", response_model=DataHallCableSummaryResponse)
+def data_hall_cable_summary(
+    data_hall_id: str,
+    database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
+) -> DataHallCableSummaryResponse:
+    data_hall_id = data_hall_id.upper()
+    database = _load_cached_database(database_path)
+    internal_cables = _data_hall_internal_cables(database.cables, data_hall_id)
+    external_by_hall: dict[str, list[Cable]] = {}
+    for cable in database.cables:
+        other_data_hall = _other_data_hall_for_cable(cable, data_hall_id)
+        if other_data_hall is None:
+            continue
+        external_by_hall.setdefault(other_data_hall, []).append(cable)
+
+    return DataHallCableSummaryResponse(
+        data_hall_id=data_hall_id,
+        internal=_data_hall_cable_bucket("internal", internal_cables),
+        external=[
+            _data_hall_cable_bucket("external", cables, target_data_hall=target_data_hall)
+            for target_data_hall, cables in sorted(external_by_hall.items())
+        ],
+    )
+
+
+@router.get("/data-halls/{data_hall_id}/cables", response_model=CabinetCableDetailResponse)
+def data_hall_cables(
+    data_hall_id: str,
+    scope: str = "internal",
+    target_data_hall: str | None = None,
+    cable_type: str | None = None,
+    database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
+) -> CabinetCableDetailResponse:
+    data_hall_id = data_hall_id.upper()
+    database = _load_cached_database(database_path)
+    if scope == "internal":
+        cables = _data_hall_internal_cables(database.cables, data_hall_id)
+        target_label = data_hall_id
+    elif scope == "external":
+        normalized_target = target_data_hall.upper() if target_data_hall else None
+        cables = [
+            cable
+            for cable in database.cables
+            if (other_data_hall := _other_data_hall_for_cable(cable, data_hall_id)) is not None
+            and (normalized_target is None or other_data_hall == normalized_target)
+        ]
+        target_label = normalized_target or "EXTERNAL"
+    else:
+        raise HTTPException(status_code=422, detail="scope must be 'internal' or 'external'.")
+
+    if cable_type:
+        cables = [cable for cable in cables if cable.cable_type == cable_type]
+
+    return CabinetCableDetailResponse(
+        source_cabinet_uid=data_hall_id,
+        target_cabinet_uid=target_label,
+        cables=sorted((_cable_detail(cable) for cable in cables), key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid)),
+    )
 
 
 @router.get("/enums", response_model=TopologyEnumResponse)
 def topology_enums(database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH)) -> TopologyEnumResponse:
     database = _load_cached_database(database_path)
     imported_statuses = sorted({cable.status or "Unknown" for cable in database.cables})
+    phase_definitions = cable_progress_phase_definitions()
     return TopologyEnumResponse(
         lifecycle_statuses=[status.value for status in LifecycleStatus],
         cable_import_statuses=imported_statuses,
         cable_progress_steps=[step.value for step in CableProgressStep],
         cable_progress_states=[state.value for state in CableProgressState],
         cable_progress_phase_types=[phase_type.value for phase_type in CableProgressPhaseType],
-        cable_progress_phase_names=[
-            "purchased",
-            "received",
-            "categorized_stored",
-            "labeled",
-            "bundled_on_ground",
-            "pulled",
-            "routing_dress",
-            "termination",
-            "cabinet_dress",
-            "final_result",
+        cable_progress_phase_names=[phase.name for phase in phase_definitions],
+        cable_progress_phases=[
+            CableProgressPhaseDefinitionResponse(
+                name=phase.name,
+                tasks=[
+                    CableProgressTaskDefinitionResponse(
+                        name=task.name,
+                        task_type=task.task_type.value,
+                        enum_values=list(task.enum_values),
+                        default_value=task.default_value,
+                    )
+                    for task in phase.tasks
+                ],
+            )
+            for phase in phase_definitions
         ],
     )
 
@@ -212,7 +322,7 @@ def update_cabinet_status(
     cabinet.lifecycle_status = request.lifecycle_status
     _update_room_cabinet_status(database, cabinet_uid, request.lifecycle_status)
     _save_database_and_clear_cache(database, database_path)
-    return _layout_item(cabinet)
+    return _layout_item(cabinet, {_cabinet_uid(cabinet): _cabinet_cable_progress_stats(database.cables, cabinet_uid)})
 
 
 @router.patch("/devices/{device_uid}/status", response_model=Device)
@@ -250,7 +360,14 @@ def update_cable(
     if request.progress is not None:
         cable.progress.update(request.progress)
     if request.current_phase is not None:
-        cable.current_phase = request.current_phase
+        cable.current_phase = normalize_cable_progress_phase(
+            CableProgressPhase(
+                name=request.current_phase.name,
+                value=request.current_phase.value,
+                tasks=request.current_phase.tasks,
+                task_values=request.current_phase.task_values,
+            )
+        )
     length_used = request.length_used_meters if request.length_used_meters is not None else request.length_meters
     if length_used is not None:
         if length_used <= 0:
@@ -358,17 +475,21 @@ def cabinet_detail(
         raise HTTPException(status_code=404, detail=f"Cabinet '{cabinet_uid}' was not found.")
 
     graph = _load_cached_graph(database_path, database)
+    progress_stats = _load_cached_cabinet_progress(database_path, database)
     connections = _cabinet_connections(database, cabinet_uid, graph)
     cable_type_counts = Counter(cable.cable_type for cable in _cables_for_cabinet(database.cables, cabinet_uid))
     intra_cabinet_connection = _intra_cabinet_connection(cabinet, database.cables)
     port_count = sum(len(ports) for device in cabinet.devices for ports in device.ports_by_type.values())
+    cable_termination_percent, cable_dress_percent = progress_stats.get(cabinet_uid, (0.0, 0.0))
     return CabinetDetailResponse(
-        cabinet=_layout_item(cabinet),
+        cabinet=_layout_item(cabinet, progress_stats),
         stats=CabinetStats(
             devices=len(cabinet.devices),
             ports=port_count,
             cables=sum(cable_type_counts.values()),
             connected_cabinets=len(connections),
+            cable_termination_percent=cable_termination_percent,
+            cable_dress_percent=cable_dress_percent,
             cable_type_counts=dict(sorted(cable_type_counts.items())),
         ),
         devices=sorted(cabinet.devices, key=lambda device: (device.rack_unit, device.device_model, device.note)),
@@ -458,7 +579,7 @@ def _cable_detail(cable: Cable) -> CabinetCableDetail:
         status=cable.status,
         cable_type=cable.cable_type,
         progress=_progress_payload(cable),
-        current_phase=cable.current_phase or _phase_from_legacy_progress(cable),
+        current_phase=normalize_cable_progress_phase(cable.current_phase or _phase_from_legacy_progress(cable)),
         designed_length_meters=cable.designed_length_meters,
         length_used_meters=cable.length_used_meters,
         length_meters=cable.length_used_meters or None,
@@ -495,6 +616,7 @@ def _load_cached_database(database_path: str) -> TopologyDatabase:
     if cache_key not in _DATABASE_CACHE:
         _DATABASE_CACHE.clear()
         _GRAPH_CACHE.clear()
+        _CABINET_PROGRESS_CACHE.clear()
         _DATABASE_CACHE[cache_key] = load_topology_database(path)
     return _DATABASE_CACHE[cache_key]
 
@@ -508,10 +630,23 @@ def _load_cached_graph(database_path: str, database: TopologyDatabase):
     return _GRAPH_CACHE[cache_key]
 
 
+def _load_cached_cabinet_progress(
+    database_path: str,
+    database: TopologyDatabase,
+) -> dict[str, tuple[float, float]]:
+    path = Path(database_path)
+    cache_key = (str(path), path.stat().st_mtime)
+    if cache_key not in _CABINET_PROGRESS_CACHE:
+        _CABINET_PROGRESS_CACHE.clear()
+        _CABINET_PROGRESS_CACHE[cache_key] = _cabinet_cable_progress_stats_by_cabinet(database.cables)
+    return _CABINET_PROGRESS_CACHE[cache_key]
+
+
 def _save_database_and_clear_cache(database: TopologyDatabase, database_path: str) -> None:
     save_topology_database(database, database_path)
     _DATABASE_CACHE.clear()
     _GRAPH_CACHE.clear()
+    _CABINET_PROGRESS_CACHE.clear()
 
 
 def _update_room_cabinet_status(
@@ -629,6 +764,39 @@ def _status_summary(cables: list[Cable]) -> CableStatusSummary:
     )
 
 
+def _data_hall_cable_bucket(
+    scope: str,
+    cables: list[Cable],
+    target_data_hall: str | None = None,
+) -> DataHallCableBucket:
+    return DataHallCableBucket(
+        scope=scope,
+        target_data_hall=target_data_hall,
+        total_cables=len(cables),
+        cable_type_counts=dict(sorted(Counter(cable.cable_type for cable in cables).items())),
+        status_summary=_status_summary(cables),
+    )
+
+
+def _data_hall_internal_cables(cables: list[Cable], data_hall_id: str) -> list[Cable]:
+    return [
+        cable
+        for cable in cables
+        if _data_hall_from_port_uid(cable.a_side.uid) == data_hall_id
+        and _data_hall_from_port_uid(cable.z_side.uid) == data_hall_id
+    ]
+
+
+def _other_data_hall_for_cable(cable: Cable, data_hall_id: str) -> str | None:
+    a_data_hall = _data_hall_from_port_uid(cable.a_side.uid)
+    z_data_hall = _data_hall_from_port_uid(cable.z_side.uid)
+    if a_data_hall == data_hall_id and z_data_hall and z_data_hall != data_hall_id:
+        return z_data_hall
+    if z_data_hall == data_hall_id and a_data_hall and a_data_hall != data_hall_id:
+        return a_data_hall
+    return None
+
+
 def _progress_payload(cable: Cable) -> dict[str, str]:
     return {
         key.value if hasattr(key, "value") else str(key): value.value if hasattr(value, "value") else str(value)
@@ -694,12 +862,30 @@ def _cabinet_uid_from_device_uid(device_uid: str) -> str:
     return f"{data_hall_id}:{cabinet_id}".upper()
 
 
+def _cabinet_uid_from_port_uid(port_uid: str) -> str | None:
+    parts = port_uid.split(":", 2)
+    if len(parts) < 2:
+        return None
+    return f"{parts[0]}:{parts[1]}".upper()
+
+
+def _data_hall_from_port_uid(port_uid: str) -> str | None:
+    parts = port_uid.split(":", 1)
+    if not parts or not parts[0]:
+        return None
+    return parts[0].upper()
+
+
 def _normalize_device_uid(device_uid: str) -> str:
     data_hall_id, cabinet_id, rack_unit = device_uid.upper().split(":", 2)
     return f"{data_hall_id}:{cabinet_id}:{int(rack_unit)}"
 
 
-def _layout_item(cabinet: Cabinet) -> CabinetLayoutItem:
+def _layout_item(
+    cabinet: Cabinet,
+    progress_stats: dict[str, tuple[float, float]] | None = None,
+) -> CabinetLayoutItem:
+    cable_termination_percent, cable_dress_percent = (progress_stats or {}).get(_cabinet_uid(cabinet), (0.0, 0.0))
     return CabinetLayoutItem(
         cabinet_uid=_cabinet_uid(cabinet),
         data_hall_id=cabinet.data_hall_id,
@@ -708,9 +894,52 @@ def _layout_item(cabinet: Cabinet) -> CabinetLayoutItem:
         cabinet_group=cabinet.cabinet_group,
         lifecycle_status=cabinet.lifecycle_status.value,
         max_rack_unit=cabinet.max_rack_unit,
+        cable_termination_percent=cable_termination_percent,
+        cable_dress_percent=cable_dress_percent,
         source_row=cabinet.source_row,
         source_col=cabinet.source_col,
     )
+
+
+def _cabinet_cable_progress_stats_by_cabinet(cables: list[Cable]) -> dict[str, tuple[float, float]]:
+    totals: dict[str, list[float]] = {}
+    for cable in cables:
+        for endpoint_uid, side in ((cable.a_side.uid, "a"), (cable.z_side.uid, "z")):
+            cabinet_uid = _cabinet_uid_from_port_uid(endpoint_uid)
+            if cabinet_uid is None:
+                continue
+            termination, dress = cable_endpoint_termination_and_dress_percent(cable.current_phase, side)
+            cabinet_totals = totals.setdefault(cabinet_uid, [0.0, 0.0, 0.0])
+            cabinet_totals[0] += termination
+            cabinet_totals[1] += dress
+            cabinet_totals[2] += 1
+
+    return {
+        cabinet_uid: (round(termination_total / endpoint_count, 1), round(dress_total / endpoint_count, 1))
+        for cabinet_uid, (termination_total, dress_total, endpoint_count) in totals.items()
+        if endpoint_count > 0
+    }
+
+
+def _cabinet_cable_progress_stats(cables: list[Cable], cabinet_uid: str) -> tuple[float, float]:
+    termination_total = 0.0
+    dress_total = 0.0
+    endpoint_count = 0
+    prefix = f"{cabinet_uid}:"
+    for cable in cables:
+        if cable.a_side.uid.startswith(prefix):
+            termination, dress = cable_endpoint_termination_and_dress_percent(cable.current_phase, "a")
+            termination_total += termination
+            dress_total += dress
+            endpoint_count += 1
+        if cable.z_side.uid.startswith(prefix):
+            termination, dress = cable_endpoint_termination_and_dress_percent(cable.current_phase, "z")
+            termination_total += termination
+            dress_total += dress
+            endpoint_count += 1
+    if endpoint_count == 0:
+        return 0.0, 0.0
+    return round(termination_total / endpoint_count, 1), round(dress_total / endpoint_count, 1)
 
 
 def _cabinet_uid(cabinet: Cabinet) -> str:

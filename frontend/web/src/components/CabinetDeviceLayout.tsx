@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import { useDragPan } from "../hooks/useDragPan";
 import type { Device } from "../types";
 import { useI18n } from "../i18n";
 
@@ -24,24 +25,24 @@ export function CabinetDeviceLayout({
   onDeviceStatusChange,
 }: CabinetDeviceLayoutProps) {
   const { formatLifecycleStatus, formatNumber, t } = useI18n();
-  const rackGridRef = useRef<HTMLDivElement | null>(null);
+  const rackGridPan = useDragPan<HTMLDivElement>();
   const devicesByRu = new Map<number, Device[]>();
   for (const device of devices) {
     devicesByRu.set(device.rack_unit, [...(devicesByRu.get(device.rack_unit) ?? []), device]);
   }
 
   useEffect(() => {
-    if (!selectedDeviceUid || !rackGridRef.current) return;
-    const selectedElement = rackGridRef.current.querySelector<HTMLElement>(
+    if (!selectedDeviceUid || !rackGridPan.ref.current) return;
+    const selectedElement = rackGridPan.ref.current.querySelector<HTMLElement>(
       `[data-device-uid="${cssEscape(selectedDeviceUid)}"]`,
     );
     selectedElement?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [devices, selectedDeviceUid]);
+  }, [devices, rackGridPan.ref, selectedDeviceUid]);
 
   return (
     <section className="device-layout">
       <div className="section-title">{t("rack.units")}</div>
-      <div className="rack-grid" ref={rackGridRef}>
+      <div className="rack-grid drag-pan-surface" {...rackGridPan}>
         {Array.from({ length: maxRackUnit }, (_, index) => maxRackUnit - index).map((rackUnit) => {
           const unitDevices = devicesByRu.get(rackUnit) ?? [];
           return (

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from backend.core.progress_config import normalize_cable_progress_phase
 from backend.models import CableProgressPhase, CableProgressState, CableProgressStep, Device, LifecycleStatus
 
 
@@ -80,7 +81,7 @@ def _apply_cable_overrides(cables, overrides: StatusOverrides) -> None:
         if override.progress:
             cable.progress.update(override.progress)
         if override.current_phase is not None:
-            cable.current_phase = override.current_phase
+            cable.current_phase = normalize_cable_progress_phase(override.current_phase)
         if override.designed_length_meters is not None:
             cable.designed_length_meters = override.designed_length_meters
         length_used = override.length_used_meters if override.length_used_meters is not None else override.length_meters

@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CabinetDetailResponse, CabinetLayoutItem, Device } from "../types";
 import { CabinetDeviceLayout } from "./CabinetDeviceLayout";
+import { ProgressCircle } from "./ProgressCircle";
 import { useI18n } from "../i18n";
 import { updateCabinetStatus, updateDeviceStatus } from "../api";
+import { categoryColor } from "../colors";
+import { useDragPan } from "../hooks/useDragPan";
 
 type CabinetDetailsPanelProps = {
   detail: CabinetDetailResponse | null;
@@ -30,21 +33,21 @@ export function CabinetDetailsPanel({
   onStatusChanged,
 }: CabinetDetailsPanelProps) {
   const { formatLifecycleStatus, formatNumber, t } = useI18n();
-  const categorySummaryRef = useRef<HTMLElement | null>(null);
+  const categorySummaryPan = useDragPan<HTMLElement>();
   const [categorySummaryHasScrollbar, setCategorySummaryHasScrollbar] = useState(false);
 
   useEffect(() => {
     if (detail) return;
 
     function updateScrollbarState() {
-      const element = categorySummaryRef.current;
+      const element = categorySummaryPan.ref.current;
       setCategorySummaryHasScrollbar(Boolean(element && element.scrollHeight > element.clientHeight));
     }
 
     updateScrollbarState();
     window.addEventListener("resize", updateScrollbarState);
     return () => window.removeEventListener("resize", updateScrollbarState);
-  }, [cabinets, detail]);
+  }, [cabinets, categorySummaryPan.ref, detail]);
 
   if (!detail) {
     const categories = categoryCounts(cabinets);
@@ -63,13 +66,13 @@ export function CabinetDetailsPanel({
           </div>
         </dl>
         <section
-          className={`category-summary ${categorySummaryHasScrollbar ? "has-scrollbar" : ""}`}
-          ref={categorySummaryRef}
+          className={`category-summary drag-pan-surface ${categorySummaryHasScrollbar ? "has-scrollbar" : ""}`}
+          {...categorySummaryPan}
         >
           <div className="section-title">{t("cabinet.types")}</div>
           {categories.map(([category, count]) => (
             <div className="category-row" key={category}>
-              <span>{category}</span>
+              <span style={{ color: categoryColor(category) }}>{category}</span>
               <b>{formatNumber(count)}</b>
             </div>
           ))}
@@ -129,6 +132,20 @@ export function CabinetDetailsPanel({
         <div>
           <dt>{t("cabinet.cables")}</dt>
           <dd>{formatNumber(detail.stats.cables)}</dd>
+        </div>
+        <div>
+          <dt>{t("cabinet.termination")}</dt>
+          <dd className="progress-fact">
+            <ProgressCircle percent={detail.stats.cable_termination_percent} />
+            {formatNumber(detail.stats.cable_termination_percent)}%
+          </dd>
+        </div>
+        <div>
+          <dt>{t("cabinet.dress")}</dt>
+          <dd className="progress-fact">
+            <ProgressCircle percent={detail.stats.cable_dress_percent} />
+            {formatNumber(detail.stats.cable_dress_percent)}%
+          </dd>
         </div>
       </dl>
       <CabinetDeviceLayout

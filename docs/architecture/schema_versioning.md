@@ -31,7 +31,7 @@ Adds project-management scaffolding for cable work tracking:
 
 The loader backfills missing cable UIDs for older JSON files using deterministic row order IDs such as `CBL-000001`.
 
-`Cable.progress` is retained for early scaffold compatibility. New UI workflows should use `Cable.current_phase`, which stores phase name, phase type, percentage values or enum state, and optional enum values.
+`Cable.progress` is retained for early scaffold compatibility. New UI workflows should use `Cable.current_phase.task_values`, which stores backend-configured task names with task-level type and value. Older phase-level type payloads are normalized by the loader/API.
 
 Older `Cable.length_meters` payloads are loaded into `Cable.length_used_meters` for compatibility.
 

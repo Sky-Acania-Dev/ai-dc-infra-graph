@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { updateCable } from "../api";
-import type { CabinetCableDetail, CableDetailResponse, CableProgressPhase, CableProgressPhaseType, TopologyEnums } from "../types";
+import type { CabinetCableDetail, CableDetailResponse, CableProgressPhase, CableProgressPhaseDefinition, TopologyEnums } from "../types";
 import { useI18n } from "../i18n";
 
 type CableDetailOverlayProps = {
@@ -54,7 +54,6 @@ export function CableDetailOverlay({
 }: CableDetailOverlayProps) {
   const {
     formatCableProgressPhaseName,
-    formatCableProgressPhaseType,
     formatCableProgressStep,
     formatCableStatus,
     formatNumber,
@@ -289,7 +288,6 @@ export function CableDetailOverlay({
                       canEdit,
                       columnKey: column.key,
                       formatCableProgressPhaseName,
-                      formatCableProgressPhaseType,
                       formatCableProgressStep,
                       formatCableStatus,
                       onCableUpdated,
@@ -350,6 +348,11 @@ function progressSummary(progress: Record<string, string>): string {
 
 function phaseSummary(phase: CableProgressPhase | null): string {
   if (!phase) return "";
+  if (Object.keys(phase.task_values ?? {}).length) {
+    return `${phase.name}: ${Object.entries(phase.task_values)
+      .map(([task, detail]) => `${task} ${detail.value ?? ""}${detail.task_type === "percent" ? "%" : ""}`)
+      .join(", ")}`;
+  }
   if (phase.phase_type === "parallel_percent") {
     return `${phase.name}: ${Object.entries(phase.tasks)
       .map(([task, value]) => `${task} ${value}%`)
@@ -366,7 +369,6 @@ function renderCableCell({
   canEdit,
   columnKey,
   formatCableProgressPhaseName,
-  formatCableProgressPhaseType,
   formatCableProgressStep,
   formatCableStatus,
   onCableUpdated,
@@ -376,7 +378,6 @@ function renderCableCell({
   canEdit: boolean;
   columnKey: CableColumnKey;
   formatCableProgressPhaseName: (phase: string) => string;
-  formatCableProgressPhaseType: (phaseType: string) => string;
   formatCableProgressStep: (step: string) => string;
   formatCableStatus: (status: string) => string;
   onCableUpdated: (cable: CabinetCableDetail) => void;
@@ -385,34 +386,27 @@ function renderCableCell({
   if (columnKey === "status") {
     if (!canEdit) return formatCableStatus(cable.status);
     return (
-      <select
+      <DeferredSelect
         className="inline-select"
+        onCommit={(value) => updateCable(cable.uid, { status: value }).then(onCableUpdated)}
+        options={(topologyEnums?.cable_import_statuses ?? [cable.status]).map((status) => ({
+          label: formatCableStatus(status),
+          value: status,
+        }))}
         value={cable.status}
-        onChange={(event) => updateCable(cable.uid, { status: event.target.value }).then(onCableUpdated)}
-      >
-        {(topologyEnums?.cable_import_statuses ?? [cable.status]).map((status) => (
-          <option key={status} value={status}>
-            {formatCableStatus(status)}
-          </option>
-        ))}
-      </select>
+      />
     );
   }
 
   if (columnKey === "length_meters") {
     if (!canEdit) return cable.length_used_meters > 0 ? cable.length_used_meters : "";
     return (
-      <input
+      <DeferredNumberInput
         className="length-input"
         min={0.1}
+        onCommit={(value) => updateCable(cable.uid, { length_used_meters: value }).then(onCableUpdated)}
         step={0.1}
-        type="number"
         value={cable.length_used_meters > 0 ? cable.length_used_meters : ""}
-        onChange={(event) => {
-          const value = Number(event.target.value);
-          if (!Number.isFinite(value) || value <= 0) return;
-          updateCable(cable.uid, { length_used_meters: value }).then(onCableUpdated);
-        }}
       />
     );
   }
@@ -422,7 +416,6 @@ function renderCableCell({
     return renderPhaseEditor({
       cable,
       formatCableProgressPhaseName,
-      formatCableProgressPhaseType,
       formatCableProgressStep,
       onCableUpdated,
       topologyEnums,
@@ -435,21 +428,22 @@ function renderCableCell({
 function renderPhaseEditor({
   cable,
   formatCableProgressPhaseName,
-  formatCableProgressPhaseType,
   formatCableProgressStep,
   onCableUpdated,
   topologyEnums,
 }: {
   cable: CabinetCableDetail;
   formatCableProgressPhaseName: (phase: string) => string;
-  formatCableProgressPhaseType: (phaseType: string) => string;
   formatCableProgressStep: (step: string) => string;
   onCableUpdated: (cable: CabinetCableDetail) => void;
   topologyEnums: TopologyEnums | null;
 }) {
   const phase = cable.current_phase ?? defaultPhase(topologyEnums);
-  const phaseNames = topologyEnums?.cable_progress_phase_names ?? [phase.name];
-  const phaseTypes = topologyEnums?.cable_progress_phase_types ?? [phase.phase_type];
+  const phaseDefinitions = topologyEnums?.cable_progress_phases ?? [phaseDefinitionFromPhase(phase)];
+  const phaseDefinition = phaseDefinitions.find((definition) => definition.name === phase.name) ?? phaseDefinitions[0];
+  const normalizedPhase = normalizePhaseForDefinition(phase, phaseDefinition);
+  const primaryTask = phaseDefinition.tasks.find((task) => task.task_type === "percent") ?? phaseDefinition.tasks[0];
+  const secondaryTasks = phaseDefinition.tasks.filter((task) => task.name !== primaryTask?.name);
 
   function save(nextPhase: CableProgressPhase) {
     updateCable(cable.uid, { current_phase: nextPhase }).then(onCableUpdated);
@@ -457,114 +451,175 @@ function renderPhaseEditor({
 
   return (
     <div className="progress-editor">
-      <select
-        className="inline-select"
-        value={phase.name}
-        onChange={(event) => save(defaultPhaseForName(event.target.value, phase.phase_type))}
-      >
-        {phaseNames.map((phaseName) => (
-          <option key={phaseName} value={phaseName}>
-            {formatPhaseName(phaseName, formatCableProgressPhaseName, formatCableProgressStep)}
-          </option>
-        ))}
-      </select>
-      <select
-        className="inline-select"
-        value={phase.phase_type}
-        onChange={(event) => save(defaultPhaseForName(phase.name, event.target.value as CableProgressPhaseType))}
-      >
-        {phaseTypes.map((phaseType) => (
-          <option key={phaseType} value={phaseType}>
-            {formatCableProgressPhaseType(phaseType)}
-          </option>
-        ))}
-      </select>
-      {phase.phase_type === "single_percent" ? (
-        <input
-          className="length-input"
-          max={100}
-          min={0}
-          step={1}
-          type="number"
-          value={typeof phase.value === "number" ? phase.value : 0}
-          onChange={(event) => save({ ...phase, value: clampPercent(Number(event.target.value)), tasks: {} })}
-        />
-      ) : null}
-      {phase.phase_type === "parallel_percent"
-        ? Object.entries(phase.tasks).map(([task, value]) => (
-            <label className="progress-task" key={task}>
-              <span>{formatCableProgressStep(task)}</span>
-              <input
-                className="length-input"
-                max={100}
-                min={0}
-                step={1}
-                type="number"
-                value={value}
-                onChange={(event) =>
-                  save({
-                    ...phase,
-                    value: null,
-                    tasks: { ...phase.tasks, [task]: clampPercent(Number(event.target.value)) },
-                  })
-                }
-              />
-            </label>
-          ))
-        : null}
-      {phase.phase_type === "enum_state" ? (
-        <select
+      <div className="progress-main-row">
+        <DeferredSelect
           className="inline-select"
-          value={typeof phase.value === "string" ? phase.value : phase.enum_values[0] ?? ""}
-          onChange={(event) => save({ ...phase, value: event.target.value, tasks: {} })}
-        >
-          {(phase.enum_values.length ? phase.enum_values : ["validated", "broken"]).map((value) => (
-            <option key={value} value={value}>
-              {formatCableProgressStep(value)}
-            </option>
-          ))}
-        </select>
+          onCommit={(value) => {
+            const nextDefinition = phaseDefinitions.find((definition) => definition.name === value);
+            if (nextDefinition) save(defaultPhaseForDefinition(nextDefinition));
+          }}
+          options={phaseDefinitions.map((definition) => ({
+            label: formatPhaseName(definition.name, formatCableProgressPhaseName, formatCableProgressStep),
+            value: definition.name,
+          }))}
+          value={normalizedPhase.name}
+        />
+        {primaryTask
+          ? renderProgressTaskInput({ definition: primaryTask, formatCableProgressStep, normalizedPhase, save })
+          : null}
+      </div>
+      {secondaryTasks.length ? (
+        <div className="progress-task-row">
+          {secondaryTasks.map((definition) =>
+            renderProgressTaskInput({ definition, formatCableProgressStep, normalizedPhase, save }),
+          )}
+        </div>
       ) : null}
     </div>
   );
 }
 
 function defaultPhase(topologyEnums: TopologyEnums | null): CableProgressPhase {
-  return defaultPhaseForName(topologyEnums?.cable_progress_phase_names[0] ?? "purchased", "single_percent");
+  return defaultPhaseForDefinition(
+    topologyEnums?.cable_progress_phases[0] ?? {
+      name: "preparation",
+      tasks: [
+        {
+          name: "preparation",
+          task_type: "enum",
+          enum_values: ["ordered", "received", "labeled", "bundled", "pulled"],
+          default_value: "ordered",
+        },
+      ],
+    },
+  );
 }
 
-function defaultPhaseForName(name: string, phaseType: CableProgressPhaseType): CableProgressPhase {
-  if (phaseType === "parallel_percent") {
-    return {
-      name,
-      phase_type: phaseType,
-      value: null,
-      tasks: defaultTasksForPhase(name),
-      enum_values: [],
-    };
+function renderProgressTaskInput({
+  definition,
+  formatCableProgressStep,
+  normalizedPhase,
+  save,
+}: {
+  definition: CableProgressPhaseDefinition["tasks"][number];
+  formatCableProgressStep: (step: string) => string;
+  normalizedPhase: CableProgressPhase;
+  save: (nextPhase: CableProgressPhase) => void;
+}) {
+  const task = normalizedPhase.task_values[definition.name];
+  if (definition.task_type === "enum") {
+    return (
+      <label className="progress-task" key={definition.name}>
+        <span>{formatCableProgressStep(definition.name)}</span>
+        <DeferredSelect
+          className="inline-select"
+          onCommit={(value) =>
+            save({
+              ...normalizedPhase,
+              task_values: {
+                ...normalizedPhase.task_values,
+                [definition.name]: {
+                  task_type: definition.task_type,
+                  value,
+                  enum_values: definition.enum_values,
+                },
+              },
+            })
+          }
+          options={definition.enum_values.map((value) => ({
+            label: formatCableProgressStep(value),
+            value,
+          }))}
+          value={typeof task?.value === "string" ? task.value : String(definition.default_value ?? definition.enum_values[0] ?? "")}
+        />
+      </label>
+    );
   }
-  if (phaseType === "enum_state") {
-    return {
-      name,
-      phase_type: phaseType,
-      value: "validated",
-      tasks: {},
-      enum_values: ["validated", "broken"],
-    };
-  }
+  return (
+    <label className="progress-task" key={definition.name}>
+      <span>{formatCableProgressStep(definition.name)}</span>
+      <DeferredNumberInput
+        className="length-input"
+        max={100}
+        min={0}
+        onCommit={(value) =>
+          save({
+            ...normalizedPhase,
+            task_values: {
+              ...normalizedPhase.task_values,
+              [definition.name]: {
+                task_type: definition.task_type,
+                value: clampPercent(value),
+                enum_values: [],
+              },
+            },
+          })
+        }
+        step={1}
+        value={typeof task?.value === "number" ? task.value : Number(definition.default_value ?? 0)}
+      />
+    </label>
+  );
+}
+
+function defaultPhaseForDefinition(definition: CableProgressPhaseDefinition): CableProgressPhase {
   return {
-    name,
-    phase_type: phaseType,
-    value: 0,
+    name: definition.name,
+    phase_type: definition.tasks.length > 1 ? "parallel_percent" : definition.tasks[0]?.task_type === "enum" ? "enum_state" : "single_percent",
+    value: null,
     tasks: {},
     enum_values: [],
+    task_values: Object.fromEntries(
+      definition.tasks.map((task) => [
+        task.name,
+        {
+          task_type: task.task_type,
+          value: task.default_value,
+          enum_values: task.enum_values,
+        },
+      ]),
+    ),
   };
 }
 
-function defaultTasksForPhase(name: string): Record<string, number> {
-  if (name === "termination") return { a_side_terminated: 0, z_side_terminated: 0 };
-  if (name === "cabinet_dress") return { a_side_dressed_in_cabinet: 0, z_side_dressed_in_cabinet: 0 };
-  return { dressed: 0 };
+function normalizePhaseForDefinition(phase: CableProgressPhase, definition: CableProgressPhaseDefinition): CableProgressPhase {
+  const normalized = defaultPhaseForDefinition(definition);
+  return {
+    ...normalized,
+    task_values: Object.fromEntries(
+      definition.tasks.map((task) => {
+        const existing = phase.task_values?.[task.name];
+        if (task.task_type === "enum") {
+          const value = typeof existing?.value === "string" && task.enum_values.includes(existing.value) ? existing.value : task.default_value;
+          return [task.name, { task_type: task.task_type, value, enum_values: task.enum_values }];
+        }
+        const value = typeof existing?.value === "number" ? existing.value : Number(task.default_value ?? 0);
+        return [task.name, { task_type: task.task_type, value: clampPercent(value), enum_values: [] }];
+      }),
+    ),
+  };
+}
+
+function phaseDefinitionFromPhase(phase: CableProgressPhase): CableProgressPhaseDefinition {
+  const taskEntries = Object.entries(phase.task_values ?? {});
+  return {
+    name: phase.name,
+    tasks: taskEntries.length
+      ? taskEntries.map(([name, task]) => ({
+          name,
+          task_type: task.task_type,
+          enum_values: task.enum_values,
+          default_value: task.value,
+        }))
+      : [
+          {
+            name: "preparation",
+            task_type: "enum",
+            enum_values: ["ordered", "received", "labeled", "bundled", "pulled"],
+            default_value: "ordered",
+          },
+        ],
+  };
 }
 
 function formatPhaseName(
@@ -727,6 +782,166 @@ function FilterHiddenSummary({
       <span>{t("cable.filterHiddenOff", { count: formatNumber(hiddenExcluded) })}</span>
     </div>
   );
+}
+
+function DeferredNumberInput({
+  className,
+  max,
+  min,
+  onCommit,
+  step,
+  value,
+}: {
+  className?: string;
+  max?: number;
+  min?: number;
+  onCommit: (value: number) => void;
+  step?: number;
+  value: number | "";
+}) {
+  const [draft, setDraft] = useState(value === "" ? "" : String(value));
+  const skipNextBlur = useRef(false);
+  const original = value === "" ? "" : String(value);
+
+  useEffect(() => {
+    setDraft(original);
+  }, [original]);
+
+  function commit() {
+    if (draft === original) return;
+    const nextValue = Number(draft);
+    if (!Number.isFinite(nextValue) || (min !== undefined && nextValue < min) || (max !== undefined && nextValue > max)) {
+      setDraft(original);
+      return;
+    }
+    onCommit(nextValue);
+  }
+
+  function revert() {
+    setDraft(original);
+  }
+
+  return (
+    <input
+      className={className}
+      data-cable-editable="true"
+      max={max}
+      min={min}
+      onBlur={() => {
+        if (skipNextBlur.current) {
+          skipNextBlur.current = false;
+          return;
+        }
+        commit();
+      }}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          revert();
+          skipNextBlur.current = true;
+          event.currentTarget.blur();
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+          skipNextBlur.current = true;
+          event.currentTarget.blur();
+          return;
+        }
+        if (event.key === "Tab") {
+          event.preventDefault();
+          commit();
+          skipNextBlur.current = true;
+          focusAdjacentEditable(event.currentTarget, event.shiftKey);
+        }
+      }}
+      step={step}
+      type="number"
+      value={draft}
+    />
+  );
+}
+
+function DeferredSelect({
+  className,
+  onCommit,
+  options,
+  value,
+}: {
+  className?: string;
+  onCommit: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  const skipNextBlur = useRef(false);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  function commit() {
+    if (draft !== value) onCommit(draft);
+  }
+
+  function revert() {
+    setDraft(value);
+  }
+
+  return (
+    <select
+      className={className}
+      data-cable-editable="true"
+      onBlur={() => {
+        if (skipNextBlur.current) {
+          skipNextBlur.current = false;
+          return;
+        }
+        commit();
+      }}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          revert();
+          skipNextBlur.current = true;
+          event.currentTarget.blur();
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+          skipNextBlur.current = true;
+          event.currentTarget.blur();
+          return;
+        }
+        if (event.key === "Tab") {
+          event.preventDefault();
+          commit();
+          skipNextBlur.current = true;
+          focusAdjacentEditable(event.currentTarget, event.shiftKey);
+        }
+      }}
+      value={draft}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function focusAdjacentEditable(current: HTMLElement, reverse: boolean) {
+  const controls = Array.from(document.querySelectorAll<HTMLElement>(".cable-overlay [data-cable-editable='true']"));
+  const currentIndex = controls.indexOf(current);
+  if (currentIndex < 0) return;
+  const nextIndex = reverse ? currentIndex - 1 : currentIndex + 1;
+  const next = controls[nextIndex];
+  if (next) window.setTimeout(() => next.focus(), 0);
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {

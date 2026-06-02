@@ -148,7 +148,8 @@ button {
   display: grid;
   gap: 14px;
   grid-template-columns: minmax(270px, 320px) minmax(520px, 1fr) minmax(300px, 380px);
-  min-height: calc(100vh - 88px);
+  height: calc(100vh - 88px);
+  min-height: 0;
 }
 
 .side-pane,
@@ -161,6 +162,8 @@ button {
 }
 
 .map-stack {
+  height: 100%;
+  min-height: 0;
   position: relative;
 }
 
@@ -205,6 +208,22 @@ button {
   margin: 2px 0 0;
 }
 
+.progress-fact {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.progress-circle circle {
+  fill: #ffffff;
+  stroke: #475569;
+  stroke-width: 1;
+}
+
+.progress-circle path {
+  stroke: none;
+}
+
 .empty-state {
   color: #64748b;
   font-size: 14px;
@@ -214,10 +233,16 @@ button {
 .pane-header {
   align-items: center;
   border-bottom: 1px solid #e2e8f0;
+  flex: 0 0 auto;
   display: flex;
   height: 58px;
   justify-content: space-between;
   padding: 10px 14px;
+}
+
+.map-controls {
+  display: flex;
+  gap: 8px;
 }
 
 .map-size-control {
@@ -245,9 +270,33 @@ button {
 }
 
 .map-scroll {
-  height: calc(100% - 58px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   padding: 14px;
+}
+
+.drag-pan-surface {
+  cursor: grab;
+  touch-action: none;
+}
+
+.drag-pan-surface.is-drag-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.drag-pan-surface button,
+.drag-pan-surface input,
+.drag-pan-surface select,
+.drag-pan-surface textarea,
+.drag-pan-surface a {
+  cursor: auto;
+}
+
+.map-pane {
+  display: flex;
+  flex-direction: column;
 }
 
 .cabinet-map {
@@ -259,25 +308,25 @@ button {
   transition: opacity 120ms ease;
 }
 
-.map-cabinet rect {
+.map-cabinet .cabinet-rect {
   shape-rendering: crispEdges;
   stroke: #ffffff;
   stroke-width: 1;
 }
 
-.map-cabinet:hover rect,
-.map-cabinet.is-selected rect {
+.map-cabinet:hover .cabinet-rect,
+.map-cabinet.is-selected .cabinet-rect {
   stroke: #111827;
   stroke-width: 4;
 }
 
-.map-cabinet.is-device-source rect {
+.map-cabinet.is-device-source .cabinet-rect {
   stroke: #f59e0b;
   stroke-dasharray: 4 2;
   stroke-width: 4;
 }
 
-.map-cabinet.is-connected rect {
+.map-cabinet.is-connected .cabinet-rect {
   stroke: #475569;
   stroke-width: 1.4;
 }
@@ -300,6 +349,28 @@ button {
 
 .cabinet-type {
   stroke-width: 0.75px;
+}
+
+.map-progress-bar {
+  pointer-events: none;
+}
+
+.map-progress-bar text {
+  fill: #111827;
+  font-weight: 800;
+  paint-order: stroke fill;
+  stroke: rgba(255, 255, 255, 0.75);
+  stroke-width: 0.45px;
+}
+
+.map-progress-bg {
+  fill: #ffffff;
+  stroke: rgba(15, 23, 42, 0.55);
+  stroke-width: 0.45px;
+}
+
+.map-progress-fill {
+  stroke: none;
 }
 
 .section-title {
@@ -431,6 +502,7 @@ button {
 
 .detail-button,
 .icon-button,
+.mini-detail-button,
 .mini-button {
   background: #111827;
   border: 0;
@@ -452,6 +524,13 @@ button {
   font-size: 11px;
   margin: 0;
   padding: 5px 7px;
+}
+
+.mini-detail-button {
+  font-size: 10px;
+  margin: 0 0 0 8px;
+  padding: 4px 6px;
+  white-space: nowrap;
 }
 
 .connection-heading {
@@ -514,6 +593,12 @@ button {
   display: flex;
   font-size: 12px;
   justify-content: space-between;
+}
+
+.cable-types-with-actions li {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr max-content max-content;
 }
 
 .error-banner {
@@ -859,16 +944,41 @@ button {
 }
 
 .progress-editor {
-  display: grid;
-  gap: 4px;
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
   min-width: 180px;
+}
+
+.progress-main-row,
+.progress-task-row {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.progress-type-pill {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #3730a3;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 4px 6px;
+  white-space: nowrap;
 }
 
 .progress-task {
   align-items: center;
-  display: grid;
+  display: flex;
   gap: 4px;
-  grid-template-columns: 1fr auto;
+  white-space: nowrap;
+}
+
+.progress-task span {
+  color: #475569;
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .length-input {
@@ -986,7 +1096,9 @@ button {
 
 @media (max-width: 1100px) {
   .workspace {
+    height: auto;
     grid-template-columns: 1fr;
+    min-height: calc(100vh - 88px);
   }
 
   .side-pane,

@@ -39,46 +39,53 @@ Known imported status examples:
 
 ## Cable Progress Tracker
 
-Cable progress is separate from imported cable status. The primary model is a current-phase tracker because most cable work is sequential, with only a few phases requiring parallel subtasks or mutually exclusive enum states.
+Cable progress is separate from imported cable status. The primary model is a current-phase tracker because most cable work is sequential, with one phase containing parallel tasks. Phase names, task names, task types, and enum values are backend-owned configuration in `backend/core/progress_config.py`; frontends should only let editors choose the phase and edit the allowed task values for that phase.
 
 ```json
 {
   "current_phase": {
-    "name": "termination",
-    "phase_type": "parallel_percent",
-    "tasks": {
-      "a_side_terminated": 100,
-      "z_side_terminated": 40
+    "name": "dress_termination",
+    "task_values": {
+      "routing_dress": {
+        "task_type": "percent",
+        "value": 75
+      },
+      "a_side": {
+        "task_type": "enum",
+        "value": "terminated"
+      },
+      "z_side": {
+        "task_type": "enum",
+        "value": "dressed"
+      }
     },
     "enum_values": []
   }
 }
 ```
 
-Older runtime files may still contain the legacy `progress` dictionary. The API keeps accepting it for backward compatibility, but new UI work should use `current_phase`.
+Older runtime files may still contain the legacy `progress` dictionary or the previous phase-level type shape. The API keeps accepting it for backward compatibility, but new UI work should use `current_phase.task_values`. If a client submits task types or enum lists, the backend normalizes them against the configured phase definition before saving.
 
-### Phase Types
+### Current Phase Model
 
-| Value | Meaning | Example |
+| Phase | Tasks | Meaning |
 | --- | --- | --- |
-| `single_percent` | One sequential phase represented by a percentage. | `pulled = 75%` |
-| `parallel_percent` | Multiple subtasks can advance independently, each represented by a percentage. | `a_side_terminated = 100%`, `z_side_terminated = 40%` |
-| `enum_state` | The phase is represented by one value from a constrained enum list. | `validated` or `broken` |
+| `preparation` | `preparation`: enum `ordered`, `received`, `labeled`, `bundled`, `pulled` | Ordered through pulled/staged workflow before endpoint work starts. |
+| `dress_termination` | `routing_dress`: percent; `a_side`: enum `not_terminated`, `terminated`, `dressed`; `z_side`: enum `not_terminated`, `terminated`, `dressed` | Parallel routing dress and A/Z endpoint termination or cabinet dressing. |
+| `validation` | `validation`: enum `validated`, `failed`, `broken` | Final QA state. `failed` means validation did not pass; `broken` means visible cable damage was found. |
 
-### Recommended Phase Names
+Task type is task-level, not phase-level. A single phase can mix percent and enum tasks.
 
-| Phase | Type | Meaning |
-| --- | --- | --- |
-| `purchased` | `single_percent` | Cable or cable material has been purchased. |
-| `received` | `single_percent` | Cable has arrived on site or in controlled inventory. |
-| `categorized_stored` | `single_percent` | Cable has been sorted into the correct work package, location, type, or cabinet group and stored where crews can find it. |
-| `labeled` | `single_percent` | Cable label has been applied or otherwise prepared according to the installation standard. |
-| `bundled_on_ground` | `single_percent` | Optional pre-bundling/staging on the ground before pulling. |
-| `pulled` | `single_percent` | Cable has been physically pulled/ran along the route. |
-| `routing_dress` | `parallel_percent` | Cable dressing outside endpoint cabinets, usually pathway/tray/bundle dressing. |
-| `termination` | `parallel_percent` | A-side and Z-side termination/patching can move independently. |
-| `cabinet_dress` | `parallel_percent` | A-side and Z-side cabinet dressing can move independently. |
-| `final_result` | `enum_state` | Final outcome. Allowed values should usually be `validated` and `broken`. |
+### Cabinet Aggregation
+
+Cabinet-level cable termination and dress percentages are derived from cable endpoint progress:
+
+- `preparation`: both termination and dress count as `0%`.
+- `validation`: both termination and dress count as `100%`.
+- `dress_termination`: the cabinet uses the matching cable side. If the cabinet is on the A side, use `a_side`; if it is on the Z side, use `z_side`.
+- Endpoint state `not_terminated` counts as `0%` termination and `0%` dress.
+- Endpoint state `terminated` counts as `100%` termination and `0%` dress.
+- Endpoint state `dressed` counts as `100%` termination and `100%` dress.
 
 ### Legacy Progress States
 

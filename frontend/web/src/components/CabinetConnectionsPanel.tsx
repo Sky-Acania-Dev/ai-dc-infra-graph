@@ -1,26 +1,38 @@
-import type { CabinetDetailResponse, CableStatusSummary, DeviceConnectionResponse } from "../types";
+import type {
+  CabinetDetailResponse,
+  CableStatusSummary,
+  DataHallCableBucket,
+  DataHallCableSummaryResponse,
+  DeviceConnectionResponse,
+} from "../types";
+import { useDragPan } from "../hooks/useDragPan";
 import { useI18n } from "../i18n";
 
 type CabinetConnectionsPanelProps = {
   detail: CabinetDetailResponse | null;
   deviceDetail: DeviceConnectionResponse | null;
+  dataHallCableSummary: DataHallCableSummaryResponse | null;
   onViewCables: (targetCabinetUid: string) => void;
   onViewDeviceCables: (targetDeviceUid: string) => void;
+  onViewDataHallCables: (bucket: DataHallCableBucket, cableType: string) => void;
 };
 
 export function CabinetConnectionsPanel({
   detail,
   deviceDetail,
+  dataHallCableSummary,
   onViewCables,
   onViewDeviceCables,
+  onViewDataHallCables,
 }: CabinetConnectionsPanelProps) {
   const { formatNumber, t } = useI18n();
+  const connectionListPan = useDragPan<HTMLDivElement>();
   if (deviceDetail) {
     return (
       <aside className="side-pane connections-pane">
         <span className="eyebrow">{t("connections.connectedDevices")}</span>
         <h2>{t("connections.connectedDevicesCount", { count: formatNumber(deviceDetail.connected_devices.length) })}</h2>
-        <div className="connection-list">
+        <div className="connection-list drag-pan-surface" {...connectionListPan}>
           {deviceDetail.connected_devices.map((connection) => (
             <article className="connection-item" key={connection.target_device_uid}>
               <div className="connection-heading">
@@ -54,9 +66,30 @@ export function CabinetConnectionsPanel({
 
   if (!detail) {
     return (
-      <aside className="side-pane">
-        <span className="eyebrow">{t("connections.connectedCabinets")}</span>
-        <p className="empty-state">{t("connections.emptyCabinets")}</p>
+      <aside className="side-pane connections-pane">
+        <span className="eyebrow">{t("connections.dataHallCables")}</span>
+        <h2>{dataHallCableSummary?.data_hall_id ?? t("dataHall.fallback")}</h2>
+        {dataHallCableSummary ? (
+          <div className="connection-list drag-pan-surface" {...connectionListPan}>
+            <DataHallCableBucketCard
+              bucket={dataHallCableSummary.internal}
+              title={t("connections.insideDataHall", { dataHall: dataHallCableSummary.data_hall_id })}
+              subtitle={t("connections.intraDataHall")}
+              onViewDataHallCables={onViewDataHallCables}
+            />
+            {dataHallCableSummary.external.map((bucket) => (
+              <DataHallCableBucketCard
+                bucket={bucket}
+                key={bucket.target_data_hall ?? "external"}
+                title={t("connections.toDataHall", { dataHall: bucket.target_data_hall ?? t("dataHall.fallback") })}
+                subtitle={t("connections.crossDataHall")}
+                onViewDataHallCables={onViewDataHallCables}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="empty-state">{t("common.loading", { target: t("connections.dataHallCables") })}</p>
+        )}
       </aside>
     );
   }
@@ -65,7 +98,7 @@ export function CabinetConnectionsPanel({
     <aside className="side-pane connections-pane">
       <span className="eyebrow">{t("connections.connectedCabinets")}</span>
       <h2>{t("connections.connectedCabinetsCount", { count: formatNumber(detail.stats.connected_cabinets) })}</h2>
-      <div className="connection-list">
+      <div className="connection-list drag-pan-surface" {...connectionListPan}>
         {detail.intra_cabinet_connection ? (
           <article className="connection-item intra-connection">
             <div className="connection-heading">
@@ -112,6 +145,41 @@ export function CabinetConnectionsPanel({
         ))}
       </div>
     </aside>
+  );
+}
+
+function DataHallCableBucketCard({
+  bucket,
+  title,
+  subtitle,
+  onViewDataHallCables,
+}: {
+  bucket: DataHallCableBucket;
+  title: string;
+  subtitle: string;
+  onViewDataHallCables: (bucket: DataHallCableBucket, cableType: string) => void;
+}) {
+  const { formatNumber, t } = useI18n();
+  return (
+    <article className="connection-item">
+      <div className="connection-heading">
+        <strong>{title}</strong>
+        <span>{t("connections.cableCount", { count: formatNumber(bucket.total_cables) })}</span>
+      </div>
+      <StatusCompletion summary={bucket.status_summary} />
+      <div className="connection-meta">{subtitle}</div>
+      <ul className="cable-types cable-types-with-actions">
+        {Object.entries(bucket.cable_type_counts).map(([type, count]) => (
+          <li key={type}>
+            <span>{type}</span>
+            <b>{formatNumber(count)}</b>
+            <button className="mini-detail-button" onClick={() => onViewDataHallCables(bucket, type)}>
+              {t("connections.viewCables")}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </article>
   );
 }
 

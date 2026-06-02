@@ -4,6 +4,7 @@ import type {
   CabinetLayoutItem,
   AuthUser,
   CabinetCableDetail,
+  DataHallCableSummaryResponse,
   Device,
   DeviceConnectionResponse,
   TopologyEnums,
@@ -32,6 +33,33 @@ export async function fetchCabinetLayout(dataHall: string): Promise<CabinetLayou
   const response = await fetch(`${API_BASE_URL}/topology/layout/cabinets?data_hall=${encodeURIComponent(dataHall)}`);
   if (!response.ok) {
     throw new Error(`Failed to load cabinet layout: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchDataHallCableSummary(dataHall: string): Promise<DataHallCableSummaryResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/topology/data-halls/${encodeURIComponent(dataHall)}/cables/summary`,
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to load data hall cable summary: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchDataHallCables(
+  dataHall: string,
+  scope: "internal" | "external",
+  cableType: string,
+  targetDataHall?: string | null,
+): Promise<CableDetailResponse> {
+  const params = new URLSearchParams({ scope, cable_type: cableType });
+  if (targetDataHall) params.set("target_data_hall", targetDataHall);
+  const response = await fetch(
+    `${API_BASE_URL}/topology/data-halls/${encodeURIComponent(dataHall)}/cables?${params.toString()}`,
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to load data hall cable details: ${response.status}`);
   }
   return response.json();
 }
@@ -117,10 +145,9 @@ export type UpdateCablePayload = {
   progress?: Record<string, string>;
   current_phase?: {
     name: string;
-    phase_type: string;
     value?: number | string | null;
     tasks?: Record<string, number>;
-    enum_values?: string[];
+    task_values?: Record<string, { task_type: string; value: number | string | null; enum_values?: string[] }>;
   };
   length_used_meters?: number;
   length_meters?: number | null;
