@@ -54,8 +54,16 @@ Supported override areas:
 
 ## Run Backend
 
+From the repository root, start the FastAPI backend on localhost:
+
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+Backend URL:
+
+```text
+http://127.0.0.1:8000
 ```
 
 Health check:
@@ -66,11 +74,17 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 ## Run Frontend
 
-From `frontend/web`:
+For active frontend development, run the Vite dev server from `frontend/web`:
 
 ```powershell
 npm install
 npm run dev
+```
+
+Frontend dev URL:
+
+```text
+http://127.0.0.1:5173
 ```
 
 Production build:
@@ -78,6 +92,20 @@ Production build:
 ```powershell
 npm run build
 ```
+
+To serve the built frontend locally with the same localhost URL, run this from the repository root after `npm run build`:
+
+```powershell
+.\.venv\Scripts\python.exe -m http.server 5173 --bind 127.0.0.1 --directory frontend\web\dist
+```
+
+Built frontend URL:
+
+```text
+http://127.0.0.1:5173
+```
+
+The frontend expects the backend API at `http://127.0.0.1:8000` unless `VITE_API_BASE_URL` is set.
 
 ## Fixture Data
 
