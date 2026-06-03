@@ -23,6 +23,11 @@ class LifecycleStatus(StrEnum):
     NOT_PLANNED = "not_planned"
 
 
+class ConstructionPhase(StrEnum):
+    MANAGEMENT_ETHERNET = "Management & Ethernet"
+    ROCE = "RoCE"
+
+
 class CableProgressStep(StrEnum):
     PURCHASED = "purchased"
     RECEIVED = "received"

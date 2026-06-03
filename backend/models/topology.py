@@ -7,6 +7,7 @@ from backend.core.enums import (
     CableProgressTaskType,
     CableProgressState,
     CableProgressStep,
+    ConstructionPhase,
     ConnectorType,
     LifecycleStatus,
 )
@@ -29,13 +30,40 @@ class OpticModule(BaseModel):
     note: str = ""
 
 
+class DevicePortLayoutEntry(BaseModel):
+    port_name: str
+    side: str = "front"
+    x: float = 0
+    y: float = 0
+    width: float = 0
+    height: float = 0
+    connector_type: ConnectorType = ConnectorType.OTHER
+    note: str = ""
+
+
+class DeviceModel(BaseModel):
+    uid: str
+    model_name: str
+    manufacturer: str = ""
+    rack_units: int = 1
+    device_instance_uids: list[str] = Field(default_factory=list)
+    front_panel_svg: str = ""
+    back_panel_svg: str = ""
+    port_layout: list[DevicePortLayoutEntry] = Field(default_factory=list)
+    note: str = ""
+
+
 class Device(BaseModel):
     cabinet_id: str
     rack_unit: int
     device_model: str
+    device_model_uid: str = ""
+    rack_units: int = 1
     lifecycle_status: LifecycleStatus = LifecycleStatus.NOT_INSTALLED
+    construction_phase: ConstructionPhase = ConstructionPhase.MANAGEMENT_ETHERNET
     aliases: list[str] = Field(default_factory=list)
     model_aliases: list[str] = Field(default_factory=list)
+    port_layout_overrides: list[DevicePortLayoutEntry] = Field(default_factory=list)
     ports_by_type: dict[ConnectorType, list[PortConnector]] = Field(default_factory=dict)
     note: str = ""
 
@@ -47,6 +75,7 @@ class Cabinet(BaseModel):
     category: str = ""
     cabinet_group: str = ""
     lifecycle_status: LifecycleStatus = LifecycleStatus.NOT_INSTALLED
+    construction_phase: ConstructionPhase = ConstructionPhase.MANAGEMENT_ETHERNET
     max_rack_unit: int = 48
     source_row: int | None = None
     source_col: int | None = None
@@ -57,6 +86,7 @@ class Room(BaseModel):
     building_id: str
     room_id: str
     lifecycle_status: LifecycleStatus = LifecycleStatus.UNKNOWN
+    construction_phase: ConstructionPhase = ConstructionPhase.MANAGEMENT_ETHERNET
     cabinets: list[Cabinet] = Field(default_factory=list)
 
 
@@ -88,6 +118,7 @@ class Cable(BaseModel):
     cable_type: str
     group: str = ""
     status: str = ""
+    construction_phase: ConstructionPhase = ConstructionPhase.MANAGEMENT_ETHERNET
     progress: dict[CableProgressStep, CableProgressState] = Field(default_factory=dict)
     current_phase: CableProgressPhase | None = None
     designed_length_meters: float | None = None

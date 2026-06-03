@@ -5,6 +5,8 @@ import { useI18n } from "../i18n";
 
 type CableDetailOverlayProps = {
   cableDetail: CableDetailResponse | null;
+  isLoading: boolean;
+  routeLabel: { source: string; target: string } | null;
   canEdit: boolean;
   topologyEnums: TopologyEnums | null;
   onClose: () => void;
@@ -16,6 +18,7 @@ type CableColumnKey =
   | "uid"
   | "cable_type"
   | "status"
+  | "construction_phase"
   | "progress"
   | "length_meters"
   | "group"
@@ -30,11 +33,13 @@ type CableColumn = {
 };
 type NumericRange = { min: number; max: number };
 type RangeFilter = NumericRange;
+const PAGE_SIZE_OPTIONS = [100, 250, 500, 1000] as const;
 
 const COLUMNS: Array<CableColumn & { labelKey: string }> = [
   { key: "uid", label: "Cable ID", labelKey: "cable.column.uid" },
   { key: "cable_type", label: "Type", labelKey: "cable.column.type" },
   { key: "status", label: "Status", labelKey: "cable.column.status" },
+  { key: "construction_phase", label: "Construction Phase", labelKey: "cable.column.constructionPhase" },
   { key: "progress", label: "Progress", labelKey: "cable.column.progress" },
   { key: "length_meters", label: "Length (m)", labelKey: "cable.column.lengthMeters" },
   { key: "group", label: "Group", labelKey: "cable.column.group" },
@@ -47,6 +52,8 @@ const COLUMNS: Array<CableColumn & { labelKey: string }> = [
 
 export function CableDetailOverlay({
   cableDetail,
+  isLoading,
+  routeLabel,
   canEdit,
   topologyEnums,
   onClose,
@@ -56,6 +63,7 @@ export function CableDetailOverlay({
     formatCableProgressPhaseName,
     formatCableProgressStep,
     formatCableStatus,
+    formatConstructionPhase,
     formatNumber,
     t,
   } = useI18n();
@@ -65,6 +73,8 @@ export function CableDetailOverlay({
   const [rangeFilters, setRangeFilters] = useState<Partial<Record<CableColumnKey, RangeFilter>>>({});
   const [filterText, setFilterText] = useState<Partial<Record<CableColumnKey, string>>>({});
   const [openFilterColumn, setOpenFilterColumn] = useState<CableColumnKey | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(250);
   const debouncedFilterText = useDebouncedValue(filterText, 500);
   const uniqueValues = useMemo(() => {
     const values: Partial<Record<CableColumnKey, string[]>> = {};
@@ -81,11 +91,11 @@ export function CableDetailOverlay({
     for (const column of COLUMNS) {
       const text = (debouncedFilterText[column.key] ?? "").trim().toLowerCase();
       values[column.key] = (uniqueValues[column.key] ?? []).filter((value) =>
-        displayValue(value, column.key, formatCableStatus).toLowerCase().includes(text),
+        displayValue(value, column.key, formatCableStatus, formatConstructionPhase).toLowerCase().includes(text),
       );
     }
     return values;
-  }, [debouncedFilterText, formatCableStatus, uniqueValues]);
+  }, [debouncedFilterText, formatCableStatus, formatConstructionPhase, uniqueValues]);
   const numericRanges = useMemo(() => {
     const ranges: Partial<Record<CableColumnKey, NumericRange>> = {};
     if (!cableDetail) return ranges;
@@ -126,10 +136,24 @@ export function CableDetailOverlay({
         return sortDirection === "asc" ? result : -result;
       });
   }, [cableDetail, filters, rangeFilters, sortDirection, sortKey]);
+  const pageCount = Math.max(1, Math.ceil(visibleCables.length / pageSize));
+  const normalizedPage = Math.min(page, pageCount);
+  const pageStartIndex = (normalizedPage - 1) * pageSize;
+  const pagedCables = visibleCables.slice(pageStartIndex, pageStartIndex + pageSize);
 
-  if (!cableDetail) return null;
-  const sourceLabel = "source_device_uid" in cableDetail ? cableDetail.source_device_uid : cableDetail.source_cabinet_uid;
-  const targetLabel = "target_device_uid" in cableDetail ? cableDetail.target_device_uid : cableDetail.target_cabinet_uid;
+  useEffect(() => {
+    setPage(1);
+  }, [cableDetail, filters, rangeFilters, sortDirection, sortKey]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  if (!cableDetail && !isLoading) return null;
+  const sourceLabel =
+    routeLabel?.source ?? (cableDetail ? ("source_device_uid" in cableDetail ? cableDetail.source_device_uid : cableDetail.source_cabinet_uid) : "");
+  const targetLabel =
+    routeLabel?.target ?? (cableDetail ? ("target_device_uid" in cableDetail ? cableDetail.target_device_uid : cableDetail.target_cabinet_uid) : "");
 
   function toggleSort(columnKey: CableColumnKey) {
     if (sortKey === columnKey) {
@@ -181,16 +205,38 @@ export function CableDetailOverlay({
             {t("cable.routeTitle", { source: sourceLabel, target: targetLabel })}
           </h2>
           <div className="overlay-count">
-            {t("cable.countVisible", {
-              visible: formatNumber(visibleCables.length),
-              total: formatNumber(cableDetail.cables.length),
-            })}
+            {cableDetail
+              ? t("cable.countVisible", {
+                  visible: formatNumber(visibleCables.length),
+                  total: formatNumber(cableDetail.cables.length),
+                })
+              : t("common.loading", { target: t("cable.details") })}
           </div>
         </div>
         <button className="icon-button" onClick={onClose} aria-label={t("cable.closeDetails")}>
           X
         </button>
       </div>
+      {isLoading && !cableDetail ? (
+        <div className="table-loading-state">
+          <div>{t("common.loading", { target: t("cable.details") })}</div>
+        </div>
+      ) : null}
+      {cableDetail ? (
+        <>
+      <PaginationBar
+        formatNumber={formatNumber}
+        onPageChange={setPage}
+        onPageSizeChange={(nextPageSize) => {
+          setPageSize(nextPageSize);
+          setPage(1);
+        }}
+        page={normalizedPage}
+        pageCount={pageCount}
+        pageSize={pageSize}
+        startIndex={pageStartIndex}
+        totalRows={visibleCables.length}
+      />
       <div className="table-scroll" onClick={() => setOpenFilterColumn(null)}>
         <table>
           <thead>
@@ -266,7 +312,7 @@ export function CableDetailOverlay({
                                   onChange={(event) => setColumnFilter(column.key, value, event.target.checked)}
                                   type="checkbox"
                                 />
-                                <span>{displayValue(value, column.key, formatCableStatus)}</span>
+                                <span>{displayValue(value, column.key, formatCableStatus, formatConstructionPhase)}</span>
                               </label>
                             );
                           })}
@@ -279,8 +325,8 @@ export function CableDetailOverlay({
             </tr>
           </thead>
           <tbody>
-            {visibleCables.map((cable, index) => (
-              <tr key={`${cable.a_port_uid}-${cable.z_port_uid}-${index}`}>
+            {pagedCables.map((cable, index) => (
+              <tr key={`${cable.uid}-${cable.a_port_uid}-${cable.z_port_uid}-${pageStartIndex + index}`}>
                 {COLUMNS.map((column) => (
                   <td key={column.key}>
                     {renderCableCell({
@@ -290,6 +336,7 @@ export function CableDetailOverlay({
                       formatCableProgressPhaseName,
                       formatCableProgressStep,
                       formatCableStatus,
+                      formatConstructionPhase,
                       onCableUpdated,
                       topologyEnums,
                     })}
@@ -300,6 +347,83 @@ export function CableDetailOverlay({
           </tbody>
         </table>
         {!visibleCables.length ? <div className="empty-table-space" /> : null}
+      </div>
+      <PaginationBar
+        formatNumber={formatNumber}
+        onPageChange={setPage}
+        onPageSizeChange={(nextPageSize) => {
+          setPageSize(nextPageSize);
+          setPage(1);
+        }}
+        page={normalizedPage}
+        pageCount={pageCount}
+        pageSize={pageSize}
+        startIndex={pageStartIndex}
+        totalRows={visibleCables.length}
+      />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function PaginationBar({
+  formatNumber,
+  onPageChange,
+  onPageSizeChange,
+  page,
+  pageCount,
+  pageSize,
+  startIndex,
+  totalRows,
+}: {
+  formatNumber: (value: number) => string;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: (typeof PAGE_SIZE_OPTIONS)[number]) => void;
+  page: number;
+  pageCount: number;
+  pageSize: (typeof PAGE_SIZE_OPTIONS)[number];
+  startIndex: number;
+  totalRows: number;
+}) {
+  const { t } = useI18n();
+  const firstVisible = totalRows ? startIndex + 1 : 0;
+  const lastVisible = Math.min(totalRows, startIndex + pageSize);
+
+  return (
+    <div className="table-pagination" onClick={(event) => event.stopPropagation()}>
+      <div className="table-pagination-range">
+        {formatNumber(firstVisible)}-{formatNumber(lastVisible)} / {formatNumber(totalRows)}
+      </div>
+      <div className="table-pagination-controls">
+        <button type="button" onClick={() => onPageChange(1)} disabled={page <= 1}>
+          First
+        </button>
+        <button type="button" onClick={() => onPageChange(Math.max(1, page - 1))} disabled={page <= 1}>
+          Prev
+        </button>
+        <span>
+          {formatNumber(page)} / {formatNumber(pageCount)}
+        </span>
+        <button type="button" onClick={() => onPageChange(Math.min(pageCount, page + 1))} disabled={page >= pageCount}>
+          Next
+        </button>
+        <button type="button" onClick={() => onPageChange(pageCount)} disabled={page >= pageCount}>
+          Last
+        </button>
+        <label>
+          <span>{t("common.rows")}</span>
+          <select
+            value={pageSize}
+            onChange={(event) => onPageSizeChange(Number(event.target.value) as (typeof PAGE_SIZE_OPTIONS)[number])}
+          >
+            {PAGE_SIZE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {formatNumber(option)}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
     </div>
   );
@@ -334,9 +458,15 @@ function isFilterActive(
   return rangeFilter.min !== sourceRange.min || rangeFilter.max !== sourceRange.max;
 }
 
-function displayValue(value: string, columnKey: CableColumnKey, formatCableStatus: (status: string) => string) {
+function displayValue(
+  value: string,
+  columnKey: CableColumnKey,
+  formatCableStatus: (status: string) => string,
+  formatConstructionPhase: (phase: string) => string,
+) {
   if (value === "(blank)") return value;
   if (columnKey === "status") return formatCableStatus(value);
+  if (columnKey === "construction_phase") return formatConstructionPhase(value);
   return value;
 }
 
@@ -371,6 +501,7 @@ function renderCableCell({
   formatCableProgressPhaseName,
   formatCableProgressStep,
   formatCableStatus,
+  formatConstructionPhase,
   onCableUpdated,
   topologyEnums,
 }: {
@@ -380,6 +511,7 @@ function renderCableCell({
   formatCableProgressPhaseName: (phase: string) => string;
   formatCableProgressStep: (step: string) => string;
   formatCableStatus: (status: string) => string;
+  formatConstructionPhase: (phase: string) => string;
   onCableUpdated: (cable: CabinetCableDetail) => void;
   topologyEnums: TopologyEnums | null;
 }) {
@@ -396,6 +528,10 @@ function renderCableCell({
         value={cable.status}
       />
     );
+  }
+
+  if (columnKey === "construction_phase") {
+    return formatConstructionPhase(cable.construction_phase);
   }
 
   if (columnKey === "length_meters") {

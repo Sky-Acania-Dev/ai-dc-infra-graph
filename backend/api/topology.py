@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.api.auth import AuthUser, current_user, require_editor
-from backend.core.enums import CableProgressPhaseType, CableProgressState, CableProgressStep, LifecycleStatus
+from backend.core.enums import (
+    CableProgressPhaseType,
+    CableProgressState,
+    CableProgressStep,
+    ConstructionPhase,
+    LifecycleStatus,
+)
 from backend.core.progress_config import (
     cable_endpoint_termination_and_dress_percent,
     cable_progress_phase_definitions,
@@ -33,6 +39,7 @@ class CabinetLayoutItem(BaseModel):
     category: str
     cabinet_group: str
     lifecycle_status: str
+    construction_phase: str
     max_rack_unit: int
     cable_termination_percent: float = 0
     cable_dress_percent: float = 0
@@ -92,6 +99,7 @@ class CabinetCableDetail(BaseModel):
     group: str
     status: str
     cable_type: str
+    construction_phase: str
     progress: dict[str, str] = Field(default_factory=dict)
     current_phase: CableProgressPhase | None = None
     designed_length_meters: float | None = None
@@ -174,6 +182,7 @@ class CableProgressPhaseDefinitionResponse(BaseModel):
 
 class TopologyEnumResponse(BaseModel):
     lifecycle_statuses: list[str]
+    construction_phases: list[str]
     cable_import_statuses: list[str]
     cable_progress_steps: list[str]
     cable_progress_states: list[str]
@@ -283,6 +292,7 @@ def topology_enums(database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH)) -> T
     phase_definitions = cable_progress_phase_definitions()
     return TopologyEnumResponse(
         lifecycle_statuses=[status.value for status in LifecycleStatus],
+        construction_phases=[phase.value for phase in ConstructionPhase],
         cable_import_statuses=imported_statuses,
         cable_progress_steps=[step.value for step in CableProgressStep],
         cable_progress_states=[state.value for state in CableProgressState],
@@ -578,6 +588,7 @@ def _cable_detail(cable: Cable) -> CabinetCableDetail:
         group=cable.group,
         status=cable.status,
         cable_type=cable.cable_type,
+        construction_phase=cable.construction_phase.value,
         progress=_progress_payload(cable),
         current_phase=normalize_cable_progress_phase(cable.current_phase or _phase_from_legacy_progress(cable)),
         designed_length_meters=cable.designed_length_meters,
@@ -893,6 +904,7 @@ def _layout_item(
         category=cabinet.category,
         cabinet_group=cabinet.cabinet_group,
         lifecycle_status=cabinet.lifecycle_status.value,
+        construction_phase=cabinet.construction_phase.value,
         max_rack_unit=cabinet.max_rack_unit,
         cable_termination_percent=cable_termination_percent,
         cable_dress_percent=cable_dress_percent,

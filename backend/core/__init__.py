@@ -13,6 +13,7 @@ from backend.core.enums import (
     CableProgressState,
     CableProgressStep,
     CableProgressTaskType,
+    ConstructionPhase,
     ConnectorType,
     LifecycleStatus,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "CableProgressStep",
     "CableProgressPhaseType",
     "CableProgressTaskType",
+    "ConstructionPhase",
     "ConnectorType",
     "DEFAULT_BUILDING_ID",
     "DEFAULT_MAX_RACK_UNIT",

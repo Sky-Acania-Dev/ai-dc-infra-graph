@@ -178,6 +178,24 @@ class CutsheetIngestionTests(unittest.TestCase):
         self.assertEqual(result.rows[0].status, "Cable Not Run")
         self.assertEqual(result.rows[0].group, "Backbone")
 
+    def test_accepts_valid_cable_row_with_blank_status(self) -> None:
+        result = ingest_cutsheet_rows(
+            [
+                {
+                    "STATUS": "",
+                    "A-LOC:CAB:RU": "dh1:030:38",
+                    "A-PORT": "swp33s0",
+                    "Z-LOC:CAB:RU": "dh2:182:39",
+                    "Z-PORT": "swp1s0",
+                    "CABLE": "MPO12 2x2",
+                },
+            ]
+        )
+
+        self.assertEqual(len(result.rows), 1)
+        self.assertEqual(result.rows[0].status, "")
+        self.assertEqual(result.rows[0].cable_type, "MPO12 2x2")
+
     def test_json_report_has_summary_and_explicit_collision_findings(self) -> None:
         result = ingest_cutsheet_rows(
             [

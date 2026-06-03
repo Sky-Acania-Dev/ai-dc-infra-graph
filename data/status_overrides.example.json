@@ -15,6 +15,13 @@
       "note": "Manual placeholder until device inventory is available."
     }
   },
+  "device_models": {
+    "SN4700": {
+      "manufacturer": "NVIDIA",
+      "rack_units": 2,
+      "note": "Example multi-RU device model override."
+    }
+  },
   "cables": {
     "CBL-000001": {
       "progress": {

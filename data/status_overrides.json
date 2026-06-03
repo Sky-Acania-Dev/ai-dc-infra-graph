@@ -10,5 +10,26 @@
       "device_model": "Unknown",
       "note": "Manual placeholder until device inventory is available."
     }
+  },
+  "device_models": {
+    "7750-SR-1SE": {
+      "model_name": "7750-SR-1SE",
+      "manufacturer": "Nokia",
+      "rack_units": 3,
+      "note": "Observed on-site as NOKIA-7750-SR-1se."
+    },
+    "CDU-4RU-03": {
+      "rack_units": 4,
+      "note": "Height inferred from model name."
+    },
+    "SN5610": {
+      "manufacturer": "NVIDIA",
+      "rack_units": 2,
+      "note": "Observed on-site as a 2U device."
+    },
+    "STOR-COLD-01": {
+      "rack_units": 2,
+      "note": "Assumed 2U until storage rack photos or vendor data confirm it."
+    }
   }
 }

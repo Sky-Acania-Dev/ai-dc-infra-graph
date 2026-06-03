@@ -21,6 +21,8 @@ type CabinetMapProps = {
   onClearSelection: () => void;
   onMapSizeChange: (mapSize: MapSize) => void;
   onProgressDisplayChange: (progressDisplay: MapProgressDisplay) => void;
+  onShowPortLayout: () => void;
+  canShowPortLayout: boolean;
 };
 
 export type MapSize = "compact" | "normal" | "large";
@@ -84,6 +86,8 @@ export function CabinetMap({
   onClearSelection,
   onMapSizeChange,
   onProgressDisplayChange,
+  onShowPortLayout,
+  canShowPortLayout,
 }: CabinetMapProps) {
   const { t } = useI18n();
   const settings = MAP_SIZE_SETTINGS[mapSize];
@@ -103,6 +107,12 @@ export function CabinetMap({
           <h2>{cabinets[0]?.data_hall_id ?? t("dataHall.fallback")}</h2>
         </div>
         <div className="map-controls">
+          <div className="map-size-control" aria-label={t("portLayout.mode")}>
+            <button className="is-active">{t("map.cabinetMap")}</button>
+            <button disabled={!canShowPortLayout} onClick={onShowPortLayout}>
+              {t("portLayout.title")}
+            </button>
+          </div>
           <div className="map-size-control" aria-label={t("map.display")}>
             {(["text", "termination", "dress"] as MapProgressDisplay[]).map((display) => (
               <button
@@ -144,6 +154,12 @@ export function CabinetMap({
             const isDeviceSource = isDeviceMode && cabinet.cabinet_uid === selectedDeviceCabinetUid;
             const isConnected = connectedCabinetUids.has(cabinet.cabinet_uid);
             const isDimmed = hasSelection && !isSelected && !isConnected;
+            const cabinetTypeLabel = progressDisplay === "text" ? cabinet.category : "";
+            const cabinetTypeFit = fitSvgText(
+              cabinetTypeLabel,
+              settings.cabinetTypeFontSize,
+              settings.cellWidth - 6,
+            );
 
             return (
               <g
@@ -178,9 +194,11 @@ export function CabinetMap({
                   y={y + settings.cellHeight * 0.78}
                   fill={label.fill}
                   stroke={label.stroke}
-                  style={{ fontSize: settings.cabinetTypeFontSize }}
+                  textLength={cabinetTypeFit.textLength}
+                  lengthAdjust="spacingAndGlyphs"
+                  style={{ fontSize: cabinetTypeFit.fontSize }}
                 >
-                  {progressDisplay === "text" ? cabinet.category : ""}
+                  {cabinetTypeLabel}
                 </text>
                 {progressDisplay !== "text" ? (
                   <ProgressBar
@@ -228,6 +246,28 @@ function rowY(rowIndex: number, settings: (typeof MAP_SIZE_SETTINGS)[MapSize]): 
     y += row % 2 === 0 ? settings.hotAisleGap : settings.coldAisleGap;
   }
   return y;
+}
+
+function fitSvgText(text: string, fontSize: number, maxWidth: number): { fontSize: number; textLength?: number } {
+  if (!text) return { fontSize };
+
+  const estimatedWidth = estimateSvgTextWidth(text, fontSize);
+  if (estimatedWidth <= maxWidth) return { fontSize };
+
+  const compressedWidth = estimatedWidth * 0.8;
+  if (compressedWidth <= maxWidth) {
+    return { fontSize, textLength: Math.max(1, compressedWidth) };
+  }
+
+  const fittedFontSize = Math.max(4.5, fontSize * (maxWidth / compressedWidth));
+  return { fontSize: fittedFontSize, textLength: Math.max(1, maxWidth) };
+}
+
+function estimateSvgTextWidth(text: string, fontSize: number): number {
+  const narrowChars = text.match(/[I1il|.,:;\-]/g)?.length ?? 0;
+  const wideChars = text.match(/[MW@#%&]/g)?.length ?? 0;
+  const normalChars = Math.max(0, text.length - narrowChars - wideChars);
+  return fontSize * (normalChars * 0.58 + narrowChars * 0.32 + wideChars * 0.78);
 }
 
 function ProgressBar({

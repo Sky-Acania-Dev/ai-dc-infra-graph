@@ -272,8 +272,7 @@ def _is_group_row(row: dict[str, str]) -> bool:
 
 def _is_valid_cable_row(row: dict[str, str]) -> bool:
     return bool(
-        row.get("status", "")
-        and row.get("a_loc_cab_ru", "")
+        row.get("a_loc_cab_ru", "")
         and row.get("a_port", "")
         and row.get("z_loc_cab_ru", "")
         and row.get("z_port", "")

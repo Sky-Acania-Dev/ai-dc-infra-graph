@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from backend.core.progress_config import normalize_cable_progress_phase
-from backend.models import CableProgressPhase, CableProgressState, CableProgressStep, Device, LifecycleStatus
+from backend.models import CableProgressPhase, CableProgressState, CableProgressStep, Device, DeviceModel, LifecycleStatus
 
 
 class DeviceStatusOverride(BaseModel):
@@ -26,11 +27,21 @@ class CableOverride(BaseModel):
     note: str = ""
 
 
+class DeviceModelOverride(BaseModel):
+    model_name: str | None = None
+    manufacturer: str = ""
+    rack_units: int | None = None
+    front_panel_svg: str = ""
+    back_panel_svg: str = ""
+    note: str = ""
+
+
 class StatusOverrides(BaseModel):
     data_halls: dict[str, LifecycleStatus] = Field(default_factory=dict)
     cabinets: dict[str, LifecycleStatus] = Field(default_factory=dict)
     cabinet_max_rack_units: dict[str, int] = Field(default_factory=dict)
     devices: dict[str, DeviceStatusOverride] = Field(default_factory=dict)
+    device_models: dict[str, DeviceModelOverride] = Field(default_factory=dict)
     cables: dict[str, CableOverride] = Field(default_factory=dict)
 
 
@@ -53,6 +64,10 @@ def load_status_overrides(path: str | Path | None) -> StatusOverrides:
             _normalize_device_uid(key): DeviceStatusOverride(device_uid=_normalize_device_uid(key), **value)
             for key, value in payload.get("devices", {}).items()
         },
+        device_models={
+            _device_model_uid(value.get("model_name") or key): DeviceModelOverride(**value)
+            for key, value in payload.get("device_models", {}).items()
+        },
         cables={
             key.upper(): CableOverride(cable_uid=key.upper(), **value)
             for key, value in payload.get("cables", {}).items()
@@ -69,6 +84,7 @@ def apply_status_overrides(database, overrides: StatusOverrides):
 
     _apply_cabinet_overrides(database.cabinets, overrides)
     _apply_cable_overrides(database.cables, overrides)
+    _sync_device_model_catalog(database, overrides)
     return database
 
 
@@ -118,11 +134,93 @@ def _apply_cabinet_overrides(cabinets, overrides: StatusOverrides) -> None:
             cabinet.devices.append(device)
         elif _should_apply_device_model(device.device_model, override.device_model):
             device.device_model = override.device_model
+            device.device_model_uid = ""
 
         device.lifecycle_status = override.lifecycle_status
         if override.note:
             device.note = override.note
         cabinet.devices.sort(key=lambda item: (item.rack_unit, item.device_model))
+
+
+def _sync_device_model_catalog(database, overrides: StatusOverrides) -> None:
+    models_by_uid: dict[str, DeviceModel] = {
+        model.uid: _copy_device_model(model) for model in getattr(database, "device_models", [])
+    }
+    for device in _iter_devices(database.cabinets):
+        _register_device_model_instance(models_by_uid, device)
+
+    for model_uid, override in overrides.device_models.items():
+        model = models_by_uid.get(model_uid)
+        if model is None:
+            model = DeviceModel(uid=model_uid, model_name=override.model_name or model_uid)
+            models_by_uid[model_uid] = model
+        if override.model_name:
+            model.model_name = override.model_name
+        if override.manufacturer:
+            model.manufacturer = override.manufacturer
+        if override.rack_units is not None:
+            model.rack_units = max(1, int(override.rack_units))
+        if override.front_panel_svg:
+            model.front_panel_svg = override.front_panel_svg
+        if override.back_panel_svg:
+            model.back_panel_svg = override.back_panel_svg
+        if override.note:
+            model.note = override.note
+
+    for model in models_by_uid.values():
+        model.device_instance_uids = sorted(set(model.device_instance_uids))
+
+    database.device_models = sorted(models_by_uid.values(), key=lambda item: item.model_name)
+    _apply_device_model_catalog_to_cabinets(database.cabinets, database.device_models)
+    _apply_device_model_catalog_to_data_halls(database.data_halls, database.device_models)
+
+
+def _register_device_model_instance(models_by_uid: dict[str, DeviceModel], device: Device) -> None:
+    model_name = device.device_model or "Unknown"
+    model_uid = device.device_model_uid or _device_model_uid(model_name)
+    model = models_by_uid.get(model_uid)
+    if model is None:
+        model = DeviceModel(uid=model_uid, model_name=model_name, rack_units=max(1, int(device.rack_units or 1)))
+        models_by_uid[model_uid] = model
+    instance_uid = f"{device.cabinet_id}:{device.rack_unit}".upper()
+    if instance_uid not in model.device_instance_uids:
+        model.device_instance_uids.append(instance_uid)
+
+
+def _apply_device_model_catalog_to_cabinets(cabinets, device_models: list[DeviceModel]) -> None:
+    models_by_uid = {model.uid: model for model in device_models}
+    for device in _iter_devices(cabinets):
+        _apply_device_model_to_device(device, models_by_uid)
+
+
+def _apply_device_model_catalog_to_data_halls(data_halls, device_models: list[DeviceModel]) -> None:
+    models_by_uid = {model.uid: model for model in device_models}
+    for data_hall in data_halls:
+        for cabinet in data_hall.cabinets:
+            for device in cabinet.devices:
+                _apply_device_model_to_device(device, models_by_uid)
+
+
+def _apply_device_model_to_device(device: Device, models_by_uid: dict[str, DeviceModel]) -> None:
+    model_uid = device.device_model_uid or _device_model_uid(device.device_model or "Unknown")
+    model = models_by_uid.get(model_uid)
+    device.device_model_uid = model_uid
+    if model is not None:
+        device.rack_units = max(1, int(model.rack_units or 1))
+    else:
+        device.rack_units = max(1, int(device.rack_units or 1))
+
+
+def _iter_devices(cabinets):
+    for cabinet in cabinets:
+        for device in cabinet.devices:
+            yield device
+
+
+def _copy_device_model(device_model: DeviceModel) -> DeviceModel:
+    if hasattr(device_model, "model_copy"):
+        return device_model.model_copy(deep=True)
+    return device_model.copy(deep=True)
 
 
 def _find_device(devices: list[Device], device_uid: str) -> Device | None:
@@ -172,3 +270,8 @@ def _cabinet_uid_from_device_uid(device_uid: str) -> str:
 def _normalize_device_uid(device_uid: str) -> str:
     data_hall_id, cabinet_id, rack_unit = device_uid.upper().split(":", 2)
     return f"{data_hall_id}:{cabinet_id}:{int(rack_unit)}"
+
+
+def _device_model_uid(model_name: str) -> str:
+    normalized = re.sub(r"[^A-Z0-9]+", "-", model_name.upper()).strip("-")
+    return normalized or "UNKNOWN"

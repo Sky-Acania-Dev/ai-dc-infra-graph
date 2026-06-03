@@ -8,6 +8,7 @@ from backend.models import (
     CableProgressStep,
     ConnectorType,
     Device,
+    DeviceModel,
     LifecycleStatus,
     PortConnector,
     Project,
@@ -24,8 +25,17 @@ class TopologyModelTests(unittest.TestCase):
             cabinet_id="CAB-A01",
             rack_unit=42,
             device_model="NVIDIA Spectrum SN5600",
+            device_model_uid="NVIDIA-SPECTRUM-SN5600",
+            rack_units=2,
             ports_by_type={ConnectorType.LC: [port_a]},
             note="Initial model placeholder",
+        )
+        device_model = DeviceModel(
+            uid="NVIDIA-SPECTRUM-SN5600",
+            model_name="NVIDIA Spectrum SN5600",
+            manufacturer="NVIDIA",
+            rack_units=2,
+            device_instance_uids=["CAB-A01:42"],
         )
         cabinet = Cabinet(
             building_id="A",
@@ -57,6 +67,8 @@ class TopologyModelTests(unittest.TestCase):
         self.assertEqual(cable.length_used_meters, 31.5)
         self.assertEqual(cable.note, "Spare length coiled above cabinet.")
         self.assertEqual(device.lifecycle_status, LifecycleStatus.NOT_INSTALLED)
+        self.assertEqual(device_model.rack_units, 2)
+        self.assertEqual(device_model.device_instance_uids, ["CAB-A01:42"])
         self.assertEqual(cabinet.lifecycle_status, LifecycleStatus.NOT_INSTALLED)
         self.assertEqual(cabinet.max_rack_unit, 48)
         self.assertEqual(room.lifecycle_status, LifecycleStatus.UNKNOWN)

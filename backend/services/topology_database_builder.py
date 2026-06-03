@@ -5,19 +5,21 @@ from pathlib import Path
 
 from backend.ingest.cutsheet import CutsheetIngestionResult, CutsheetSummary, ingest_cutsheet
 from backend.ingest.overhead import OverheadIngestionResult, ingest_overhead
-from backend.models import Cabinet, ConnectorType, Device, LifecycleStatus, PortConnector, Room
+from backend.models import Cabinet, ConnectorType, ConstructionPhase, Device, LifecycleStatus, PortConnector, Room
 from backend.persistence import TopologyDatabase
 from backend.services.status_overrides import StatusOverrides, apply_status_overrides, load_status_overrides
-from backend.validation import BreakoutFanoutRule
+from backend.validation import BreakoutFanoutRule, detect_port_collisions
 from backend.validation.device_models import detect_device_model_findings
 
 
 def build_topology_database_from_sources(
     cutsheet_path: str | Path,
     overhead_path: str | Path,
+    roce_cutsheet_path: str | Path | None = None,
     project_uid: str = "MSK01",
     building_id: str = "A",
     cutsheet_sheet_name: str | None = None,
+    roce_cutsheet_sheet_name: str | None = None,
     overhead_sheet_name: str | None = None,
     breakout_rules: list[BreakoutFanoutRule] | None = None,
     status_overrides_path: str | Path | None = None,
@@ -30,27 +32,47 @@ def build_topology_database_from_sources(
         sheet_name=cutsheet_sheet_name,
         breakout_rules=breakout_rules,
     )
+    roce_cutsheet_result = (
+        ingest_cutsheet(
+            roce_cutsheet_path,
+            project_uid=project_uid,
+            building_id=building_id,
+            sheet_name=roce_cutsheet_sheet_name,
+            breakout_rules=breakout_rules,
+        )
+        if roce_cutsheet_path
+        else None
+    )
     overhead_result = ingest_overhead(overhead_path, sheet_name=overhead_sheet_name)
     return build_topology_database_from_results(
         cutsheet_result=cutsheet_result,
         overhead_result=overhead_result,
+        roce_cutsheet_result=roce_cutsheet_result,
         project_uid=project_uid,
         building_id=building_id,
         status_overrides=load_status_overrides(status_overrides_path),
         default_max_rack_unit=default_max_rack_unit,
+        breakout_rules=breakout_rules,
     )
 
 
 def build_topology_database_from_results(
     cutsheet_result: CutsheetIngestionResult,
     overhead_result: OverheadIngestionResult,
+    roce_cutsheet_result: CutsheetIngestionResult | None = None,
     project_uid: str = "MSK01",
     building_id: str = "A",
     status_overrides: StatusOverrides | None = None,
     default_max_rack_unit: int = 48,
+    breakout_rules: list[BreakoutFanoutRule] | None = None,
 ) -> TopologyDatabase:
     status_overrides = status_overrides or StatusOverrides()
-    devices_by_cabinet = _devices_by_cabinet(cutsheet_result)
+    cutsheet_inputs = _cutsheet_phase_inputs(cutsheet_result, roce_cutsheet_result)
+    combined_rows = [row for result, _phase in cutsheet_inputs for row in result.rows]
+    combined_ports = _combined_ports(cutsheet_inputs)
+    combined_findings = detect_port_collisions(combined_rows, breakout_rules=breakout_rules)
+    devices_by_cabinet = _devices_by_cabinet(cutsheet_inputs)
+    cables = _cables_with_construction_phase(cutsheet_inputs)
     cabinets = [
         Cabinet(
             building_id=building_id,
@@ -59,6 +81,7 @@ def build_topology_database_from_results(
             category=record.category,
             cabinet_group=record.cabinet_group,
             lifecycle_status=_cabinet_status(record.data_hall_id, record.cabinet_id, record.category, status_overrides),
+            construction_phase=_cabinet_construction_phase(record.data_hall_id, record.category),
             max_rack_unit=_max_rack_unit(record.data_hall_id, record.cabinet_id, status_overrides, default_max_rack_unit),
             source_row=record.source_row,
             source_col=record.source_col,
@@ -67,29 +90,39 @@ def build_topology_database_from_results(
         for record in overhead_result.cabinets
     ]
     data_halls = _rooms_from_cabinets(cabinets, building_id=building_id, status_overrides=status_overrides)
-    device_model_mismatches, device_model_format_issues = detect_device_model_findings(cutsheet_result.rows)
+    device_model_mismatches, device_model_format_issues = detect_device_model_findings(combined_rows)
 
     database = TopologyDatabase(
         project_uid=project_uid,
         building_id=building_id,
         summary=CutsheetSummary(
-            rows=len(cutsheet_result.rows),
+            rows=len(combined_rows),
             data_halls=len(data_halls),
             cabinets=len(cabinets),
-            ports=len(cutsheet_result.ports),
-            cables=len(cutsheet_result.cables),
-            port_collision_findings=len(cutsheet_result.findings),
+            ports=len(combined_ports),
+            cables=len(cables),
+            port_collision_findings=len(combined_findings),
         ),
-        port_collision_findings=cutsheet_result.findings,
+        port_collision_findings=combined_findings,
         device_model_mismatches=device_model_mismatches,
         device_model_format_issues=device_model_format_issues,
         data_halls=data_halls,
         cabinets=cabinets,
-        ports=cutsheet_result.ports,
-        cables=cutsheet_result.cables,
-        rows=cutsheet_result.rows,
+        ports=combined_ports,
+        cables=cables,
+        rows=combined_rows,
     )
     return apply_status_overrides(database, status_overrides)
+
+
+def _cutsheet_phase_inputs(
+    cutsheet_result: CutsheetIngestionResult,
+    roce_cutsheet_result: CutsheetIngestionResult | None,
+) -> list[tuple[CutsheetIngestionResult, ConstructionPhase]]:
+    inputs = [(cutsheet_result, ConstructionPhase.MANAGEMENT_ETHERNET)]
+    if roce_cutsheet_result is not None:
+        inputs.append((roce_cutsheet_result, ConstructionPhase.ROCE))
+    return inputs
 
 
 def _rooms_from_cabinets(cabinets: list[Cabinet], building_id: str, status_overrides: StatusOverrides) -> list[Room]:
@@ -102,32 +135,46 @@ def _rooms_from_cabinets(cabinets: list[Cabinet], building_id: str, status_overr
             building_id=building_id,
             room_id=data_hall_id,
             lifecycle_status=status_overrides.data_halls.get(data_hall_id, LifecycleStatus.UNKNOWN),
+            construction_phase=_data_hall_construction_phase(data_hall_id),
             cabinets=sorted(room_cabinets, key=lambda cabinet: cabinet.cabinet_id),
         )
         for data_hall_id, room_cabinets in sorted(cabinets_by_data_hall.items())
     ]
 
 
-def _devices_by_cabinet(cutsheet_result: CutsheetIngestionResult) -> dict[tuple[str, str], list[Device]]:
+def _combined_ports(cutsheet_inputs: list[tuple[CutsheetIngestionResult, ConstructionPhase]]) -> list[PortConnector]:
+    ports_by_uid: dict[str, PortConnector] = {}
+    for result, _phase in cutsheet_inputs:
+        for port in result.ports:
+            ports_by_uid[port.uid] = port
+    return sorted(ports_by_uid.values(), key=lambda port: port.uid)
+
+
+def _devices_by_cabinet(
+    cutsheet_inputs: list[tuple[CutsheetIngestionResult, ConstructionPhase]],
+) -> dict[tuple[str, str], list[Device]]:
     device_ports: dict[tuple[str, str, int], dict[ConnectorType, dict[str, PortConnector]]] = defaultdict(lambda: defaultdict(dict))
     device_names: dict[tuple[str, str, int], set[str]] = defaultdict(set)
     device_models: dict[tuple[str, str, int], set[str]] = defaultdict(set)
+    device_phases: dict[tuple[str, str, int], set[ConstructionPhase]] = defaultdict(set)
 
-    for row in cutsheet_result.rows:
-        for side in ("a", "z"):
-            data_hall_id = getattr(row, f"{side}_data_hall_id")
-            cabinet_id = getattr(row, f"{side}_cabinet_id")
-            rack_unit = getattr(row, f"{side}_rack_unit")
-            device_name = getattr(row, f"{side}_device_name")
-            device_model = getattr(row, f"{side}_device_model")
-            port_uid = getattr(row, f"{side}_port_uid")
-            connector_type = _connector_type_from_cable(row.cable_type)
-            key = (data_hall_id, cabinet_id, rack_unit)
-            if device_name:
-                device_names[key].add(device_name)
-            if device_model:
-                device_models[key].add(device_model)
-            device_ports[key][connector_type][port_uid] = PortConnector(uid=port_uid, type=connector_type)
+    for result, construction_phase in cutsheet_inputs:
+        for row in result.rows:
+            for side in ("a", "z"):
+                data_hall_id = getattr(row, f"{side}_data_hall_id")
+                cabinet_id = getattr(row, f"{side}_cabinet_id")
+                rack_unit = getattr(row, f"{side}_rack_unit")
+                device_name = getattr(row, f"{side}_device_name")
+                device_model = getattr(row, f"{side}_device_model")
+                port_uid = getattr(row, f"{side}_port_uid")
+                connector_type = _connector_type_from_cable(row.cable_type)
+                key = (data_hall_id, cabinet_id, rack_unit)
+                if device_name:
+                    device_names[key].add(device_name)
+                if device_model:
+                    device_models[key].add(device_model)
+                device_phases[key].add(construction_phase)
+                device_ports[key][connector_type][port_uid] = PortConnector(uid=port_uid, type=connector_type)
 
     cabinets: dict[tuple[str, str], list[Device]] = defaultdict(list)
     for (data_hall_id, cabinet_id, rack_unit), ports_by_type in device_ports.items():
@@ -141,6 +188,7 @@ def _devices_by_cabinet(cutsheet_result: CutsheetIngestionResult) -> dict[tuple[
                 rack_unit=rack_unit,
                 device_model=device_model,
                 lifecycle_status=LifecycleStatus.NOT_INSTALLED,
+                construction_phase=_device_construction_phase(device_phases.get((data_hall_id, cabinet_id, rack_unit), set())),
                 aliases=aliases,
                 model_aliases=[model for model in model_aliases if model != device_model],
                 ports_by_type={
@@ -180,6 +228,7 @@ def _devices_for_cabinet(
                 cabinet_id=cabinet_uid,
                 rack_unit=int(device_uid.split(":")[2]),
                 device_model=override.device_model or "Unknown",
+                construction_phase=ConstructionPhase.MANAGEMENT_ETHERNET,
             )
         elif _should_apply_device_model(device.device_model, override.device_model):
             device.device_model = override.device_model
@@ -204,6 +253,46 @@ def _cabinet_status(
     if category.upper() in {"RES", "U"}:
         return LifecycleStatus.NOT_PLANNED
     return LifecycleStatus.NOT_INSTALLED
+
+
+def _cables_with_construction_phase(cutsheet_inputs: list[tuple[CutsheetIngestionResult, ConstructionPhase]]):
+    cables = []
+    for result, construction_phase in cutsheet_inputs:
+        for cable in result.cables:
+            copied_cable = _copy_cable_with_construction_phase(cable, construction_phase)
+            copied_cable.uid = f"CBL-{len(cables) + 1:06d}"
+            cables.append(copied_cable)
+    return cables
+
+
+def _copy_cable_with_construction_phase(cable, construction_phase: ConstructionPhase):
+    if hasattr(cable, "model_copy"):
+        copied_cable = cable.model_copy(deep=True)
+    else:
+        copied_cable = cable.copy(deep=True)
+    copied_cable.construction_phase = construction_phase
+    return copied_cable
+
+
+def _data_hall_construction_phase(data_hall_id: str) -> ConstructionPhase:
+    return ConstructionPhase.MANAGEMENT_ETHERNET
+
+
+def _device_construction_phase(phases: set[ConstructionPhase]) -> ConstructionPhase:
+    if phases == {ConstructionPhase.ROCE}:
+        return ConstructionPhase.ROCE
+    return ConstructionPhase.MANAGEMENT_ETHERNET
+
+
+def _cabinet_construction_phase(data_hall_id: str, category: str) -> ConstructionPhase:
+    if _is_roce_related_category(category):
+        return ConstructionPhase.ROCE
+    return ConstructionPhase.MANAGEMENT_ETHERNET
+
+
+def _is_roce_related_category(category: str) -> bool:
+    normalized = category.upper()
+    return normalized.startswith("HD-GB3") or "GPU" in normalized
 
 
 def _max_rack_unit(

@@ -38,6 +38,7 @@ class JsonDatabaseTests(unittest.TestCase):
         self.assertEqual(database.summary.rows, 1)
         self.assertEqual(database.summary.cabinets, 2)
         self.assertEqual(database.cables[0].uid, "CBL-000001")
+        self.assertEqual(database.device_models, [])
         self.assertFalse(database.has_port_collisions)
 
     def test_saves_runtime_database_snapshot(self) -> None:
@@ -65,6 +66,7 @@ class JsonDatabaseTests(unittest.TestCase):
         self.assertEqual(saved_payload["summary"]["rows"], 1)
         self.assertEqual(saved_payload["schema_version"], SCHEMA_VERSION)
         self.assertEqual(saved_payload["cables"][0]["uid"], "CBL-000001")
+        self.assertIn("device_models", saved_payload)
         self.assertEqual(saved_payload["port_collision_findings"], [])
 
     def test_load_json_database_api_handler(self) -> None:

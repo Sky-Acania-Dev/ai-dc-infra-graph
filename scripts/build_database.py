@@ -17,11 +17,13 @@ from backend.validation import BreakoutFanoutRule
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build one topology database JSON from cutsheet and overhead sources.")
     parser.add_argument("--cutsheet-path", required=True)
+    parser.add_argument("--roce-cutsheet-path", default=None)
     parser.add_argument("--overhead-path", required=True)
     parser.add_argument("--runtime-path", default=str(DEFAULT_RUNTIME_DATABASE_PATH))
     parser.add_argument("--project-uid", default=DEFAULT_PROJECT_UID)
     parser.add_argument("--building-id", default=DEFAULT_BUILDING_ID)
     parser.add_argument("--cutsheet-sheet-name", default=None)
+    parser.add_argument("--roce-cutsheet-sheet-name", default=None)
     parser.add_argument("--overhead-sheet-name", default=None)
     parser.add_argument("--breakout-max-children", type=int, default=4)
     parser.add_argument("--status-overrides-path", default="data/status_overrides.json")
@@ -30,10 +32,12 @@ def main() -> None:
 
     database = build_topology_database_from_sources(
         cutsheet_path=args.cutsheet_path,
+        roce_cutsheet_path=args.roce_cutsheet_path,
         overhead_path=args.overhead_path,
         project_uid=args.project_uid,
         building_id=args.building_id,
         cutsheet_sheet_name=args.cutsheet_sheet_name,
+        roce_cutsheet_sheet_name=args.roce_cutsheet_sheet_name,
         overhead_sheet_name=args.overhead_sheet_name,
         breakout_rules=[BreakoutFanoutRule(max_child_connections=args.breakout_max_children)],
         status_overrides_path=args.status_overrides_path,

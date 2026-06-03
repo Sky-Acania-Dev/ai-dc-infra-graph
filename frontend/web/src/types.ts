@@ -10,6 +10,7 @@ export type AuthUser = {
 
 export type TopologyEnums = {
   lifecycle_statuses: string[];
+  construction_phases: string[];
   cable_import_statuses: string[];
   cable_progress_steps: string[];
   cable_progress_states: string[];
@@ -58,10 +59,37 @@ export type Device = {
   cabinet_id: string;
   rack_unit: number;
   device_model: string;
+  device_model_uid: string;
+  rack_units: number;
   lifecycle_status: string;
+  construction_phase: string;
   aliases: string[];
   model_aliases: string[];
+  port_layout_overrides: DevicePortLayoutEntry[];
   ports_by_type: Partial<Record<ConnectorType, PortConnector[]>>;
+  note: string;
+};
+
+export type DevicePortLayoutEntry = {
+  port_name: string;
+  side: "front" | "back" | string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  connector_type: ConnectorType;
+  note: string;
+};
+
+export type DeviceModel = {
+  uid: string;
+  model_name: string;
+  manufacturer: string;
+  rack_units: number;
+  device_instance_uids: string[];
+  front_panel_svg: string;
+  back_panel_svg: string;
+  port_layout: DevicePortLayoutEntry[];
   note: string;
 };
 
@@ -72,6 +100,7 @@ export type CabinetLayoutItem = {
   category: string;
   cabinet_group: string;
   lifecycle_status: string;
+  construction_phase: string;
   max_rack_unit: number;
   cable_termination_percent: number;
   cable_dress_percent: number;
@@ -131,6 +160,7 @@ export type CabinetCableDetail = {
   group: string;
   status: string;
   cable_type: string;
+  construction_phase: string;
   progress: Record<string, string>;
   current_phase: CableProgressPhase | null;
   designed_length_meters: number | null;

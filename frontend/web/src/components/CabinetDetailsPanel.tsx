@@ -12,8 +12,10 @@ type CabinetDetailsPanelProps = {
   dataHall: string;
   cabinets: CabinetLayoutItem[];
   selectedDeviceUid: string | null;
+  deviceScrollRequest: number;
   connectedDeviceUids: Set<string>;
   onSelectDevice: (device: Device) => void;
+  onViewPortLayout: (device: Device) => void;
   onClearDeviceSelection: () => void;
   canEdit: boolean;
   lifecycleStatuses: string[];
@@ -25,14 +27,16 @@ export function CabinetDetailsPanel({
   dataHall,
   cabinets,
   selectedDeviceUid,
+  deviceScrollRequest,
   connectedDeviceUids,
   onSelectDevice,
+  onViewPortLayout,
   onClearDeviceSelection,
   canEdit,
   lifecycleStatuses,
   onStatusChanged,
 }: CabinetDetailsPanelProps) {
-  const { formatLifecycleStatus, formatNumber, t } = useI18n();
+  const { formatConstructionPhase, formatLifecycleStatus, formatNumber, t } = useI18n();
   const categorySummaryPan = useDragPan<HTMLElement>();
   const [categorySummaryHasScrollbar, setCategorySummaryHasScrollbar] = useState(false);
 
@@ -118,6 +122,10 @@ export function CabinetDetailsPanel({
           </dd>
         </div>
         <div>
+          <dt>{t("cabinet.constructionPhase")}</dt>
+          <dd>{formatConstructionPhase(detail.cabinet.construction_phase)}</dd>
+        </div>
+        <div>
           <dt>{t("cabinet.rackUnits")}</dt>
           <dd>{formatNumber(detail.cabinet.max_rack_unit)}U</dd>
         </div>
@@ -152,8 +160,10 @@ export function CabinetDetailsPanel({
         devices={detail.devices}
         maxRackUnit={detail.cabinet.max_rack_unit}
         selectedDeviceUid={selectedDeviceUid}
+        scrollRequest={deviceScrollRequest}
         connectedDeviceUids={connectedDeviceUids}
         onSelectDevice={onSelectDevice}
+        onViewPortLayout={onViewPortLayout}
         canEdit={canEdit}
         lifecycleStatuses={lifecycleStatuses}
         onDeviceStatusChange={(device, lifecycleStatus) => {

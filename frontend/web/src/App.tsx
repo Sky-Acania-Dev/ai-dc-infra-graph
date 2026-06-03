@@ -14,6 +14,7 @@ import { CableDetailOverlay } from "./components/CableDetailOverlay";
 import { CabinetConnectionsPanel } from "./components/CabinetConnectionsPanel";
 import { CabinetDetailsPanel } from "./components/CabinetDetailsPanel";
 import { CabinetMap } from "./components/CabinetMap";
+import { DevicePortLayout } from "./components/DevicePortLayout";
 import { ValidationView } from "./components/ValidationView";
 import type { MapProgressDisplay, MapSize } from "./components/CabinetMap";
 import type {
@@ -31,6 +32,7 @@ import { useI18n, type Locale } from "./i18n";
 
 const DATA_HALLS = ["DH1", "DH2"];
 type AppMode = "topology" | "validation";
+type CenterViewMode = "cabinet_map" | "port_layout";
 
 export function App() {
   const { locale, setLocale, t } = useI18n();
@@ -40,17 +42,22 @@ export function App() {
   const [selectedCabinetUid, setSelectedCabinetUid] = useState<string | null>(null);
   const [detail, setDetail] = useState<CabinetDetailResponse | null>(null);
   const [cableDetail, setCableDetail] = useState<CableDetailResponse | null>(null);
+  const [isCableDetailLoading, setIsCableDetailLoading] = useState(false);
+  const [cableDetailRoute, setCableDetailRoute] = useState<{ source: string; target: string } | null>(null);
   const [selectedDeviceUid, setSelectedDeviceUid] = useState<string | null>(null);
+  const [deviceScrollRequest, setDeviceScrollRequest] = useState(0);
   const [deviceDetail, setDeviceDetail] = useState<DeviceConnectionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [mapSize, setMapSize] = useState<MapSize>("normal");
   const [mapProgressDisplay, setMapProgressDisplay] = useState<MapProgressDisplay>("text");
+  const [centerViewMode, setCenterViewMode] = useState<CenterViewMode>("cabinet_map");
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [topologyEnums, setTopologyEnums] = useState<TopologyEnums | null>(null);
   const [dataHallCableSummary, setDataHallCableSummary] = useState<DataHallCableSummaryResponse | null>(null);
   const cabinetLayoutCacheRef = useRef<Record<string, CabinetLayoutItem[]>>({});
   const dataHallCableSummaryCacheRef = useRef<Record<string, DataHallCableSummaryResponse>>({});
+  const cableDetailRequestRef = useRef(0);
   const canEdit = currentUser?.role === "manager" || currentUser?.role === "editor";
 
   useEffect(() => {
@@ -133,50 +140,91 @@ export function App() {
     () => new Set(deviceDetail?.connected_devices.map((connection) => connection.target_device_uid) ?? []),
     [deviceDetail],
   );
+  const selectedDevice = useMemo(() => {
+    if (!selectedDeviceUid) return null;
+    return detail?.devices.find((device) => `${device.cabinet_id}:${device.rack_unit}` === selectedDeviceUid) ?? null;
+  }, [detail, selectedDeviceUid]);
 
   function clearSelection() {
     setSelectedCabinetUid(null);
     setDetail(null);
-    setCableDetail(null);
+    closeCableDetail();
+    setCenterViewMode("cabinet_map");
     clearDeviceSelection();
   }
 
   function clearDeviceSelection() {
     setSelectedDeviceUid(null);
     setDeviceDetail(null);
+    setCenterViewMode("cabinet_map");
   }
 
   function viewConnectionCables(targetCabinetUid: string) {
     if (!selectedCabinetUid) return;
-    setError(null);
-    fetchCabinetConnectionCables(selectedCabinetUid, targetCabinetUid)
-      .then(setCableDetail)
-      .catch((requestError: Error) => setError(requestError.message));
+    openCableDetail(
+      { source: selectedCabinetUid, target: targetCabinetUid },
+      () => fetchCabinetConnectionCables(selectedCabinetUid, targetCabinetUid),
+    );
   }
 
   function viewDeviceConnectionCables(targetDeviceUid: string) {
     if (!selectedDeviceUid) return;
-    setError(null);
-    fetchDeviceConnectionCables(selectedDeviceUid, targetDeviceUid)
-      .then(setCableDetail)
-      .catch((requestError: Error) => setError(requestError.message));
+    openCableDetail(
+      { source: selectedDeviceUid, target: targetDeviceUid },
+      () => fetchDeviceConnectionCables(selectedDeviceUid, targetDeviceUid),
+    );
   }
 
   function viewDataHallCables(bucket: DataHallCableBucket, cableType: string) {
+    const target = bucket.scope === "internal" ? `${dataHall} ${cableType}` : `${bucket.target_data_hall ?? "External"} ${cableType}`;
+    openCableDetail(
+      { source: dataHall, target },
+      () => fetchDataHallCables(dataHall, bucket.scope, cableType, bucket.target_data_hall),
+    );
+  }
+
+  function openCableDetail(route: { source: string; target: string }, load: () => Promise<CableDetailResponse>) {
+    const requestId = cableDetailRequestRef.current + 1;
+    cableDetailRequestRef.current = requestId;
+    setCableDetail(null);
+    setCableDetailRoute(route);
+    setIsCableDetailLoading(true);
     setError(null);
-    fetchDataHallCables(dataHall, bucket.scope, cableType, bucket.target_data_hall)
-      .then(setCableDetail)
-      .catch((requestError: Error) => setError(requestError.message));
+    load()
+      .then((nextCableDetail) => {
+        if (cableDetailRequestRef.current !== requestId) return;
+        setCableDetail(nextCableDetail);
+      })
+      .catch((requestError: Error) => {
+        if (cableDetailRequestRef.current !== requestId) return;
+        setError(requestError.message);
+        setCableDetailRoute(null);
+      })
+      .finally(() => {
+        if (cableDetailRequestRef.current === requestId) setIsCableDetailLoading(false);
+      });
+  }
+
+  function closeCableDetail() {
+    cableDetailRequestRef.current += 1;
+    setCableDetail(null);
+    setCableDetailRoute(null);
+    setIsCableDetailLoading(false);
   }
 
   function selectDevice(device: Device) {
     const deviceUid = `${device.cabinet_id}:${device.rack_unit}`;
     setSelectedDeviceUid(deviceUid);
-    setCableDetail(null);
+    closeCableDetail();
     setError(null);
     fetchDeviceConnections(device.cabinet_id, device.rack_unit)
       .then(setDeviceDetail)
       .catch((requestError: Error) => setError(requestError.message));
+  }
+
+  function viewPortLayout(device: Device) {
+    selectDevice(device);
+    setCenterViewMode("port_layout");
   }
 
   function jumpToDevice(deviceUid: string) {
@@ -186,7 +234,8 @@ export function App() {
     setDataHall(parsed.dataHall);
     setSelectedCabinetUid(parsed.cabinetUid);
     setSelectedDeviceUid(parsed.deviceUid);
-    setCableDetail(null);
+    setDeviceScrollRequest((current) => current + 1);
+    closeCableDetail();
     setError(null);
     fetchDeviceConnections(parsed.cabinetUid, parsed.rackUnit)
       .then(setDeviceDetail)
@@ -266,8 +315,10 @@ export function App() {
             dataHall={dataHall}
             cabinets={cabinets}
             selectedDeviceUid={selectedDeviceUid}
+            deviceScrollRequest={deviceScrollRequest}
             connectedDeviceUids={connectedDeviceUids}
             onSelectDevice={selectDevice}
+            onViewPortLayout={viewPortLayout}
             onClearDeviceSelection={clearDeviceSelection}
             canEdit={canEdit}
             lifecycleStatuses={topologyEnums?.lifecycle_statuses ?? []}
@@ -290,28 +341,36 @@ export function App() {
             <section className="map-pane loading-pane">{t("common.loading", { target: dataHall })}</section>
           ) : (
             <div className="map-stack">
-              <CabinetMap
-                cabinets={cabinets}
-                selectedCabinetUid={selectedCabinetUid}
-                selectedDeviceCabinetUid={deviceDetail?.source_cabinet_uid ?? null}
-                connectedCabinetUids={connectedCabinetUids}
-                isDeviceMode={Boolean(selectedDeviceUid)}
-                mapSize={mapSize}
-                progressDisplay={mapProgressDisplay}
-                onSelectCabinet={(cabinetUid) => {
-                  setSelectedCabinetUid(cabinetUid);
-                  setCableDetail(null);
-                  clearDeviceSelection();
-                }}
-                onClearSelection={clearSelection}
-                onMapSizeChange={setMapSize}
-                onProgressDisplayChange={setMapProgressDisplay}
-              />
+              {centerViewMode === "port_layout" ? (
+                <DevicePortLayout device={selectedDevice} onShowCabinetMap={() => setCenterViewMode("cabinet_map")} />
+              ) : (
+                <CabinetMap
+                  cabinets={cabinets}
+                  selectedCabinetUid={selectedCabinetUid}
+                  selectedDeviceCabinetUid={deviceDetail?.source_cabinet_uid ?? null}
+                  connectedCabinetUids={connectedCabinetUids}
+                  isDeviceMode={Boolean(selectedDeviceUid)}
+                  mapSize={mapSize}
+                  progressDisplay={mapProgressDisplay}
+                  onSelectCabinet={(cabinetUid) => {
+                    setSelectedCabinetUid(cabinetUid);
+                    closeCableDetail();
+                    clearDeviceSelection();
+                  }}
+                  onClearSelection={clearSelection}
+                  onMapSizeChange={setMapSize}
+                  onProgressDisplayChange={setMapProgressDisplay}
+                  onShowPortLayout={() => setCenterViewMode("port_layout")}
+                  canShowPortLayout={Boolean(selectedDevice)}
+                />
+              )}
               <CableDetailOverlay
                 cableDetail={cableDetail}
+                isLoading={isCableDetailLoading}
+                routeLabel={cableDetailRoute}
                 canEdit={canEdit}
                 topologyEnums={topologyEnums}
-                onClose={() => setCableDetail(null)}
+                onClose={closeCableDetail}
                 onCableUpdated={(updatedCable) => {
                   setCableDetail((current) => {
                     if (!current) return current;

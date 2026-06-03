@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -8,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from backend.core.config import DEFAULT_RUNTIME_DATABASE_PATH, SCHEMA_VERSION
 from backend.ingest.cutsheet import CutsheetCableRow, CutsheetIngestionResult, CutsheetSummary
-from backend.models import Cabinet, Cable, PortConnector, Room
+from backend.models import Cabinet, Cable, Device, DeviceModel, PortConnector, Room
 from backend.validation import PortConnectionFinding
 from backend.validation.device_models import DeviceModelFinding, detect_device_model_findings
 
@@ -26,6 +27,7 @@ class TopologyDatabase(BaseModel):
     device_model_format_issues: list[DeviceModelFinding] = Field(default_factory=list)
     data_halls: list[Room] = Field(default_factory=list)
     cabinets: list[Cabinet] = Field(default_factory=list)
+    device_models: list[DeviceModel] = Field(default_factory=list)
     ports: list[PortConnector] = Field(default_factory=list)
     cables: list[Cable] = Field(default_factory=list)
     rows: list[CutsheetCableRow] = Field(default_factory=list)
@@ -37,6 +39,9 @@ class TopologyDatabase(BaseModel):
 
 def database_from_ingestion_result(result: CutsheetIngestionResult) -> TopologyDatabase:
     device_model_mismatches, device_model_format_issues = detect_device_model_findings(result.rows)
+    device_models = _device_models_from_cabinets(result.cabinets)
+    _apply_device_model_catalog(result.cabinets, device_models)
+    _apply_device_model_catalog_to_data_halls(result.data_halls, device_models)
     return TopologyDatabase(
         schema_version=SCHEMA_VERSION,
         project_uid=result.project_uid,
@@ -54,6 +59,7 @@ def database_from_ingestion_result(result: CutsheetIngestionResult) -> TopologyD
         device_model_format_issues=device_model_format_issues,
         data_halls=result.data_halls,
         cabinets=result.cabinets,
+        device_models=device_models,
         ports=result.ports,
         cables=result.cables,
         rows=result.rows,
@@ -72,6 +78,7 @@ def database_from_json_payload(payload: dict[str, Any]) -> TopologyDatabase:
     rows_payload = payload.get("rows", [])
     data_halls_payload = payload.get("data_halls", [])
     cabinets_payload = payload.get("cabinets", [])
+    device_models_payload = payload.get("device_models", [])
     ports_payload = payload.get("ports", [])
     cables_payload = payload.get("cables", [])
     summary_payload = payload.get("summary") or {
@@ -93,6 +100,13 @@ def database_from_json_payload(payload: dict[str, Any]) -> TopologyDatabase:
 
     cables = [_model_from_payload(Cable, _normalize_cable_payload(cable)) for cable in cables_payload]
     _backfill_cable_uids(cables)
+    cabinets = [_model_from_payload(Cabinet, cabinet) for cabinet in cabinets_payload]
+    device_models = [_model_from_payload(DeviceModel, _normalize_device_model_payload(model)) for model in device_models_payload]
+    if not device_models:
+        device_models = _device_models_from_cabinets(cabinets)
+    _apply_device_model_catalog(cabinets, device_models)
+    data_halls = [_model_from_payload(Room, data_hall) for data_hall in data_halls_payload]
+    _apply_device_model_catalog_to_data_halls(data_halls, device_models)
 
     return TopologyDatabase(
         schema_version=SCHEMA_VERSION,
@@ -110,8 +124,9 @@ def database_from_json_payload(payload: dict[str, Any]) -> TopologyDatabase:
             _model_from_payload(DeviceModelFinding, _normalize_device_model_finding_payload(finding))
             for finding in device_model_format_issues_payload
         ],
-        data_halls=[_model_from_payload(Room, data_hall) for data_hall in data_halls_payload],
-        cabinets=[_model_from_payload(Cabinet, cabinet) for cabinet in cabinets_payload],
+        data_halls=data_halls,
+        cabinets=cabinets,
+        device_models=device_models,
         ports=[_model_from_payload(PortConnector, port) for port in ports_payload],
         cables=cables,
         rows=rows,
@@ -163,6 +178,68 @@ def _normalize_cable_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if "designed_length_meters" not in normalized_payload:
         normalized_payload["designed_length_meters"] = None
     return normalized_payload
+
+
+def _normalize_device_model_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized_payload = dict(payload)
+    model_name = normalized_payload.get("model_name") or normalized_payload.get("uid") or "Unknown"
+    normalized_payload["model_name"] = model_name
+    normalized_payload["uid"] = normalized_payload.get("uid") or _device_model_uid(model_name)
+    normalized_payload["rack_units"] = max(1, int(normalized_payload.get("rack_units") or 1))
+    return normalized_payload
+
+
+def _device_models_from_cabinets(cabinets: list[Cabinet]) -> list[DeviceModel]:
+    models_by_uid: dict[str, DeviceModel] = {}
+    for cabinet in cabinets:
+        for device in cabinet.devices:
+            model_name = device.device_model or "Unknown"
+            model_uid = device.device_model_uid or _device_model_uid(model_name)
+            instance_uid = _device_uid(device)
+            model = models_by_uid.get(model_uid)
+            if model is None:
+                model = DeviceModel(uid=model_uid, model_name=model_name)
+                models_by_uid[model_uid] = model
+            if instance_uid not in model.device_instance_uids:
+                model.device_instance_uids.append(instance_uid)
+
+    for model in models_by_uid.values():
+        model.device_instance_uids.sort()
+    return sorted(models_by_uid.values(), key=lambda model: model.model_name)
+
+
+def _apply_device_model_catalog(cabinets: list[Cabinet], device_models: list[DeviceModel]) -> None:
+    models_by_uid = {model.uid: model for model in device_models}
+    for cabinet in cabinets:
+        for device in cabinet.devices:
+            _apply_device_model_to_device(device, models_by_uid)
+
+
+def _apply_device_model_catalog_to_data_halls(data_halls: list[Room], device_models: list[DeviceModel]) -> None:
+    models_by_uid = {model.uid: model for model in device_models}
+    for data_hall in data_halls:
+        for cabinet in data_hall.cabinets:
+            for device in cabinet.devices:
+                _apply_device_model_to_device(device, models_by_uid)
+
+
+def _apply_device_model_to_device(device: Device, models_by_uid: dict[str, DeviceModel]) -> None:
+    model_uid = device.device_model_uid or _device_model_uid(device.device_model or "Unknown")
+    model = models_by_uid.get(model_uid)
+    device.device_model_uid = model_uid
+    if model is not None:
+        device.rack_units = max(1, model.rack_units)
+        return
+    device.rack_units = max(1, int(device.rack_units or 1))
+
+
+def _device_model_uid(model_name: str) -> str:
+    normalized = re.sub(r"[^A-Z0-9]+", "-", model_name.upper()).strip("-")
+    return normalized or "UNKNOWN"
+
+
+def _device_uid(device: Device) -> str:
+    return f"{device.cabinet_id}:{device.rack_unit}".upper()
 
 
 def _backfill_cable_uids(cables: list[Cable]) -> None:
