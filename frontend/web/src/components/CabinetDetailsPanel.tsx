@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CabinetDetailResponse, CabinetLayoutItem, Device } from "../types";
+import type { CabinetDetailResponse, CabinetLayoutItem, Device, OperationResponse } from "../types";
 import { CabinetDeviceLayout } from "./CabinetDeviceLayout";
 import { ProgressCircle } from "./ProgressCircle";
 import { useI18n } from "../i18n";
@@ -19,7 +19,7 @@ type CabinetDetailsPanelProps = {
   onClearDeviceSelection: () => void;
   canEdit: boolean;
   lifecycleStatuses: string[];
-  onStatusChanged: () => void;
+  onStatusChanged: (operation: Promise<OperationResponse>) => void;
 };
 
 export function CabinetDetailsPanel({
@@ -107,7 +107,7 @@ export function CabinetDetailsPanel({
                 value={detail.cabinet.lifecycle_status}
                 onClick={(event) => event.stopPropagation()}
                 onChange={(event) => {
-                  updateCabinetStatus(detail.cabinet.cabinet_uid, event.target.value).then(onStatusChanged);
+                  onStatusChanged(updateCabinetStatus(detail.cabinet.cabinet_uid, event.target.value));
                 }}
               >
                 {lifecycleStatuses.map((status) => (
@@ -167,7 +167,7 @@ export function CabinetDetailsPanel({
         canEdit={canEdit}
         lifecycleStatuses={lifecycleStatuses}
         onDeviceStatusChange={(device, lifecycleStatus) => {
-          updateDeviceStatus(`${device.cabinet_id}:${device.rack_unit}`, lifecycleStatus).then(onStatusChanged);
+          onStatusChanged(updateDeviceStatus(`${device.cabinet_id}:${device.rack_unit}`, lifecycleStatus));
         }}
       />
     </aside>

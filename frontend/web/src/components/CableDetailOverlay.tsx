@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { updateCable } from "../api";
-import type { CabinetCableDetail, CableDetailResponse, CableProgressPhase, CableProgressPhaseDefinition, TopologyEnums } from "../types";
+import type { CabinetCableDetail, CableDetailResponse, CableProgressPhase, CableProgressPhaseDefinition, OperationResponse, TopologyEnums } from "../types";
 import { useI18n } from "../i18n";
 
 type CableDetailOverlayProps = {
   cableDetail: CableDetailResponse | null;
   isLoading: boolean;
   routeLabel: { source: string; target: string } | null;
+  selectedCableUid: string | null;
   canEdit: boolean;
   topologyEnums: TopologyEnums | null;
   onClose: () => void;
-  onCableUpdated: (cable: CabinetCableDetail) => void;
+  onSelectCable: (cable: CabinetCableDetail) => void;
+  onCableUpdated: (response: OperationResponse) => void;
 };
 
 type SortDirection = "asc" | "desc";
@@ -54,9 +56,11 @@ export function CableDetailOverlay({
   cableDetail,
   isLoading,
   routeLabel,
+  selectedCableUid,
   canEdit,
   topologyEnums,
   onClose,
+  onSelectCable,
   onCableUpdated,
 }: CableDetailOverlayProps) {
   const {
@@ -326,7 +330,11 @@ export function CableDetailOverlay({
           </thead>
           <tbody>
             {pagedCables.map((cable, index) => (
-              <tr key={`${cable.uid}-${cable.a_port_uid}-${cable.z_port_uid}-${pageStartIndex + index}`}>
+              <tr
+                className={selectedCableUid === cable.uid ? "is-selected-cable" : ""}
+                key={`${cable.uid}-${cable.a_port_uid}-${cable.z_port_uid}-${pageStartIndex + index}`}
+                onClick={() => onSelectCable(cable)}
+              >
                 {COLUMNS.map((column) => (
                   <td key={column.key}>
                     {renderCableCell({
@@ -512,7 +520,7 @@ function renderCableCell({
   formatCableProgressStep: (step: string) => string;
   formatCableStatus: (status: string) => string;
   formatConstructionPhase: (phase: string) => string;
-  onCableUpdated: (cable: CabinetCableDetail) => void;
+  onCableUpdated: (response: OperationResponse) => void;
   topologyEnums: TopologyEnums | null;
 }) {
   if (columnKey === "status") {
@@ -571,7 +579,7 @@ function renderPhaseEditor({
   cable: CabinetCableDetail;
   formatCableProgressPhaseName: (phase: string) => string;
   formatCableProgressStep: (step: string) => string;
-  onCableUpdated: (cable: CabinetCableDetail) => void;
+  onCableUpdated: (response: OperationResponse) => void;
   topologyEnums: TopologyEnums | null;
 }) {
   const phase = cable.current_phase ?? defaultPhase(topologyEnums);
@@ -590,6 +598,7 @@ function renderPhaseEditor({
       <div className="progress-main-row">
         <DeferredSelect
           className="inline-select"
+          commitOnChange
           onCommit={(value) => {
             const nextDefinition = phaseDefinitions.find((definition) => definition.name === value);
             if (nextDefinition) save(defaultPhaseForDefinition(nextDefinition));
@@ -1002,11 +1011,13 @@ function DeferredNumberInput({
 
 function DeferredSelect({
   className,
+  commitOnChange = false,
   onCommit,
   options,
   value,
 }: {
   className?: string;
+  commitOnChange?: boolean;
   onCommit: (value: string) => void;
   options: Array<{ label: string; value: string }>;
   value: string;
@@ -1020,6 +1031,10 @@ function DeferredSelect({
 
   function commit() {
     if (draft !== value) onCommit(draft);
+  }
+
+  function commitValue(nextValue: string) {
+    if (nextValue !== value) onCommit(nextValue);
   }
 
   function revert() {
@@ -1037,7 +1052,14 @@ function DeferredSelect({
         }
         commit();
       }}
-      onChange={(event) => setDraft(event.target.value)}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setDraft(nextValue);
+        if (commitOnChange) {
+          skipNextBlur.current = true;
+          commitValue(nextValue);
+        }
+      }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();

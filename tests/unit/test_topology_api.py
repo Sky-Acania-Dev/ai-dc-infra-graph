@@ -7,7 +7,9 @@ from backend.api.topology import (
     cabinet_layout,
     device_connection_cables,
     device_connections,
+    list_operations,
     topology_enums,
+    undo_operation,
     update_cabinet_status,
     update_cable,
     update_device_status,
@@ -238,22 +240,95 @@ class TopologyApiTests(unittest.TestCase):
             user=editor,
         )
 
-        self.assertEqual(cabinet.lifecycle_status, LifecycleStatus.POWERED.value)
-        self.assertEqual(device.lifecycle_status, LifecycleStatus.INSTALLED)
-        self.assertEqual(cable.status, "Cable Is Ran: Not Terminated")
-        self.assertEqual(cable.progress["pulled"], "complete")
-        self.assertEqual(cable.current_phase.name, "dress_termination")
-        self.assertEqual(cable.current_phase.phase_type.value, "parallel_percent")
-        self.assertEqual(cable.current_phase.task_values["routing_dress"].value, 40)
-        self.assertEqual(cable.current_phase.task_values["a_side"].value, "terminated")
-        self.assertEqual(cable.current_phase.task_values["z_side"].value, "dressed")
-        self.assertEqual(cable.length_used_meters, 12.5)
+        self.assertTrue(cabinet.ok)
+        self.assertEqual(cabinet.operation.entityType, "cabinet")
+        self.assertEqual(cabinet.operation.after["lifecycle_status"], LifecycleStatus.POWERED.value)
+        self.assertTrue(device.ok)
+        self.assertEqual(device.operation.after["lifecycle_status"], LifecycleStatus.INSTALLED.value)
+        self.assertTrue(cable.ok)
+        self.assertEqual(cable.operation.after["status"], "Cable Is Ran: Not Terminated")
+        self.assertEqual(cable.operation.after["progress"]["pulled"], "complete")
+        self.assertEqual(cable.operation.after["current_phase"]["name"], "dress_termination")
+        self.assertEqual(cable.operation.after["current_phase"]["phase_type"], "parallel_percent")
+        self.assertEqual(cable.operation.after["current_phase"]["task_values"]["routing_dress"]["value"], 40)
+        self.assertEqual(cable.operation.after["current_phase"]["task_values"]["a_side"]["value"], "terminated")
+        self.assertEqual(cable.operation.after["current_phase"]["task_values"]["z_side"]["value"], "dressed")
+        self.assertEqual(cable.operation.after["length_used_meters"], 12.5)
+
+        updated_cable = cabinet_connection_cables("DH1:001", "DH1:002", database_path=str(runtime_path)).cables[0]
+        self.assertEqual(updated_cable.status, "Cable Is Ran: Not Terminated")
+        self.assertEqual(updated_cable.current_phase.name, "dress_termination")
+        self.assertEqual(updated_cable.length_used_meters, 12.5)
+
+        undo_response = undo_operation(database_path=str(runtime_path), user=editor)
+        self.assertTrue(undo_response.ok)
+        undone_cable = cabinet_connection_cables("DH1:001", "DH1:002", database_path=str(runtime_path)).cables[0]
+        self.assertEqual(undone_cable.status, "Cable Not Run")
+
+        operations = list_operations(database_path=str(runtime_path))
+        self.assertEqual(operations.version, undo_response.version)
+        self.assertEqual([operation.entityType for operation in operations.operations], ["cabinet", "device", "cable", "cable"])
 
         enums = topology_enums(database_path=str(runtime_path))
         termination = next(phase for phase in enums.cable_progress_phases if phase.name == "dress_termination")
         self.assertEqual([task.name for task in termination.tasks], ["routing_dress", "a_side", "z_side"])
         self.assertEqual(termination.tasks[0].task_type, "percent")
         self.assertEqual(termination.tasks[1].enum_values, ["not_terminated", "terminated", "dressed"])
+
+    def test_stale_operation_log_does_not_block_topology_reads(self) -> None:
+        _, runtime_path = _test_paths()
+        database = build_topology_database_from_results(
+            cutsheet_result=ingest_cutsheet_rows(
+                [
+                    {
+                        "STATUS": "Cable Not Run",
+                        "A-LOC:CAB:RU": "dh1:001:10",
+                        "A-PORT": "swp1",
+                        "A_MODEL": "Switch",
+                        "Z-LOC:CAB:RU": "dh1:002:20",
+                        "Z-PORT": "swp2",
+                        "Z_MODEL": "Patch Panel",
+                        "CABLE": "LC",
+                    },
+                ]
+            ),
+            overhead_result=OverheadIngestionResult(
+                summary=OverheadIngestionSummary(cabinets=2, data_halls=1, unknown_category_cabinets=0),
+                cabinets=[
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:001",
+                        data_hall_id="DH1",
+                        cabinet_id="001",
+                        category="DPR-H1",
+                        cabinet_group="Fabric Core",
+                        source_row=7,
+                        source_col=5,
+                    ),
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:002",
+                        data_hall_id="DH1",
+                        cabinet_id="002",
+                        category="HD-GB3c",
+                        cabinet_group="GPU",
+                        source_row=7,
+                        source_col=6,
+                    ),
+                ],
+            ),
+        )
+        save_topology_database(database, runtime_path)
+        runtime_path.with_name(f"{runtime_path.stem}.operations.jsonl").write_text(
+            '{"opId":99,"type":"update","entityType":"cable","entityId":"MISSING",'
+            '"before":{"status":"Cable Not Run"},"after":{"status":"Cable Is Ran: Complete"},'
+            '"timestamp":"2026-06-04T00:00:00+00:00"}\n',
+            encoding="utf-8",
+        )
+
+        enums = topology_enums(database_path=str(runtime_path))
+        operations = list_operations(database_path=str(runtime_path))
+
+        self.assertIn("Cable Not Run", enums.cable_import_statuses)
+        self.assertEqual(operations.version, 99)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,8 @@ import type {
   DataHallCableSummaryResponse,
   Device,
   DeviceConnectionResponse,
+  OperationListResponse,
+  OperationResponse,
   TopologyEnums,
   ValidationResponse,
 } from "./types";
@@ -116,7 +118,7 @@ export async function fetchValidationReport(): Promise<ValidationResponse> {
   return response.json();
 }
 
-export async function updateCabinetStatus(cabinetUid: string, lifecycleStatus: string): Promise<CabinetLayoutItem> {
+export async function updateCabinetStatus(cabinetUid: string, lifecycleStatus: string): Promise<OperationResponse> {
   const response = await fetch(`${API_BASE_URL}/topology/cabinets/${encodeURIComponent(cabinetUid)}/status`, {
     body: JSON.stringify({ lifecycle_status: lifecycleStatus }),
     headers: { "Content-Type": "application/json" },
@@ -125,10 +127,10 @@ export async function updateCabinetStatus(cabinetUid: string, lifecycleStatus: s
   if (!response.ok) {
     throw new Error(`Failed to update cabinet status: ${response.status}`);
   }
-  return response.json();
+  return operationResponseFromJson(await response.json(), "update cabinet status");
 }
 
-export async function updateDeviceStatus(deviceUid: string, lifecycleStatus: string): Promise<Device> {
+export async function updateDeviceStatus(deviceUid: string, lifecycleStatus: string): Promise<OperationResponse> {
   const response = await fetch(`${API_BASE_URL}/topology/devices/${encodeURIComponent(deviceUid)}/status`, {
     body: JSON.stringify({ lifecycle_status: lifecycleStatus }),
     headers: { "Content-Type": "application/json" },
@@ -137,7 +139,7 @@ export async function updateDeviceStatus(deviceUid: string, lifecycleStatus: str
   if (!response.ok) {
     throw new Error(`Failed to update device status: ${response.status}`);
   }
-  return response.json();
+  return operationResponseFromJson(await response.json(), "update device status");
 }
 
 export type UpdateCablePayload = {
@@ -154,7 +156,7 @@ export type UpdateCablePayload = {
   note?: string;
 };
 
-export async function updateCable(cableUid: string, payload: UpdateCablePayload): Promise<CabinetCableDetail> {
+export async function updateCable(cableUid: string, payload: UpdateCablePayload): Promise<OperationResponse> {
   const response = await fetch(`${API_BASE_URL}/topology/cables/${encodeURIComponent(cableUid)}`, {
     body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" },
@@ -163,5 +165,44 @@ export async function updateCable(cableUid: string, payload: UpdateCablePayload)
   if (!response.ok) {
     throw new Error(`Failed to update cable: ${response.status}`);
   }
+  return operationResponseFromJson(await response.json(), "update cable");
+}
+
+export async function undoOperation(): Promise<OperationResponse> {
+  const response = await fetch(`${API_BASE_URL}/topology/operations/undo`, { method: "POST" });
+  if (!response.ok) {
+    throw new Error(`Failed to undo operation: ${response.status}`);
+  }
+  return operationResponseFromJson(await response.json(), "undo operation");
+}
+
+export async function redoOperation(): Promise<OperationResponse> {
+  const response = await fetch(`${API_BASE_URL}/topology/operations/redo`, { method: "POST" });
+  if (!response.ok) {
+    throw new Error(`Failed to redo operation: ${response.status}`);
+  }
+  return operationResponseFromJson(await response.json(), "redo operation");
+}
+
+export async function fetchOperations(limit = 100): Promise<OperationListResponse> {
+  const response = await fetch(`${API_BASE_URL}/topology/operations?limit=${limit}`);
+  if (!response.ok) {
+    throw new Error(`Failed to load operations: ${response.status}. Restart the backend so /topology/operations is registered.`);
+  }
   return response.json();
+}
+
+function operationResponseFromJson(payload: unknown, action: string): OperationResponse {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "operation" in payload &&
+    "version" in payload &&
+    (payload as OperationResponse).operation
+  ) {
+    return payload as OperationResponse;
+  }
+  throw new Error(
+    `Failed to ${action}: backend returned the old response shape. Restart the backend so operation-log endpoints are active.`,
+  );
 }

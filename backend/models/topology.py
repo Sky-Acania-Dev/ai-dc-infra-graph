@@ -63,6 +63,9 @@ class Device(BaseModel):
     construction_phase: ConstructionPhase = ConstructionPhase.MANAGEMENT_ETHERNET
     aliases: list[str] = Field(default_factory=list)
     model_aliases: list[str] = Field(default_factory=list)
+    front_panel_svg: str = ""
+    back_panel_svg: str = ""
+    port_layout: list[DevicePortLayoutEntry] = Field(default_factory=list)
     port_layout_overrides: list[DevicePortLayoutEntry] = Field(default_factory=list)
     ports_by_type: dict[ConnectorType, list[PortConnector]] = Field(default_factory=dict)
     note: str = ""

@@ -21,6 +21,7 @@ Build the normalized runtime JSON from the source cutsheet and overhead files:
 ```powershell
 .\.venv\Scripts\python.exe scripts\build_database.py `
   --cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET.ods" `
+  --roce-cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET ROCE.ods" `
   --overhead-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\OVERHEAD.ods" `
   --runtime-path data\runtime\current_database.json
 ```

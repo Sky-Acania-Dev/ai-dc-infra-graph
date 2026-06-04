@@ -8,7 +8,10 @@ import {
   fetchDataHallCables,
   fetchDeviceConnectionCables,
   fetchDeviceConnections,
+  fetchOperations,
   fetchTopologyEnums,
+  redoOperation,
+  undoOperation,
 } from "./api";
 import { CableDetailOverlay } from "./components/CableDetailOverlay";
 import { CabinetConnectionsPanel } from "./components/CabinetConnectionsPanel";
@@ -26,12 +29,15 @@ import type {
   DataHallCableSummaryResponse,
   Device,
   DeviceConnectionResponse,
+  Operation,
+  OperationListResponse,
+  OperationResponse,
   TopologyEnums,
 } from "./types";
 import { useI18n, type Locale } from "./i18n";
 
 const DATA_HALLS = ["DH1", "DH2"];
-type AppMode = "topology" | "validation";
+type AppMode = "topology" | "validation" | "operations";
 type CenterViewMode = "cabinet_map" | "port_layout";
 
 export function App() {
@@ -42,6 +48,7 @@ export function App() {
   const [selectedCabinetUid, setSelectedCabinetUid] = useState<string | null>(null);
   const [detail, setDetail] = useState<CabinetDetailResponse | null>(null);
   const [cableDetail, setCableDetail] = useState<CableDetailResponse | null>(null);
+  const [selectedCableUid, setSelectedCableUid] = useState<string | null>(null);
   const [isCableDetailLoading, setIsCableDetailLoading] = useState(false);
   const [cableDetailRoute, setCableDetailRoute] = useState<{ source: string; target: string } | null>(null);
   const [selectedDeviceUid, setSelectedDeviceUid] = useState<string | null>(null);
@@ -55,6 +62,9 @@ export function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [topologyEnums, setTopologyEnums] = useState<TopologyEnums | null>(null);
   const [dataHallCableSummary, setDataHallCableSummary] = useState<DataHallCableSummaryResponse | null>(null);
+  const [operationList, setOperationList] = useState<OperationListResponse | null>(null);
+  const [pendingSaveCount, setPendingSaveCount] = useState(0);
+  const [lastSavedVersion, setLastSavedVersion] = useState<number | null>(null);
   const cabinetLayoutCacheRef = useRef<Record<string, CabinetLayoutItem[]>>({});
   const dataHallCableSummaryCacheRef = useRef<Record<string, DataHallCableSummaryResponse>>({});
   const cableDetailRequestRef = useRef(0);
@@ -68,6 +78,26 @@ export function App() {
       .then(setTopologyEnums)
       .catch((requestError: Error) => setError(requestError.message));
   }, []);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        target?.tagName === "INPUT" || target?.tagName === "SELECT" || target?.tagName === "TEXTAREA";
+      if (isEditable || !(event.ctrlKey || event.metaKey)) return;
+      if (event.key.toLowerCase() === "z" && !event.shiftKey) {
+        event.preventDefault();
+        runOperation(undoOperation);
+      }
+      if (event.key.toLowerCase() === "y" || (event.key.toLowerCase() === "z" && event.shiftKey)) {
+        event.preventDefault();
+        runOperation(redoOperation);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
 
   useEffect(() => {
     const cachedLayout = cabinetLayoutCacheRef.current[dataHall];
@@ -128,6 +158,11 @@ export function App() {
       .catch((requestError: Error) => setError(requestError.message));
   }, [selectedCabinetUid]);
 
+  useEffect(() => {
+    if (mode !== "operations") return;
+    refreshOperations();
+  }, [mode]);
+
   const connectedCabinetUids = useMemo(() => {
     if (deviceDetail) return new Set(deviceDetail.connected_cabinet_uids);
     return new Set(detail?.connections.map((connection) => connection.target_cabinet_uid) ?? []);
@@ -144,6 +179,10 @@ export function App() {
     if (!selectedDeviceUid) return null;
     return detail?.devices.find((device) => `${device.cabinet_id}:${device.rack_unit}` === selectedDeviceUid) ?? null;
   }, [detail, selectedDeviceUid]);
+  const selectedCable = useMemo(
+    () => cableDetail?.cables.find((cable) => cable.uid === selectedCableUid) ?? null,
+    [cableDetail, selectedCableUid],
+  );
 
   function clearSelection() {
     setSelectedCabinetUid(null);
@@ -187,6 +226,7 @@ export function App() {
     const requestId = cableDetailRequestRef.current + 1;
     cableDetailRequestRef.current = requestId;
     setCableDetail(null);
+    setSelectedCableUid(null);
     setCableDetailRoute(route);
     setIsCableDetailLoading(true);
     setError(null);
@@ -194,6 +234,7 @@ export function App() {
       .then((nextCableDetail) => {
         if (cableDetailRequestRef.current !== requestId) return;
         setCableDetail(nextCableDetail);
+        setSelectedCableUid(nextCableDetail.cables[0]?.uid ?? null);
       })
       .catch((requestError: Error) => {
         if (cableDetailRequestRef.current !== requestId) return;
@@ -208,6 +249,7 @@ export function App() {
   function closeCableDetail() {
     cableDetailRequestRef.current += 1;
     setCableDetail(null);
+    setSelectedCableUid(null);
     setCableDetailRoute(null);
     setIsCableDetailLoading(false);
   }
@@ -264,6 +306,107 @@ export function App() {
       .catch((requestError: Error) => setError(requestError.message));
   }
 
+  function handleOperationResponse(response: OperationResponse) {
+    applyOperation(response.operation);
+    setLastSavedVersion(response.version);
+    setOperationList((current) =>
+      current
+        ? {
+            operations: [...current.operations.filter((operation) => operation.opId !== response.operation.opId), response.operation],
+            version: response.version,
+          }
+        : current,
+    );
+  }
+
+  function submitOperation(operation: Promise<OperationResponse>) {
+    setPendingSaveCount((current) => current + 1);
+    setError(null);
+    operation
+      .then(handleOperationResponse)
+      .catch((requestError: Error) => setError(requestError.message))
+      .finally(() => setPendingSaveCount((current) => Math.max(0, current - 1)));
+  }
+
+  function runOperation(action: () => Promise<OperationResponse>) {
+    submitOperation(action());
+  }
+
+  function refreshOperations() {
+    setError(null);
+    fetchOperations()
+      .then(setOperationList)
+      .catch((requestError: Error) => setError(requestError.message));
+  }
+
+  function applyOperation(operation: Operation) {
+    const values = operation.after;
+    if (operation.entityType === "cabinet") {
+      const lifecycleStatus = asString(values.lifecycle_status);
+      if (!lifecycleStatus) return;
+      setCabinets((current) =>
+        current.map((cabinet) =>
+          cabinet.cabinet_uid === operation.entityId ? { ...cabinet, lifecycle_status: lifecycleStatus } : cabinet,
+        ),
+      );
+      cabinetLayoutCacheRef.current = Object.fromEntries(
+        Object.entries(cabinetLayoutCacheRef.current).map(([hall, layout]) => [
+          hall,
+          layout.map((cabinet) =>
+            cabinet.cabinet_uid === operation.entityId ? { ...cabinet, lifecycle_status: lifecycleStatus } : cabinet,
+          ),
+        ]),
+      );
+      setDetail((current) =>
+        current && current.cabinet.cabinet_uid === operation.entityId
+          ? { ...current, cabinet: { ...current.cabinet, lifecycle_status: lifecycleStatus } }
+          : current,
+      );
+      return;
+    }
+
+    if (operation.entityType === "device") {
+      const lifecycleStatus = asString(values.lifecycle_status);
+      if (!lifecycleStatus) return;
+      setDetail((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          devices: current.devices.map((device) =>
+            `${device.cabinet_id}:${device.rack_unit}`.toUpperCase() === operation.entityId.toUpperCase()
+              ? { ...device, lifecycle_status: lifecycleStatus }
+              : device,
+          ),
+        };
+      });
+      return;
+    }
+
+    if (operation.entityType === "cable") {
+      setCableDetail((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          cables: current.cables.map((cable) =>
+            cable.uid === operation.entityId
+              ? {
+                  ...cable,
+                  status: asString(values.status) ?? cable.status,
+                  length_used_meters:
+                    typeof values.length_used_meters === "number" ? values.length_used_meters : cable.length_used_meters,
+                  length_meters:
+                    typeof values.length_used_meters === "number" ? values.length_used_meters : cable.length_meters,
+                  note: asString(values.note) ?? cable.note,
+                  current_phase: "current_phase" in values ? (values.current_phase as typeof cable.current_phase) : cable.current_phase,
+                  progress: "progress" in values ? (values.progress as typeof cable.progress) : cable.progress,
+                }
+              : cable,
+          ),
+        };
+      });
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -279,6 +422,9 @@ export function App() {
             <button className={mode === "validation" ? "is-active" : ""} onClick={() => setMode("validation")}>
               {t("view.validation")}
             </button>
+            <button className={mode === "operations" ? "is-active" : ""} onClick={() => setMode("operations")}>
+              Operations
+            </button>
           </div>
           <label className="settings-control">
             <span>{t("settings.language")}</span>
@@ -288,6 +434,15 @@ export function App() {
             </select>
           </label>
           <div className="role-pill">{currentUser ? t(`auth.role.${currentUser.role}`) : t("auth.loading")}</div>
+          <div className="segmented-control" role="group" aria-label="Operations">
+            <button disabled={!canEdit || pendingSaveCount > 0} onClick={() => runOperation(undoOperation)}>
+              Undo
+            </button>
+            <button disabled={!canEdit || pendingSaveCount > 0} onClick={() => runOperation(redoOperation)}>
+              Redo
+            </button>
+          </div>
+          <div className="role-pill">{pendingSaveCount > 0 ? "Saving" : lastSavedVersion === null ? "Saved" : `Saved v${lastSavedVersion}`}</div>
           {mode === "topology" ? (
             <div className="segmented-control" role="tablist" aria-label={t("dataHall.selector")}>
               {DATA_HALLS.map((hall) => (
@@ -308,6 +463,8 @@ export function App() {
 
       {mode === "validation" ? (
         <ValidationView onJumpToDevice={jumpToDevice} onJumpToPort={jumpToPort} />
+      ) : mode === "operations" ? (
+        <OperationDebugView operationList={operationList} onRefresh={refreshOperations} />
       ) : (
         <div className="workspace">
           <CabinetDetailsPanel
@@ -322,27 +479,19 @@ export function App() {
             onClearDeviceSelection={clearDeviceSelection}
             canEdit={canEdit}
             lifecycleStatuses={topologyEnums?.lifecycle_statuses ?? []}
-            onStatusChanged={() => {
-              dataHallCableSummaryCacheRef.current = {};
-              if (selectedCabinetUid) {
-                fetchCabinetDetail(selectedCabinetUid)
-                  .then(setDetail)
-                  .catch((requestError: Error) => setError(requestError.message));
-              }
-              fetchCabinetLayout(dataHall)
-                .then((layout) => {
-                  cabinetLayoutCacheRef.current[dataHall] = layout;
-                  setCabinets(layout);
-                })
-                .catch((requestError: Error) => setError(requestError.message));
-            }}
+            onStatusChanged={submitOperation}
           />
           {isLoading ? (
             <section className="map-pane loading-pane">{t("common.loading", { target: dataHall })}</section>
           ) : (
             <div className="map-stack">
               {centerViewMode === "port_layout" ? (
-                <DevicePortLayout device={selectedDevice} onShowCabinetMap={() => setCenterViewMode("cabinet_map")} />
+                <DevicePortLayout
+                  cableDetail={cableDetail}
+                  device={selectedDevice}
+                  selectedCable={selectedCable}
+                  onShowCabinetMap={() => setCenterViewMode("cabinet_map")}
+                />
               ) : (
                 <CabinetMap
                   cabinets={cabinets}
@@ -368,19 +517,12 @@ export function App() {
                 cableDetail={cableDetail}
                 isLoading={isCableDetailLoading}
                 routeLabel={cableDetailRoute}
+                selectedCableUid={selectedCableUid}
                 canEdit={canEdit}
                 topologyEnums={topologyEnums}
                 onClose={closeCableDetail}
-                onCableUpdated={(updatedCable) => {
-                  setCableDetail((current) => {
-                    if (!current) return current;
-                    return {
-                      ...current,
-                      cables: current.cables.map((cable) => (cable.uid === updatedCable.uid ? updatedCable : cable)),
-                    };
-                  });
-                  refreshTopologyContext();
-                }}
+                onSelectCable={(cable) => setSelectedCableUid(cable.uid)}
+                onCableUpdated={handleOperationResponse}
               />
             </div>
           )}
@@ -398,6 +540,63 @@ export function App() {
   );
 }
 
+function OperationDebugView({
+  operationList,
+  onRefresh,
+}: {
+  operationList: OperationListResponse | null;
+  onRefresh: () => void;
+}) {
+  const operations = [...(operationList?.operations ?? [])].reverse();
+  return (
+    <section className="operations-pane">
+      <div className="pane-header">
+        <div>
+          <span className="eyebrow">Debug</span>
+          <h2>Operation Log</h2>
+        </div>
+        <div className="table-pagination-controls">
+          <span>{operationList ? `Version ${operationList.version}` : "Loading"}</span>
+          <button type="button" onClick={onRefresh}>
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div className="validation-table-scroll operations-table-scroll">
+        <table className="validation-table operations-table">
+          <thead>
+            <tr>
+              <th>opId</th>
+              <th>Type</th>
+              <th>Entity</th>
+              <th>Timestamp</th>
+              <th>Before</th>
+              <th>After</th>
+            </tr>
+          </thead>
+          <tbody>
+            {operations.map((operation) => (
+              <tr key={operation.opId}>
+                <td>{operation.opId}</td>
+                <td>{operation.type}</td>
+                <td>{`${operation.entityType}:${operation.entityId}`}</td>
+                <td>{operation.timestamp}</td>
+                <td>
+                  <code>{JSON.stringify(operation.before)}</code>
+                </td>
+                <td>
+                  <code>{JSON.stringify(operation.after)}</code>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!operations.length ? <div className="empty-table-space">No logged operations.</div> : null}
+      </div>
+    </section>
+  );
+}
+
 function parseDeviceUid(value: string) {
   const parts = value.toUpperCase().split(":");
   if (parts.length < 3) return null;
@@ -410,4 +609,8 @@ function parseDeviceUid(value: string) {
     deviceUid: `${cabinetUid}:${rackUnit}`,
     rackUnit,
   };
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
 }

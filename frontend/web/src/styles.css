@@ -537,27 +537,45 @@ button {
 .port-layout-panels {
   display: grid;
   flex: 1 1 auto;
-  gap: 12px;
+  gap: 10px;
   grid-template-rows: 1fr 1fr;
   min-height: 0;
   overflow: auto;
-  padding: 14px;
+  padding: 12px 14px;
 }
 
 .device-face {
-  background: #f8fafc;
-  border: 1px solid #dbe3ef;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 10px 24px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
-  min-height: 260px;
+  min-height: 254px;
+  overflow: hidden;
 }
 
 .device-face-title {
-  color: #334155;
+  align-items: center;
+  background: #f8fafc;
+  border-bottom: 1px solid #dbe3ef;
+  color: #111827;
+  display: flex;
   font-size: 12px;
   font-weight: 900;
-  padding: 8px 10px 0;
+  justify-content: space-between;
+  padding: 8px 10px;
   text-transform: uppercase;
+}
+
+.device-face-title span:last-child {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  min-width: 30px;
+  padding: 2px 6px;
+  text-align: center;
 }
 
 .device-face-svg {
@@ -569,35 +587,113 @@ button {
 
 .device-face-bg {
   fill: #ffffff;
-  stroke: #cbd5e1;
-  stroke-width: 2;
+  stroke: #111827;
+  stroke-width: 1.2;
+}
+
+.device-face:nth-child(2) .device-face-bg {
+  fill: #ffffff;
+}
+
+.device-face-shadow {
+  fill: rgba(15, 23, 42, 0.08);
+}
+
+.device-face-rail {
+  fill: #ffffff;
+  stroke: #475569;
+  stroke-width: 0.8;
+}
+
+.device-face-background-image {
+  opacity: 1;
+  pointer-events: none;
+}
+
+.device-face-fallback rect {
+  fill: #ffffff;
+  stroke: #111827;
+  stroke-width: 1.3;
+}
+
+.device-face-fallback circle {
+  fill: #ffffff;
+  stroke: #111827;
+  stroke-width: 1.5;
+}
+
+.device-face-fallback line {
+  stroke: #111827;
+  stroke-width: 1;
 }
 
 .port-marker {
   cursor: pointer;
+  outline: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 130ms ease, transform 130ms ease;
 }
 
-.port-marker rect {
-  stroke: #0f172a;
-  stroke-width: 0.8;
+.port-marker:hover,
+.port-marker:focus-visible {
+  transform: translateY(-2px);
 }
 
-.port-marker.is-selected rect,
-.port-marker:hover rect {
+.port-marker-hitbox {
+  fill: transparent;
+}
+
+.port-marker-shell {
+  fill: #ffffff;
+  stroke: #111827;
+  stroke-width: 1.1;
+}
+
+.port-marker-core {
+  fill: #ffffff;
+  stroke: #111827;
+  stroke-width: 0.9;
+}
+
+.port-marker-lane {
+  stroke: #111827;
+  stroke-width: 1;
+}
+
+.port-marker:hover .port-marker-shell,
+.port-marker:focus-visible .port-marker-shell {
+  stroke: #fbbf24;
+  stroke-width: 2;
+}
+
+.port-marker.is-active-endpoint .port-marker-shell {
+  stroke: #38bdf8;
+  stroke-width: 2;
+}
+
+.port-marker.is-selected-endpoint .port-marker-shell,
+.port-marker.is-selected .port-marker-shell {
+  filter: url("#port-glow-front");
   stroke: #f59e0b;
   stroke-width: 3;
 }
 
+.device-face:nth-child(2) .port-marker.is-selected-endpoint .port-marker-shell,
+.device-face:nth-child(2) .port-marker.is-selected .port-marker-shell {
+  filter: url("#port-glow-back");
+}
+
 .port-marker text {
-  fill: #334155;
-  font-size: 7px;
+  fill: #111827;
+  font-size: 8px;
   font-weight: 800;
   pointer-events: none;
   text-anchor: middle;
 }
 
 .device-face-empty-text {
-  fill: #94a3b8;
+  fill: #64748b;
   font-size: 14px;
   font-weight: 800;
   text-anchor: middle;
@@ -617,6 +713,12 @@ button {
 
 .port-selection b {
   color: #111827;
+}
+
+.port-selection span {
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  padding: 3px 7px;
 }
 
 .port-layout-empty {
@@ -879,6 +981,27 @@ button {
   z-index: 6;
 }
 
+.operations-pane {
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  min-height: calc(100vh - 88px);
+  overflow: hidden;
+  padding: 14px;
+}
+
+.operations-table-scroll {
+  max-height: calc(100vh - 170px);
+}
+
+.operations-table code {
+  display: block;
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .overlay-header {
   align-items: center;
   border-bottom: 1px solid #dbe3ef;
@@ -991,6 +1114,19 @@ button {
   position: sticky;
   top: 0;
   z-index: 2;
+}
+
+.table-scroll tbody tr {
+  cursor: pointer;
+}
+
+.table-scroll tbody tr:hover {
+  background: #f8fafc;
+}
+
+.table-scroll tbody tr.is-selected-cable {
+  background: #fef3c7;
+  box-shadow: inset 3px 0 0 #f59e0b;
 }
 
 .filter-row th {

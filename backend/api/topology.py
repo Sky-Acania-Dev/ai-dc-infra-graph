@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import json
+import logging
+import threading
+import time
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -27,9 +33,15 @@ from backend.validation.port_collisions import PortConnectionFinding
 
 
 router = APIRouter(prefix="/topology", tags=["topology"])
-_DATABASE_CACHE: dict[tuple[str, float], TopologyDatabase] = {}
+LOGGER = logging.getLogger(__name__)
+_DATABASE_CACHE: dict[str, TopologyDatabase] = {}
 _GRAPH_CACHE: dict[tuple[str, float], object] = {}
 _CABINET_PROGRESS_CACHE: dict[tuple[str, float], dict[str, tuple[float, float]]] = {}
+_SNAPSHOT_TIMERS: dict[str, threading.Timer] = {}
+_SNAPSHOT_LOCK = threading.Lock()
+_UNDO_STACKS: dict[str, list["Operation"]] = {}
+_REDO_STACKS: dict[str, list["Operation"]] = {}
+_SNAPSHOT_DEBOUNCE_SECONDS = 1.0
 
 
 class CabinetLayoutItem(BaseModel):
@@ -211,6 +223,27 @@ class UpdateCableRequest(BaseModel):
     note: str | None = None
 
 
+class Operation(BaseModel):
+    opId: int
+    type: str
+    entityType: str
+    entityId: str
+    before: dict[str, Any]
+    after: dict[str, Any]
+    timestamp: str
+
+
+class OperationResponse(BaseModel):
+    ok: bool
+    operation: Operation
+    version: int
+
+
+class OperationListResponse(BaseModel):
+    operations: list[Operation]
+    version: int
+
+
 @router.get("/layout/cabinets", response_model=list[CabinetLayoutItem])
 def cabinet_layout(
     data_hall: str | None = None,
@@ -316,61 +349,88 @@ def topology_enums(database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH)) -> T
     )
 
 
-@router.patch("/cabinets/{cabinet_uid}/status", response_model=CabinetLayoutItem)
+@router.patch("/cabinets/{cabinet_uid}/status", response_model=OperationResponse)
 def update_cabinet_status(
     cabinet_uid: str,
     request: UpdateLifecycleStatusRequest,
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
     user: AuthUser = Depends(current_user),
-) -> CabinetLayoutItem:
+) -> OperationResponse:
+    response_start = time.perf_counter()
     require_editor(user)
     cabinet_uid = cabinet_uid.upper()
     database = _load_cached_database(database_path)
     cabinet = _find_cabinet(database, cabinet_uid)
     if cabinet is None:
         raise HTTPException(status_code=404, detail=f"Cabinet '{cabinet_uid}' was not found.")
-    cabinet.lifecycle_status = request.lifecycle_status
-    _update_room_cabinet_status(database, cabinet_uid, request.lifecycle_status)
-    _save_database_and_clear_cache(database, database_path)
-    return _layout_item(cabinet, {_cabinet_uid(cabinet): _cabinet_cable_progress_stats(database.cables, cabinet_uid)})
+    before = {"lifecycle_status": cabinet.lifecycle_status.value}
+    after = {"lifecycle_status": request.lifecycle_status.value}
+    operation = _commit_operation(
+        database_path=database_path,
+        database=database,
+        operation_type="update",
+        entity_type="cabinet",
+        entity_id=cabinet_uid,
+        before=before,
+        after=after,
+    )
+    _log_operation_timing(operation, response_start)
+    return OperationResponse(ok=True, operation=operation, version=database.version)
 
 
-@router.patch("/devices/{device_uid}/status", response_model=Device)
+@router.patch("/devices/{device_uid}/status", response_model=OperationResponse)
 def update_device_status(
     device_uid: str,
     request: UpdateLifecycleStatusRequest,
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
     user: AuthUser = Depends(current_user),
-) -> Device:
+) -> OperationResponse:
+    response_start = time.perf_counter()
     require_editor(user)
     database = _load_cached_database(database_path)
     device = _find_device(database, device_uid)
     if device is None:
         raise HTTPException(status_code=404, detail=f"Device '{device_uid}' was not found.")
-    device.lifecycle_status = request.lifecycle_status
-    _update_room_device_status(database, device_uid, request.lifecycle_status)
-    _save_database_and_clear_cache(database, database_path)
-    return device
+    normalized_device_uid = _normalize_device_uid(device_uid)
+    before = {"lifecycle_status": device.lifecycle_status.value}
+    after = {"lifecycle_status": request.lifecycle_status.value}
+    operation = _commit_operation(
+        database_path=database_path,
+        database=database,
+        operation_type="update",
+        entity_type="device",
+        entity_id=normalized_device_uid,
+        before=before,
+        after=after,
+    )
+    _log_operation_timing(operation, response_start)
+    return OperationResponse(ok=True, operation=operation, version=database.version)
 
 
-@router.patch("/cables/{cable_uid}", response_model=CabinetCableDetail)
+@router.patch("/cables/{cable_uid}", response_model=OperationResponse)
 def update_cable(
     cable_uid: str,
     request: UpdateCableRequest,
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
     user: AuthUser = Depends(current_user),
-) -> CabinetCableDetail:
+) -> OperationResponse:
+    response_start = time.perf_counter()
     require_editor(user)
     database = _load_cached_database(database_path)
     cable = _find_cable(database, cable_uid)
     if cable is None:
         raise HTTPException(status_code=404, detail=f"Cable '{cable_uid}' was not found.")
+    before: dict[str, Any] = {}
+    after: dict[str, Any] = {}
     if request.status is not None:
-        cable.status = request.status
+        before["status"] = cable.status
+        after["status"] = request.status
     if request.progress is not None:
-        cable.progress.update(request.progress)
+        before["progress"] = _progress_payload(cable)
+        after["progress"] = {**before["progress"], **{key.value: value.value for key, value in request.progress.items()}}
     if request.current_phase is not None:
-        cable.current_phase = normalize_cable_progress_phase(
+        before["current_phase"] = _model_to_payload(normalize_cable_progress_phase(cable.current_phase or _phase_from_legacy_progress(cable)))
+        next_phase = normalize_cable_progress_phase(
             CableProgressPhase(
                 name=request.current_phase.name,
                 value=request.current_phase.value,
@@ -378,15 +438,96 @@ def update_cable(
                 task_values=request.current_phase.task_values,
             )
         )
+        after["current_phase"] = _model_to_payload(next_phase)
     length_used = request.length_used_meters if request.length_used_meters is not None else request.length_meters
     if length_used is not None:
         if length_used <= 0:
             raise HTTPException(status_code=422, detail="Length used must be greater than 0.")
-        cable.length_used_meters = length_used
+        before["length_used_meters"] = cable.length_used_meters
+        after["length_used_meters"] = length_used
     if request.note is not None:
-        cable.note = request.note
-    _save_database_and_clear_cache(database, database_path)
-    return _cable_detail(cable)
+        before["note"] = cable.note
+        after["note"] = request.note
+    if not after:
+        raise HTTPException(status_code=422, detail="No cable fields were provided.")
+    operation = _commit_operation(
+        database_path=database_path,
+        database=database,
+        operation_type="update",
+        entity_type="cable",
+        entity_id=cable.uid,
+        before=before,
+        after=after,
+    )
+    _log_operation_timing(operation, response_start)
+    return OperationResponse(ok=True, operation=operation, version=database.version)
+
+
+@router.post("/operations/undo", response_model=OperationResponse)
+def undo_operation(
+    database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
+    user: AuthUser = Depends(current_user),
+) -> OperationResponse:
+    response_start = time.perf_counter()
+    require_editor(user)
+    database = _load_cached_database(database_path)
+    normalized_path = _normalized_database_path(database_path)
+    if not _UNDO_STACKS.get(normalized_path):
+        raise HTTPException(status_code=409, detail="No operation is available to undo.")
+    original = _UNDO_STACKS[normalized_path].pop()
+    _REDO_STACKS.setdefault(normalized_path, []).append(original)
+    operation = _commit_operation(
+        database_path=database_path,
+        database=database,
+        operation_type="undo",
+        entity_type=original.entityType,
+        entity_id=original.entityId,
+        before=original.after,
+        after=original.before,
+        record_undo=False,
+    )
+    _log_operation_timing(operation, response_start)
+    return OperationResponse(ok=True, operation=operation, version=database.version)
+
+
+@router.post("/operations/redo", response_model=OperationResponse)
+def redo_operation(
+    database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
+    user: AuthUser = Depends(current_user),
+) -> OperationResponse:
+    response_start = time.perf_counter()
+    require_editor(user)
+    database = _load_cached_database(database_path)
+    normalized_path = _normalized_database_path(database_path)
+    if not _REDO_STACKS.get(normalized_path):
+        raise HTTPException(status_code=409, detail="No operation is available to redo.")
+    original = _REDO_STACKS[normalized_path].pop()
+    _UNDO_STACKS.setdefault(normalized_path, []).append(original)
+    operation = _commit_operation(
+        database_path=database_path,
+        database=database,
+        operation_type="redo",
+        entity_type=original.entityType,
+        entity_id=original.entityId,
+        before=original.before,
+        after=original.after,
+        record_undo=False,
+    )
+    _log_operation_timing(operation, response_start)
+    return OperationResponse(ok=True, operation=operation, version=database.version)
+
+
+@router.get("/operations", response_model=OperationListResponse)
+def list_operations(
+    limit: int = 100,
+    database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
+) -> OperationListResponse:
+    normalized_limit = min(500, max(1, limit))
+    operations = _load_operations(_operations_path(database_path))
+    return OperationListResponse(
+        operations=operations[-normalized_limit:],
+        version=operations[-1].opId if operations else 0,
+    )
 
 
 @router.get("/validation", response_model=ValidationResponse)
@@ -554,6 +695,190 @@ def device_connection_cables(
     )
 
 
+def _commit_operation(
+    *,
+    database_path: str,
+    database: TopologyDatabase,
+    operation_type: str,
+    entity_type: str,
+    entity_id: str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    record_undo: bool = True,
+) -> Operation:
+    normalized_path = _normalized_database_path(database_path)
+    operation = Operation(
+        opId=database.version + 1,
+        type=operation_type,
+        entityType=entity_type,
+        entityId=entity_id,
+        before=before,
+        after=after,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+    apply_start = time.perf_counter()
+    _apply_operation(database, operation, use_before=False)
+    apply_ms = (time.perf_counter() - apply_start) * 1000
+    append_start = time.perf_counter()
+    _append_operation(_operations_path(database_path), operation)
+    append_ms = (time.perf_counter() - append_start) * 1000
+    database.version = operation.opId
+    _clear_derived_caches()
+    _schedule_snapshot_save(database, database_path)
+    if record_undo:
+        _UNDO_STACKS.setdefault(normalized_path, []).append(operation)
+        _REDO_STACKS[normalized_path] = []
+    LOGGER.info(
+        "operation persisted op_id=%s type=%s entity=%s:%s apply_ms=%.2f append_ms=%.2f version=%s",
+        operation.opId,
+        operation.type,
+        operation.entityType,
+        operation.entityId,
+        apply_ms,
+        append_ms,
+        database.version,
+    )
+    return operation
+
+
+def _apply_operation(database: TopologyDatabase, operation: Operation, *, use_before: bool) -> None:
+    values = operation.before if use_before else operation.after
+    if operation.entityType == "cabinet":
+        cabinet = _find_cabinet(database, operation.entityId)
+        if cabinet is None:
+            raise HTTPException(status_code=404, detail=f"Cabinet '{operation.entityId}' was not found.")
+        if "lifecycle_status" in values:
+            status = LifecycleStatus(values["lifecycle_status"])
+            cabinet.lifecycle_status = status
+            _update_room_cabinet_status(database, operation.entityId, status)
+        return
+
+    if operation.entityType == "device":
+        device = _find_device(database, operation.entityId)
+        if device is None:
+            raise HTTPException(status_code=404, detail=f"Device '{operation.entityId}' was not found.")
+        if "lifecycle_status" in values:
+            status = LifecycleStatus(values["lifecycle_status"])
+            device.lifecycle_status = status
+            _update_room_device_status(database, operation.entityId, status)
+        return
+
+    if operation.entityType == "cable":
+        cable = _find_cable(database, operation.entityId)
+        if cable is None:
+            raise HTTPException(status_code=404, detail=f"Cable '{operation.entityId}' was not found.")
+        if "status" in values:
+            cable.status = values["status"]
+        if "progress" in values:
+            cable.progress = {
+                CableProgressStep(key): CableProgressState(value)
+                for key, value in values["progress"].items()
+            }
+        if "current_phase" in values:
+            cable.current_phase = normalize_cable_progress_phase(CableProgressPhase(**values["current_phase"]))
+        if "length_used_meters" in values:
+            cable.length_used_meters = values["length_used_meters"]
+        if "note" in values:
+            cable.note = values["note"]
+        return
+
+    raise HTTPException(status_code=422, detail=f"Unsupported operation entity type '{operation.entityType}'.")
+
+
+def _append_operation(path: Path, operation: Operation) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(_model_to_payload(operation), separators=(",", ":")))
+        handle.write("\n")
+
+
+def _load_operations(path: Path) -> list[Operation]:
+    if not path.exists():
+        return []
+    operations: list[Operation] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        operations.append(Operation(**json.loads(line)))
+    return operations
+
+
+def _replay_operations(database: TopologyDatabase, database_path: str) -> TopologyDatabase:
+    for operation in _load_operations(_operations_path(database_path)):
+        if operation.opId <= database.version:
+            continue
+        try:
+            _apply_operation(database, operation, use_before=False)
+        except HTTPException as exc:
+            LOGGER.warning(
+                "skipping operation replay op_id=%s entity=%s:%s status=%s detail=%s",
+                operation.opId,
+                operation.entityType,
+                operation.entityId,
+                exc.status_code,
+                exc.detail,
+            )
+            database.version = max(database.version, operation.opId)
+            continue
+        database.version = operation.opId
+    return database
+
+
+def _schedule_snapshot_save(database: TopologyDatabase, database_path: str) -> None:
+    normalized_path = _normalized_database_path(database_path)
+
+    def save_snapshot() -> None:
+        save_start = time.perf_counter()
+        try:
+            save_topology_database(database, database_path)
+            LOGGER.info(
+                "snapshot save complete path=%s version=%s save_ms=%.2f",
+                normalized_path,
+                database.version,
+                (time.perf_counter() - save_start) * 1000,
+            )
+        finally:
+            with _SNAPSHOT_LOCK:
+                _SNAPSHOT_TIMERS.pop(normalized_path, None)
+
+    with _SNAPSHOT_LOCK:
+        timer = _SNAPSHOT_TIMERS.get(normalized_path)
+        if timer is not None:
+            timer.cancel()
+        timer = threading.Timer(_SNAPSHOT_DEBOUNCE_SECONDS, save_snapshot)
+        timer.daemon = True
+        _SNAPSHOT_TIMERS[normalized_path] = timer
+        timer.start()
+
+
+def _operations_path(database_path: str) -> Path:
+    path = Path(database_path)
+    if path.name == DEFAULT_RUNTIME_DATABASE_PATH.name:
+        return path.with_name("operations.jsonl")
+    return path.with_name(f"{path.stem}.operations.jsonl")
+
+
+def _normalized_database_path(database_path: str) -> str:
+    return str(Path(database_path).resolve())
+
+
+def _model_to_payload(model: BaseModel) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(mode="json")
+    return model.dict()
+
+
+def _log_operation_timing(operation: Operation, response_start: float) -> None:
+    LOGGER.info(
+        "operation response complete op_id=%s type=%s entity=%s:%s total_response_ms=%.2f",
+        operation.opId,
+        operation.type,
+        operation.entityType,
+        operation.entityId,
+        (time.perf_counter() - response_start) * 1000,
+    )
+
+
 def _find_cabinet(database: TopologyDatabase, cabinet_uid: str) -> Cabinet | None:
     normalized_uid = cabinet_uid.upper()
     for cabinet in database.cabinets:
@@ -622,13 +947,12 @@ def _port_collision_examples(database: TopologyDatabase, port_uid: str) -> list[
 
 
 def _load_cached_database(database_path: str) -> TopologyDatabase:
-    path = Path(database_path)
-    cache_key = (str(path), path.stat().st_mtime)
+    cache_key = _normalized_database_path(database_path)
     if cache_key not in _DATABASE_CACHE:
         _DATABASE_CACHE.clear()
         _GRAPH_CACHE.clear()
         _CABINET_PROGRESS_CACHE.clear()
-        _DATABASE_CACHE[cache_key] = load_topology_database(path)
+        _DATABASE_CACHE[cache_key] = _replay_operations(load_topology_database(database_path), database_path)
     return _DATABASE_CACHE[cache_key]
 
 
@@ -656,6 +980,10 @@ def _load_cached_cabinet_progress(
 def _save_database_and_clear_cache(database: TopologyDatabase, database_path: str) -> None:
     save_topology_database(database, database_path)
     _DATABASE_CACHE.clear()
+    _clear_derived_caches()
+
+
+def _clear_derived_caches() -> None:
     _GRAPH_CACHE.clear()
     _CABINET_PROGRESS_CACHE.clear()
 

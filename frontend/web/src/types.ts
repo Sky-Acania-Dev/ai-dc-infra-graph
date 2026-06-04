@@ -65,6 +65,9 @@ export type Device = {
   construction_phase: string;
   aliases: string[];
   model_aliases: string[];
+  front_panel_svg: string;
+  back_panel_svg: string;
+  port_layout: DevicePortLayoutEntry[];
   port_layout_overrides: DevicePortLayoutEntry[];
   ports_by_type: Partial<Record<ConnectorType, PortConnector[]>>;
   note: string;
@@ -253,4 +256,25 @@ export type ValidationResponse = {
   port_collision_findings: PortConnectionFinding[];
   device_model_mismatches: DeviceModelFinding[];
   device_model_format_issues: DeviceModelFinding[];
+};
+
+export type Operation = {
+  opId: number;
+  type: string;
+  entityType: "cabinet" | "device" | "cable" | string;
+  entityId: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  timestamp: string;
+};
+
+export type OperationResponse = {
+  ok: boolean;
+  operation: Operation;
+  version: number;
+};
+
+export type OperationListResponse = {
+  operations: Operation[];
+  version: number;
 };

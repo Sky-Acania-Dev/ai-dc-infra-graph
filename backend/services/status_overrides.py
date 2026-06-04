@@ -7,7 +7,15 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from backend.core.progress_config import normalize_cable_progress_phase
-from backend.models import CableProgressPhase, CableProgressState, CableProgressStep, Device, DeviceModel, LifecycleStatus
+from backend.models import (
+    CableProgressPhase,
+    CableProgressState,
+    CableProgressStep,
+    Device,
+    DeviceModel,
+    DevicePortLayoutEntry,
+    LifecycleStatus,
+)
 
 
 class DeviceStatusOverride(BaseModel):
@@ -33,6 +41,7 @@ class DeviceModelOverride(BaseModel):
     rack_units: int | None = None
     front_panel_svg: str = ""
     back_panel_svg: str = ""
+    port_layout: list[DevicePortLayoutEntry] = Field(default_factory=list)
     note: str = ""
 
 
@@ -164,6 +173,8 @@ def _sync_device_model_catalog(database, overrides: StatusOverrides) -> None:
             model.front_panel_svg = override.front_panel_svg
         if override.back_panel_svg:
             model.back_panel_svg = override.back_panel_svg
+        if override.port_layout:
+            model.port_layout = override.port_layout
         if override.note:
             model.note = override.note
 
@@ -207,6 +218,9 @@ def _apply_device_model_to_device(device: Device, models_by_uid: dict[str, Devic
     device.device_model_uid = model_uid
     if model is not None:
         device.rack_units = max(1, int(model.rack_units or 1))
+        device.front_panel_svg = model.front_panel_svg
+        device.back_panel_svg = model.back_panel_svg
+        device.port_layout = list(model.port_layout)
     else:
         device.rack_units = max(1, int(device.rack_units or 1))
 

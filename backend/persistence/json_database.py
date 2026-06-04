@@ -15,10 +15,12 @@ from backend.validation.device_models import DeviceModelFinding, detect_device_m
 
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+_ATOMIC_REPLACE_SUPPORTED = True
 
 
 class TopologyDatabase(BaseModel):
     schema_version: int = SCHEMA_VERSION
+    version: int = 0
     project_uid: str
     building_id: str
     summary: CutsheetSummary
@@ -44,6 +46,7 @@ def database_from_ingestion_result(result: CutsheetIngestionResult) -> TopologyD
     _apply_device_model_catalog_to_data_halls(result.data_halls, device_models)
     return TopologyDatabase(
         schema_version=SCHEMA_VERSION,
+        version=0,
         project_uid=result.project_uid,
         building_id=result.building_id,
         summary=CutsheetSummary(
@@ -110,6 +113,7 @@ def database_from_json_payload(payload: dict[str, Any]) -> TopologyDatabase:
 
     return TopologyDatabase(
         schema_version=SCHEMA_VERSION,
+        version=int(payload.get("version") or 0),
         project_uid=payload["project_uid"],
         building_id=payload["building_id"],
         summary=_model_from_payload(CutsheetSummary, summary_payload),
@@ -134,9 +138,27 @@ def database_from_json_payload(payload: dict[str, Any]) -> TopologyDatabase:
 
 
 def save_topology_database(database: TopologyDatabase, path: str | Path = DEFAULT_RUNTIME_DATABASE_PATH) -> Path:
+    global _ATOMIC_REPLACE_SUPPORTED
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(topology_database_to_json(database), encoding="utf-8")
+    payload = topology_database_to_json(database)
+    if not _ATOMIC_REPLACE_SUPPORTED:
+        output_path.write_text(payload, encoding="utf-8")
+        return output_path
+    temp_path = output_path.with_name(f"{output_path.name}.tmp")
+    backup_path = output_path.with_name(f"{output_path.name}.bak")
+    temp_path.write_text(payload, encoding="utf-8")
+    try:
+        if output_path.exists():
+            output_path.replace(backup_path)
+        temp_path.replace(output_path)
+    except PermissionError:
+        _ATOMIC_REPLACE_SUPPORTED = False
+        output_path.write_text(payload, encoding="utf-8")
+        try:
+            temp_path.unlink(missing_ok=True)
+        except PermissionError:
+            pass
     return output_path
 
 
@@ -229,6 +251,9 @@ def _apply_device_model_to_device(device: Device, models_by_uid: dict[str, Devic
     device.device_model_uid = model_uid
     if model is not None:
         device.rack_units = max(1, model.rack_units)
+        device.front_panel_svg = model.front_panel_svg
+        device.back_panel_svg = model.back_panel_svg
+        device.port_layout = list(model.port_layout)
         return
     device.rack_units = max(1, int(device.rack_units or 1))
 
