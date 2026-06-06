@@ -2,16 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { updateCable } from "../api";
 import type { CabinetCableDetail, CableDetailResponse, CableProgressPhase, CableProgressPhaseDefinition, OperationResponse, TopologyEnums } from "../types";
 import { useI18n } from "../i18n";
+import type { SelectionGesture, SelectionMode } from "../App";
 
 type CableDetailOverlayProps = {
   cableDetail: CableDetailResponse | null;
   isLoading: boolean;
   routeLabel: { source: string; target: string } | null;
   selectedCableUid: string | null;
+  selectedCableUids: Set<string>;
+  selectionMode: SelectionMode;
   canEdit: boolean;
   topologyEnums: TopologyEnums | null;
   onClose: () => void;
-  onSelectCable: (cable: CabinetCableDetail) => void;
+  onSelectCable: (cable: CabinetCableDetail, gesture: SelectionGesture) => void;
   onCableUpdated: (response: OperationResponse) => void;
 };
 
@@ -57,6 +60,8 @@ export function CableDetailOverlay({
   isLoading,
   routeLabel,
   selectedCableUid,
+  selectedCableUids,
+  selectionMode,
   canEdit,
   topologyEnums,
   onClose,
@@ -144,6 +149,10 @@ export function CableDetailOverlay({
   const normalizedPage = Math.min(page, pageCount);
   const pageStartIndex = (normalizedPage - 1) * pageSize;
   const pagedCables = visibleCables.slice(pageStartIndex, pageStartIndex + pageSize);
+  const selectedCables = useMemo(
+    () => cableDetail?.cables.filter((cable) => selectedCableUids.has(cable.uid)) ?? [],
+    [cableDetail, selectedCableUids],
+  );
 
   useEffect(() => {
     setPage(1);
@@ -201,7 +210,7 @@ export function CableDetailOverlay({
   }
 
   return (
-    <div className="cable-overlay" onClick={() => setOpenFilterColumn(null)}>
+    <div className={`cable-overlay selection-mode-${selectionMode}`} onClick={() => setOpenFilterColumn(null)}>
       <div className="overlay-header">
         <div>
           <span className="eyebrow">{t("cable.details")}</span>
@@ -215,7 +224,11 @@ export function CableDetailOverlay({
                   total: formatNumber(cableDetail.cables.length),
                 })
               : t("common.loading", { target: t("cable.details") })}
+            {selectedCables.length > 1 ? ` · Selected ${formatNumber(selectedCables.length)}` : ""}
           </div>
+          {selectedCables.length > 1 ? (
+            <CableSelectionSummary cables={selectedCables} formatNumber={formatNumber} />
+          ) : null}
         </div>
         <button className="icon-button" onClick={onClose} aria-label={t("cable.closeDetails")}>
           X
@@ -331,9 +344,9 @@ export function CableDetailOverlay({
           <tbody>
             {pagedCables.map((cable, index) => (
               <tr
-                className={selectedCableUid === cable.uid ? "is-selected-cable" : ""}
+                className={`${selectedCableUids.has(cable.uid) ? "is-selected-cable" : ""} ${selectedCableUid === cable.uid ? "is-primary-selected" : ""}`}
                 key={`${cable.uid}-${cable.a_port_uid}-${cable.z_port_uid}-${pageStartIndex + index}`}
-                onClick={() => onSelectCable(cable)}
+                onClick={(event) => onSelectCable(cable, event)}
               >
                 {COLUMNS.map((column) => (
                   <td key={column.key}>
@@ -903,6 +916,35 @@ function RangeFilterMenu({
       </button>
     </div>
   );
+}
+
+function CableSelectionSummary({
+  cables,
+  formatNumber,
+}: {
+  cables: CabinetCableDetail[];
+  formatNumber: (value: number) => string;
+}) {
+  const typeCounts = countBy(cables, (cable) => cable.cable_type);
+  const statusCounts = countBy(cables, (cable) => cable.status);
+  const totalLength = cables.reduce((total, cable) => total + (cable.length_meters ?? cable.length_used_meters ?? 0), 0);
+
+  return (
+    <div className="selection-summary">
+      <span>{formatNumber(typeCounts.length)} types</span>
+      <span>{formatNumber(statusCounts.length)} statuses</span>
+      <span>{formatNumber(Math.round(totalLength))} m</span>
+    </div>
+  );
+}
+
+function countBy<T>(items: T[], getKey: (item: T) => string): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = getKey(item) || "(blank)";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
 
 function FilterHiddenSummary({

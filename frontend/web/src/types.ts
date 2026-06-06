@@ -266,6 +266,8 @@ export type Operation = {
   before: Record<string, unknown>;
   after: Record<string, unknown>;
   timestamp: string;
+  userUid?: string | null;
+  userRole?: string | null;
 };
 
 export type OperationResponse = {

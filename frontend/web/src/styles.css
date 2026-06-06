@@ -144,6 +144,24 @@ button {
   font-weight: 800;
 }
 
+.selection-mode-control button {
+  min-width: 54px;
+  padding-left: 9px;
+  padding-right: 9px;
+}
+
+.selection-mode-multi .map-cabinet,
+.selection-mode-multi .device-chip,
+.selection-mode-multi .table-scroll tbody tr {
+  cursor: cell;
+}
+
+.selection-mode-remove .map-cabinet,
+.selection-mode-remove .device-chip,
+.selection-mode-remove .table-scroll tbody tr {
+  cursor: not-allowed;
+}
+
 .workspace {
   display: grid;
   gap: 14px;
@@ -165,6 +183,10 @@ button {
   height: 100%;
   min-height: 0;
   position: relative;
+}
+
+.map-stack.has-center-toggle .pane-header {
+  padding-right: 170px;
 }
 
 .map-stack .map-pane {
@@ -271,9 +293,24 @@ button {
   color: #ffffff;
 }
 
+.map-size-control button.has-graph-neighbor {
+  background: #fee2e2;
+  box-shadow:
+    inset 0 0 0 2px #ef4444,
+    0 0 0 2px rgba(239, 68, 68, 0.18);
+  color: #991b1b;
+}
+
 .map-size-control button:disabled {
   color: #94a3b8;
   cursor: not-allowed;
+}
+
+.center-view-toggle {
+  position: absolute;
+  right: 14px;
+  top: 12px;
+  z-index: 8;
 }
 
 .map-scroll {
@@ -324,6 +361,11 @@ button {
 .map-cabinet:hover .cabinet-rect,
 .map-cabinet.is-selected .cabinet-rect {
   stroke: #111827;
+  stroke-width: 3;
+}
+
+.map-cabinet.is-primary-selected .cabinet-rect {
+  stroke: #f59e0b;
   stroke-width: 4;
 }
 
@@ -366,12 +408,12 @@ button {
   fill: #111827;
   font-weight: 800;
   paint-order: stroke fill;
-  stroke: rgba(255, 255, 255, 0.75);
-  stroke-width: 0.45px;
+  stroke: rgba(255, 255, 255, 0.82);
+  stroke-width: 0.65px;
 }
 
 .map-progress-bg {
-  fill: #ffffff;
+  fill: #e2e8f0;
   stroke: rgba(15, 23, 42, 0.55);
   stroke-width: 0.45px;
 }
@@ -407,6 +449,18 @@ button {
   font-size: 12px;
   justify-content: space-between;
   padding: 5px 0;
+}
+
+.aggregate-section {
+  margin-top: 12px;
+}
+
+.aggregate-rows {
+  margin-top: 10px;
+}
+
+.compact-facts {
+  margin-bottom: 8px;
 }
 
 .device-layout {
@@ -465,11 +519,16 @@ button {
   min-height: 100%;
   min-width: 0;
   padding: 3px 5px;
+  position: relative;
   text-align: left;
 }
 
 .device-chip.is-selected {
   border-color: #f59e0b;
+  box-shadow: inset 0 0 0 1px #f59e0b;
+}
+
+.device-chip.is-primary-selected {
   box-shadow: inset 0 0 0 2px #f59e0b;
 }
 
@@ -485,6 +544,10 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.device-chip > span:first-child {
+  padding-right: 20px;
 }
 
 .device-chip em {
@@ -508,14 +571,36 @@ button {
 }
 
 .device-layout-button {
+  align-items: center;
   background: #111827;
   border: 0;
   color: #ffffff;
   cursor: pointer;
-  font-size: 10px;
-  font-weight: 800;
-  justify-self: start;
-  padding: 4px 6px;
+  display: flex;
+  height: 16px;
+  justify-content: center;
+  line-height: 0;
+  padding: 0;
+  position: absolute;
+  right: 5px;
+  top: 4px;
+  width: 16px;
+}
+
+.device-layout-button.is-active {
+  background: #f59e0b;
+  color: #111827;
+}
+
+.device-layout-button svg {
+  display: block;
+  fill: none;
+  height: 11px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  width: 11px;
 }
 
 .port-layout-pane {
@@ -1022,6 +1107,16 @@ button {
   margin-top: 3px;
 }
 
+.selection-summary {
+  color: #334155;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  font-weight: 800;
+  gap: 8px;
+  margin-top: 5px;
+}
+
 .table-pagination {
   align-items: center;
   background: #f8fafc;
@@ -1126,7 +1221,11 @@ button {
 
 .table-scroll tbody tr.is-selected-cable {
   background: #fef3c7;
-  box-shadow: inset 3px 0 0 #f59e0b;
+  box-shadow: inset 2px 0 0 #f59e0b;
+}
+
+.table-scroll tbody tr.is-selected-cable.is-primary-selected {
+  box-shadow: inset 4px 0 0 #f59e0b;
 }
 
 .filter-row th {

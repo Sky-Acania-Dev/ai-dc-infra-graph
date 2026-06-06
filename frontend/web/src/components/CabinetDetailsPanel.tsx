@@ -6,16 +6,21 @@ import { useI18n } from "../i18n";
 import { updateCabinetStatus, updateDeviceStatus } from "../api";
 import { categoryColor } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
+import type { SelectionGesture } from "../App";
 
 type CabinetDetailsPanelProps = {
   detail: CabinetDetailResponse | null;
   dataHall: string;
   cabinets: CabinetLayoutItem[];
+  selectedCabinetUids: string[];
   selectedDeviceUid: string | null;
+  selectedDeviceUids: string[];
   deviceScrollRequest: number;
   connectedDeviceUids: Set<string>;
-  onSelectDevice: (device: Device) => void;
+  onSelectDevice: (device: Device, gesture: SelectionGesture) => void;
   onViewPortLayout: (device: Device) => void;
+  activePortLayoutDeviceUid: string | null;
+  onShowCabinetMap: () => void;
   onClearDeviceSelection: () => void;
   canEdit: boolean;
   lifecycleStatuses: string[];
@@ -26,11 +31,15 @@ export function CabinetDetailsPanel({
   detail,
   dataHall,
   cabinets,
+  selectedCabinetUids,
   selectedDeviceUid,
+  selectedDeviceUids,
   deviceScrollRequest,
   connectedDeviceUids,
   onSelectDevice,
   onViewPortLayout,
+  activePortLayoutDeviceUid,
+  onShowCabinetMap,
   onClearDeviceSelection,
   canEdit,
   lifecycleStatuses,
@@ -39,6 +48,12 @@ export function CabinetDetailsPanel({
   const { formatConstructionPhase, formatLifecycleStatus, formatNumber, t } = useI18n();
   const categorySummaryPan = useDragPan<HTMLElement>();
   const [categorySummaryHasScrollbar, setCategorySummaryHasScrollbar] = useState(false);
+  const selectedCabinets = selectedCabinetUids.length > 1
+    ? cabinets.filter((cabinet) => selectedCabinetUids.includes(cabinet.cabinet_uid))
+    : [];
+  const selectedDevices = detail && selectedDeviceUids.length > 1
+    ? detail.devices.filter((device) => selectedDeviceUids.includes(`${device.cabinet_id}:${device.rack_unit}`))
+    : [];
 
   useEffect(() => {
     if (detail) return;
@@ -52,6 +67,57 @@ export function CabinetDetailsPanel({
     window.addEventListener("resize", updateScrollbarState);
     return () => window.removeEventListener("resize", updateScrollbarState);
   }, [cabinets, categorySummaryPan.ref, detail]);
+
+  if (selectedCabinets.length > 1) {
+    const categories = categoryCounts(selectedCabinets);
+    const statuses = countBy(selectedCabinets, (cabinet) => cabinet.lifecycle_status);
+    const avgTermination = average(selectedCabinets.map((cabinet) => cabinet.cable_termination_percent));
+    const avgDress = average(selectedCabinets.map((cabinet) => cabinet.cable_dress_percent));
+    return (
+      <aside className="side-pane">
+        <span className="eyebrow">Multi-selection</span>
+        <h1>{formatNumber(selectedCabinets.length)} cabinets</h1>
+        <dl className="facts">
+          <div>
+            <dt>{t("cabinet.categories")}</dt>
+            <dd>{formatNumber(categories.length)}</dd>
+          </div>
+          <div>
+            <dt>{t("cabinet.termination")}</dt>
+            <dd className="progress-fact">
+              <ProgressCircle percent={avgTermination} />
+              {formatNumber(avgTermination)}%
+            </dd>
+          </div>
+          <div>
+            <dt>{t("cabinet.dress")}</dt>
+            <dd className="progress-fact">
+              <ProgressCircle percent={avgDress} />
+              {formatNumber(avgDress)}%
+            </dd>
+          </div>
+        </dl>
+        <section className="category-summary">
+          <div className="section-title">{t("cabinet.types")}</div>
+          {categories.map(([category, count]) => (
+            <div className="category-row" key={category}>
+              <span style={{ color: categoryColor(category) }}>{category}</span>
+              <b>{formatNumber(count)}</b>
+            </div>
+          ))}
+        </section>
+        <section className="category-summary aggregate-section">
+          <div className="section-title">{t("cabinet.status")}</div>
+          {statuses.map(([status, count]) => (
+            <div className="category-row" key={status}>
+              <span>{formatLifecycleStatus(status)}</span>
+              <b>{formatNumber(count)}</b>
+            </div>
+          ))}
+        </section>
+      </aside>
+    );
+  }
 
   if (!detail) {
     const categories = categoryCounts(cabinets);
@@ -156,14 +222,25 @@ export function CabinetDetailsPanel({
           </dd>
         </div>
       </dl>
+      {selectedDevices.length > 1 ? (
+        <DeviceSelectionSummary
+          devices={selectedDevices}
+          formatConstructionPhase={formatConstructionPhase}
+          formatLifecycleStatus={formatLifecycleStatus}
+          formatNumber={formatNumber}
+        />
+      ) : null}
       <CabinetDeviceLayout
         devices={detail.devices}
         maxRackUnit={detail.cabinet.max_rack_unit}
         selectedDeviceUid={selectedDeviceUid}
+        selectedDeviceUids={selectedDeviceUids}
         scrollRequest={deviceScrollRequest}
         connectedDeviceUids={connectedDeviceUids}
         onSelectDevice={onSelectDevice}
         onViewPortLayout={onViewPortLayout}
+        activePortLayoutDeviceUid={activePortLayoutDeviceUid}
+        onShowCabinetMap={onShowCabinetMap}
         canEdit={canEdit}
         lifecycleStatuses={lifecycleStatuses}
         onDeviceStatusChange={(device, lifecycleStatus) => {
@@ -180,4 +257,84 @@ function categoryCounts(cabinets: CabinetLayoutItem[]): [string, number][] {
     counts.set(cabinet.category, (counts.get(cabinet.category) ?? 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function DeviceSelectionSummary({
+  devices,
+  formatConstructionPhase,
+  formatLifecycleStatus,
+  formatNumber,
+}: {
+  devices: Device[];
+  formatConstructionPhase: (value: string) => string;
+  formatLifecycleStatus: (value: string) => string;
+  formatNumber: (value: number) => string;
+}) {
+  const statusCounts = countBy(devices, (device) => device.lifecycle_status);
+  const phaseCounts = countBy(devices, (device) => device.construction_phase);
+  const modelCounts = countBy(devices, (device) => device.device_model);
+  const portTotal = devices.reduce(
+    (total, device) => total + Object.values(device.ports_by_type).reduce((portCount, ports) => portCount + (ports?.length ?? 0), 0),
+    0,
+  );
+
+  return (
+    <section className="aggregate-section">
+      <div className="section-title">Selected devices</div>
+      <dl className="facts compact-facts">
+        <div>
+          <dt>Devices</dt>
+          <dd>{formatNumber(devices.length)}</dd>
+        </div>
+        <div>
+          <dt>Ports</dt>
+          <dd>{formatNumber(portTotal)}</dd>
+        </div>
+        <div>
+          <dt>Models</dt>
+          <dd>{formatNumber(modelCounts.length)}</dd>
+        </div>
+      </dl>
+      <AggregateRows title="Status" rows={statusCounts} formatValue={formatLifecycleStatus} formatNumber={formatNumber} />
+      <AggregateRows title="Phase" rows={phaseCounts} formatValue={formatConstructionPhase} formatNumber={formatNumber} />
+    </section>
+  );
+}
+
+function AggregateRows({
+  title,
+  rows,
+  formatValue,
+  formatNumber,
+}: {
+  title: string;
+  rows: [string, number][];
+  formatValue: (value: string) => string;
+  formatNumber: (value: number) => string;
+}) {
+  return (
+    <div className="aggregate-rows">
+      <div className="section-title">{title}</div>
+      {rows.map(([value, count]) => (
+        <div className="category-row" key={value}>
+          <span>{formatValue(value)}</span>
+          <b>{formatNumber(count)}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function countBy<T>(items: T[], getKey: (item: T) => string): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = getKey(item) || "(blank)";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function average(values: number[]): number {
+  if (!values.length) return 0;
+  return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
 }

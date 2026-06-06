@@ -231,6 +231,8 @@ class Operation(BaseModel):
     before: dict[str, Any]
     after: dict[str, Any]
     timestamp: str
+    userUid: str | None = None
+    userRole: str | None = None
 
 
 class OperationResponse(BaseModel):
@@ -373,6 +375,7 @@ def update_cabinet_status(
         entity_id=cabinet_uid,
         before=before,
         after=after,
+        user=user,
     )
     _log_operation_timing(operation, response_start)
     return OperationResponse(ok=True, operation=operation, version=database.version)
@@ -402,6 +405,7 @@ def update_device_status(
         entity_id=normalized_device_uid,
         before=before,
         after=after,
+        user=user,
     )
     _log_operation_timing(operation, response_start)
     return OperationResponse(ok=True, operation=operation, version=database.version)
@@ -458,6 +462,7 @@ def update_cable(
         entity_id=cable.uid,
         before=before,
         after=after,
+        user=user,
     )
     _log_operation_timing(operation, response_start)
     return OperationResponse(ok=True, operation=operation, version=database.version)
@@ -485,6 +490,7 @@ def undo_operation(
         before=original.after,
         after=original.before,
         record_undo=False,
+        user=user,
     )
     _log_operation_timing(operation, response_start)
     return OperationResponse(ok=True, operation=operation, version=database.version)
@@ -512,6 +518,7 @@ def redo_operation(
         before=original.before,
         after=original.after,
         record_undo=False,
+        user=user,
     )
     _log_operation_timing(operation, response_start)
     return OperationResponse(ok=True, operation=operation, version=database.version)
@@ -705,6 +712,7 @@ def _commit_operation(
     before: dict[str, Any],
     after: dict[str, Any],
     record_undo: bool = True,
+    user: AuthUser | None = None,
 ) -> Operation:
     normalized_path = _normalized_database_path(database_path)
     operation = Operation(
@@ -715,6 +723,8 @@ def _commit_operation(
         before=before,
         after=after,
         timestamp=datetime.now(timezone.utc).isoformat(),
+        userUid=user.uid if user else None,
+        userRole=user.role.value if user else None,
     )
     apply_start = time.perf_counter()
     _apply_operation(database, operation, use_before=False)

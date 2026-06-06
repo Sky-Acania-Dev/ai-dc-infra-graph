@@ -10,8 +10,10 @@ import {
   fetchDeviceConnections,
   fetchOperations,
   fetchTopologyEnums,
-  redoOperation,
-  undoOperation,
+  updateCabinetStatus,
+  updateCable,
+  updateDeviceStatus,
+  type UpdateCablePayload,
 } from "./api";
 import { CableDetailOverlay } from "./components/CableDetailOverlay";
 import { CabinetConnectionsPanel } from "./components/CabinetConnectionsPanel";
@@ -39,6 +41,12 @@ import { useI18n, type Locale } from "./i18n";
 const DATA_HALLS = ["DH1", "DH2"];
 type AppMode = "topology" | "validation" | "operations";
 type CenterViewMode = "cabinet_map" | "port_layout";
+export type SelectionMode = "single" | "multi" | "remove";
+export type SelectionGesture = {
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+};
 
 export function App() {
   const { locale, setLocale, t } = useI18n();
@@ -46,12 +54,15 @@ export function App() {
   const [dataHall, setDataHall] = useState("DH1");
   const [cabinets, setCabinets] = useState<CabinetLayoutItem[]>([]);
   const [selectedCabinetUid, setSelectedCabinetUid] = useState<string | null>(null);
+  const [selectedCabinetUids, setSelectedCabinetUids] = useState<string[]>([]);
   const [detail, setDetail] = useState<CabinetDetailResponse | null>(null);
   const [cableDetail, setCableDetail] = useState<CableDetailResponse | null>(null);
   const [selectedCableUid, setSelectedCableUid] = useState<string | null>(null);
+  const [selectedCableUids, setSelectedCableUids] = useState<string[]>([]);
   const [isCableDetailLoading, setIsCableDetailLoading] = useState(false);
   const [cableDetailRoute, setCableDetailRoute] = useState<{ source: string; target: string } | null>(null);
   const [selectedDeviceUid, setSelectedDeviceUid] = useState<string | null>(null);
+  const [selectedDeviceUids, setSelectedDeviceUids] = useState<string[]>([]);
   const [deviceScrollRequest, setDeviceScrollRequest] = useState(0);
   const [deviceDetail, setDeviceDetail] = useState<DeviceConnectionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,12 +70,16 @@ export function App() {
   const [mapSize, setMapSize] = useState<MapSize>("normal");
   const [mapProgressDisplay, setMapProgressDisplay] = useState<MapProgressDisplay>("text");
   const [centerViewMode, setCenterViewMode] = useState<CenterViewMode>("cabinet_map");
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>("single");
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [topologyEnums, setTopologyEnums] = useState<TopologyEnums | null>(null);
   const [dataHallCableSummary, setDataHallCableSummary] = useState<DataHallCableSummaryResponse | null>(null);
   const [operationList, setOperationList] = useState<OperationListResponse | null>(null);
   const [pendingSaveCount, setPendingSaveCount] = useState(0);
   const [lastSavedVersion, setLastSavedVersion] = useState<number | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [undoStack, setUndoStack] = useState<Operation[]>([]);
+  const [redoStack, setRedoStack] = useState<Operation[]>([]);
   const cabinetLayoutCacheRef = useRef<Record<string, CabinetLayoutItem[]>>({});
   const dataHallCableSummaryCacheRef = useRef<Record<string, DataHallCableSummaryResponse>>({});
   const cableDetailRequestRef = useRef(0);
@@ -87,11 +102,11 @@ export function App() {
       if (isEditable || !(event.ctrlKey || event.metaKey)) return;
       if (event.key.toLowerCase() === "z" && !event.shiftKey) {
         event.preventDefault();
-        runOperation(undoOperation);
+        runClientUndo();
       }
       if (event.key.toLowerCase() === "y" || (event.key.toLowerCase() === "z" && event.shiftKey)) {
         event.preventDefault();
-        runOperation(redoOperation);
+        runClientRedo();
       }
     }
 
@@ -175,6 +190,9 @@ export function App() {
     () => new Set(deviceDetail?.connected_devices.map((connection) => connection.target_device_uid) ?? []),
     [deviceDetail],
   );
+  const selectedCabinetUidSet = useMemo(() => new Set(selectedCabinetUids), [selectedCabinetUids]);
+  const selectedDeviceUidSet = useMemo(() => new Set(selectedDeviceUids), [selectedDeviceUids]);
+  const selectedCableUidSet = useMemo(() => new Set(selectedCableUids), [selectedCableUids]);
   const selectedDevice = useMemo(() => {
     if (!selectedDeviceUid) return null;
     return detail?.devices.find((device) => `${device.cabinet_id}:${device.rack_unit}` === selectedDeviceUid) ?? null;
@@ -186,6 +204,7 @@ export function App() {
 
   function clearSelection() {
     setSelectedCabinetUid(null);
+    setSelectedCabinetUids([]);
     setDetail(null);
     closeCableDetail();
     setCenterViewMode("cabinet_map");
@@ -194,6 +213,7 @@ export function App() {
 
   function clearDeviceSelection() {
     setSelectedDeviceUid(null);
+    setSelectedDeviceUids([]);
     setDeviceDetail(null);
     setCenterViewMode("cabinet_map");
   }
@@ -227,6 +247,7 @@ export function App() {
     cableDetailRequestRef.current = requestId;
     setCableDetail(null);
     setSelectedCableUid(null);
+    setSelectedCableUids([]);
     setCableDetailRoute(route);
     setIsCableDetailLoading(true);
     setError(null);
@@ -234,7 +255,9 @@ export function App() {
       .then((nextCableDetail) => {
         if (cableDetailRequestRef.current !== requestId) return;
         setCableDetail(nextCableDetail);
-        setSelectedCableUid(nextCableDetail.cables[0]?.uid ?? null);
+        const firstCableUid = nextCableDetail.cables[0]?.uid ?? null;
+        setSelectedCableUid(firstCableUid);
+        setSelectedCableUids(firstCableUid ? [firstCableUid] : []);
       })
       .catch((requestError: Error) => {
         if (cableDetailRequestRef.current !== requestId) return;
@@ -250,6 +273,7 @@ export function App() {
     cableDetailRequestRef.current += 1;
     setCableDetail(null);
     setSelectedCableUid(null);
+    setSelectedCableUids([]);
     setCableDetailRoute(null);
     setIsCableDetailLoading(false);
   }
@@ -257,6 +281,7 @@ export function App() {
   function selectDevice(device: Device) {
     const deviceUid = `${device.cabinet_id}:${device.rack_unit}`;
     setSelectedDeviceUid(deviceUid);
+    setSelectedDeviceUids([deviceUid]);
     closeCableDetail();
     setError(null);
     fetchDeviceConnections(device.cabinet_id, device.rack_unit)
@@ -275,7 +300,9 @@ export function App() {
     setMode("topology");
     setDataHall(parsed.dataHall);
     setSelectedCabinetUid(parsed.cabinetUid);
+    setSelectedCabinetUids([parsed.cabinetUid]);
     setSelectedDeviceUid(parsed.deviceUid);
+    setSelectedDeviceUids([parsed.deviceUid]);
     setDeviceScrollRequest((current) => current + 1);
     closeCableDetail();
     setError(null);
@@ -306,9 +333,78 @@ export function App() {
       .catch((requestError: Error) => setError(requestError.message));
   }
 
-  function handleOperationResponse(response: OperationResponse) {
+  function selectCabinet(cabinetUid: string, gesture: SelectionGesture) {
+    if (isRemoveGesture(gesture, selectionMode)) {
+      const nextSelection = selectedCabinetUids.filter((uid) => uid !== cabinetUid);
+      setSelectedCabinetUids(nextSelection);
+      if (selectedCabinetUid === cabinetUid) {
+        setSelectedCabinetUid(nextSelection.at(-1) ?? null);
+        if (!nextSelection.length) setDetail(null);
+      }
+      return;
+    }
+
+    if (isMultiGesture(gesture, selectionMode)) {
+      setSelectedCabinetUids((current) => (current.includes(cabinetUid) ? current : [...current, cabinetUid]));
+    } else {
+      setSelectedCabinetUids([cabinetUid]);
+    }
+    setSelectedCabinetUid(cabinetUid);
+    closeCableDetail();
+    clearDeviceSelection();
+  }
+
+  function selectDeviceWithGesture(device: Device, gesture: SelectionGesture) {
+    const deviceUid = `${device.cabinet_id}:${device.rack_unit}`;
+    if (isRemoveGesture(gesture, selectionMode)) {
+      const nextSelection = selectedDeviceUids.filter((uid) => uid !== deviceUid);
+      setSelectedDeviceUids(nextSelection);
+      if (selectedDeviceUid === deviceUid) {
+        setSelectedDeviceUid(nextSelection.at(-1) ?? null);
+        setDeviceDetail(null);
+        setCenterViewMode("cabinet_map");
+      }
+      return;
+    }
+
+    if (isMultiGesture(gesture, selectionMode)) {
+      setSelectedDeviceUids((current) => (current.includes(deviceUid) ? current : [...current, deviceUid]));
+    } else {
+      setSelectedDeviceUids([deviceUid]);
+    }
+    setSelectedDeviceUid(deviceUid);
+    closeCableDetail();
+    setError(null);
+    fetchDeviceConnections(device.cabinet_id, device.rack_unit)
+      .then(setDeviceDetail)
+      .catch((requestError: Error) => setError(requestError.message));
+  }
+
+  function selectCable(cableUid: string, gesture: SelectionGesture) {
+    if (isRemoveGesture(gesture, selectionMode)) {
+      const nextSelection = selectedCableUids.filter((uid) => uid !== cableUid);
+      setSelectedCableUids(nextSelection);
+      if (selectedCableUid === cableUid) setSelectedCableUid(nextSelection.at(-1) ?? null);
+      return;
+    }
+
+    if (isMultiGesture(gesture, selectionMode)) {
+      setSelectedCableUids((current) => (current.includes(cableUid) ? current : [...current, cableUid]));
+    } else {
+      setSelectedCableUids([cableUid]);
+    }
+    setSelectedCableUid(cableUid);
+  }
+
+  function handleOperationResponse(response: OperationResponse, options: { recordUndo?: boolean } = {}) {
+    const shouldRecordUndo = options.recordUndo ?? true;
     applyOperation(response.operation);
     setLastSavedVersion(response.version);
+    setLastSavedAt(new Date().toLocaleTimeString());
+    if (shouldRecordUndo) {
+      setUndoStack((current) => [...current, response.operation]);
+      setRedoStack([]);
+    }
     setOperationList((current) =>
       current
         ? {
@@ -319,17 +415,52 @@ export function App() {
     );
   }
 
-  function submitOperation(operation: Promise<OperationResponse>) {
+  function submitOperation(
+    operation: Promise<OperationResponse>,
+    options: {
+      onError?: () => void;
+      onSuccess?: (response: OperationResponse) => void;
+      recordUndo?: boolean;
+    } = {},
+  ) {
     setPendingSaveCount((current) => current + 1);
     setError(null);
     operation
-      .then(handleOperationResponse)
-      .catch((requestError: Error) => setError(requestError.message))
+      .then((response) => {
+        handleOperationResponse(response, { recordUndo: options.recordUndo });
+        options.onSuccess?.(response);
+      })
+      .catch((requestError: Error) => {
+        setError(requestError.message);
+        options.onError?.();
+      })
       .finally(() => setPendingSaveCount((current) => Math.max(0, current - 1)));
   }
 
-  function runOperation(action: () => Promise<OperationResponse>) {
-    submitOperation(action());
+  function runClientUndo() {
+    const operation = undoStack.at(-1);
+    if (!operation || pendingSaveCount > 0) return;
+    const undoRequest = operationRequestForValues(operation, operation.before);
+    if (!undoRequest) return;
+    setUndoStack((current) => current.slice(0, -1));
+    submitOperation(undoRequest, {
+      recordUndo: false,
+      onError: () => setUndoStack((current) => [...current, operation]),
+      onSuccess: () => setRedoStack((current) => [...current, operation]),
+    });
+  }
+
+  function runClientRedo() {
+    const operation = redoStack.at(-1);
+    if (!operation || pendingSaveCount > 0) return;
+    const redoRequest = operationRequestForValues(operation, operation.after);
+    if (!redoRequest) return;
+    setRedoStack((current) => current.slice(0, -1));
+    submitOperation(redoRequest, {
+      recordUndo: false,
+      onError: () => setRedoStack((current) => [...current, operation]),
+      onSuccess: () => setUndoStack((current) => [...current, operation]),
+    });
   }
 
   function refreshOperations() {
@@ -408,7 +539,7 @@ export function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell selection-mode-${selectionMode}`}>
       <header className="topbar">
         <div>
           <span className="eyebrow">{t("app.name")}</span>
@@ -434,28 +565,28 @@ export function App() {
             </select>
           </label>
           <div className="role-pill">{currentUser ? t(`auth.role.${currentUser.role}`) : t("auth.loading")}</div>
+          <div className="segmented-control selection-mode-control" role="group" aria-label="Selection mode">
+            <button className={selectionMode === "single" ? "is-active" : ""} onClick={() => setSelectionMode("single")}>
+              Pointer
+            </button>
+            <button className={selectionMode === "multi" ? "is-active" : ""} onClick={() => setSelectionMode("multi")}>
+              Multi
+            </button>
+            <button className={selectionMode === "remove" ? "is-active" : ""} onClick={() => setSelectionMode("remove")}>
+              Remove
+            </button>
+          </div>
           <div className="segmented-control" role="group" aria-label="Operations">
-            <button disabled={!canEdit || pendingSaveCount > 0} onClick={() => runOperation(undoOperation)}>
+            <button disabled={!canEdit || pendingSaveCount > 0 || undoStack.length === 0} onClick={runClientUndo}>
               Undo
             </button>
-            <button disabled={!canEdit || pendingSaveCount > 0} onClick={() => runOperation(redoOperation)}>
+            <button disabled={!canEdit || pendingSaveCount > 0 || redoStack.length === 0} onClick={runClientRedo}>
               Redo
             </button>
           </div>
-          <div className="role-pill">{pendingSaveCount > 0 ? "Saving" : lastSavedVersion === null ? "Saved" : `Saved v${lastSavedVersion}`}</div>
-          {mode === "topology" ? (
-            <div className="segmented-control" role="tablist" aria-label={t("dataHall.selector")}>
-              {DATA_HALLS.map((hall) => (
-                <button
-                  className={`${hall === dataHall ? "is-active" : ""} ${connectedDataHalls.has(hall) && hall !== dataHall ? "has-graph-neighbor" : ""}`}
-                  key={hall}
-                  onClick={() => setDataHall(hall)}
-                >
-                  {hall}
-                </button>
-              ))}
-            </div>
-          ) : null}
+          <div className="role-pill" title={lastSavedAt ? `Last saved at ${lastSavedAt}` : undefined}>
+            {pendingSaveCount > 0 ? "Saving" : "Saved"}
+          </div>
         </div>
       </header>
 
@@ -471,11 +602,15 @@ export function App() {
             detail={detail}
             dataHall={dataHall}
             cabinets={cabinets}
+            selectedCabinetUids={selectedCabinetUids}
             selectedDeviceUid={selectedDeviceUid}
+            selectedDeviceUids={selectedDeviceUids}
             deviceScrollRequest={deviceScrollRequest}
             connectedDeviceUids={connectedDeviceUids}
-            onSelectDevice={selectDevice}
+            onSelectDevice={selectDeviceWithGesture}
             onViewPortLayout={viewPortLayout}
+            activePortLayoutDeviceUid={centerViewMode === "port_layout" ? selectedDeviceUid : null}
+            onShowCabinetMap={() => setCenterViewMode("cabinet_map")}
             onClearDeviceSelection={clearDeviceSelection}
             canEdit={canEdit}
             lifecycleStatuses={topologyEnums?.lifecycle_statuses ?? []}
@@ -484,33 +619,49 @@ export function App() {
           {isLoading ? (
             <section className="map-pane loading-pane">{t("common.loading", { target: dataHall })}</section>
           ) : (
-            <div className="map-stack">
+            <div className={`map-stack ${selectedDevice ? "has-center-toggle" : ""}`}>
+              {selectedDevice ? (
+                <div className="center-view-toggle map-size-control" aria-label={t("portLayout.mode")}>
+                  <button
+                    className={centerViewMode === "cabinet_map" ? "is-active" : ""}
+                    onClick={() => setCenterViewMode("cabinet_map")}
+                    type="button"
+                  >
+                    {t("map.cabinetMap")}
+                  </button>
+                  <button
+                    className={centerViewMode === "port_layout" ? "is-active" : ""}
+                    onClick={() => setCenterViewMode("port_layout")}
+                    type="button"
+                  >
+                    {t("portLayout.title")}
+                  </button>
+                </div>
+              ) : null}
               {centerViewMode === "port_layout" ? (
                 <DevicePortLayout
                   cableDetail={cableDetail}
                   device={selectedDevice}
                   selectedCable={selectedCable}
-                  onShowCabinetMap={() => setCenterViewMode("cabinet_map")}
                 />
               ) : (
                 <CabinetMap
                   cabinets={cabinets}
+                  connectedDataHalls={connectedDataHalls}
+                  dataHall={dataHall}
+                  dataHalls={DATA_HALLS}
                   selectedCabinetUid={selectedCabinetUid}
+                  selectedCabinetUids={selectedCabinetUidSet}
                   selectedDeviceCabinetUid={deviceDetail?.source_cabinet_uid ?? null}
                   connectedCabinetUids={connectedCabinetUids}
                   isDeviceMode={Boolean(selectedDeviceUid)}
                   mapSize={mapSize}
                   progressDisplay={mapProgressDisplay}
-                  onSelectCabinet={(cabinetUid) => {
-                    setSelectedCabinetUid(cabinetUid);
-                    closeCableDetail();
-                    clearDeviceSelection();
-                  }}
+                  onSelectCabinet={selectCabinet}
                   onClearSelection={clearSelection}
+                  onDataHallChange={setDataHall}
                   onMapSizeChange={setMapSize}
                   onProgressDisplayChange={setMapProgressDisplay}
-                  onShowPortLayout={() => setCenterViewMode("port_layout")}
-                  canShowPortLayout={Boolean(selectedDevice)}
                 />
               )}
               <CableDetailOverlay
@@ -518,10 +669,12 @@ export function App() {
                 isLoading={isCableDetailLoading}
                 routeLabel={cableDetailRoute}
                 selectedCableUid={selectedCableUid}
+                selectedCableUids={selectedCableUidSet}
+                selectionMode={selectionMode}
                 canEdit={canEdit}
                 topologyEnums={topologyEnums}
                 onClose={closeCableDetail}
-                onSelectCable={(cable) => setSelectedCableUid(cable.uid)}
+                onSelectCable={(cable, gesture) => selectCable(cable.uid, gesture)}
                 onCableUpdated={handleOperationResponse}
               />
             </div>
@@ -570,6 +723,7 @@ function OperationDebugView({
               <th>Type</th>
               <th>Entity</th>
               <th>Timestamp</th>
+              <th>User</th>
               <th>Before</th>
               <th>After</th>
             </tr>
@@ -581,6 +735,7 @@ function OperationDebugView({
                 <td>{operation.type}</td>
                 <td>{`${operation.entityType}:${operation.entityId}`}</td>
                 <td>{operation.timestamp}</td>
+                <td>{operation.userUid ? `${operation.userUid}${operation.userRole ? ` (${operation.userRole})` : ""}` : ""}</td>
                 <td>
                   <code>{JSON.stringify(operation.before)}</code>
                 </td>
@@ -611,6 +766,57 @@ function parseDeviceUid(value: string) {
   };
 }
 
+function operationRequestForValues(operation: Operation, values: Record<string, unknown>): Promise<OperationResponse> | null {
+  if (operation.entityType === "cabinet") {
+    const lifecycleStatus = asString(values.lifecycle_status);
+    return lifecycleStatus ? updateCabinetStatus(operation.entityId, lifecycleStatus) : null;
+  }
+
+  if (operation.entityType === "device") {
+    const lifecycleStatus = asString(values.lifecycle_status);
+    return lifecycleStatus ? updateDeviceStatus(operation.entityId, lifecycleStatus) : null;
+  }
+
+  if (operation.entityType === "cable") {
+    const payload: UpdateCablePayload = {};
+    if ("status" in values && (typeof values.status === "string" || values.status === null)) {
+      payload.status = values.status ?? undefined;
+    }
+    if ("progress" in values && isRecord(values.progress)) {
+      payload.progress = Object.fromEntries(
+        Object.entries(values.progress).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+      );
+    }
+    if ("current_phase" in values && isRecord(values.current_phase) && typeof values.current_phase.name === "string") {
+      payload.current_phase = values.current_phase as UpdateCablePayload["current_phase"];
+    }
+    if ("length_used_meters" in values && (typeof values.length_used_meters === "number" || values.length_used_meters === null)) {
+      payload.length_used_meters = values.length_used_meters;
+    }
+    if ("length_meters" in values && (typeof values.length_meters === "number" || values.length_meters === null)) {
+      payload.length_meters = values.length_meters;
+    }
+    if ("note" in values && (typeof values.note === "string" || values.note === null)) {
+      payload.note = values.note;
+    }
+    return Object.keys(payload).length ? updateCable(operation.entityId, payload) : null;
+  }
+
+  return null;
+}
+
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isMultiGesture(gesture: SelectionGesture, selectionMode: SelectionMode): boolean {
+  return selectionMode === "multi" || gesture.shiftKey;
+}
+
+function isRemoveGesture(gesture: SelectionGesture, selectionMode: SelectionMode): boolean {
+  return selectionMode === "remove" || gesture.ctrlKey || gesture.metaKey;
 }

@@ -2,6 +2,7 @@ import { categoryColor, labelColors } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
 import { useI18n } from "../i18n";
 import type { CabinetLayoutItem } from "../types";
+import type { SelectionGesture } from "../App";
 
 type PositionedCabinet = CabinetLayoutItem & {
   block: number;
@@ -11,18 +12,21 @@ type PositionedCabinet = CabinetLayoutItem & {
 
 type CabinetMapProps = {
   cabinets: CabinetLayoutItem[];
+  connectedDataHalls: Set<string>;
+  dataHall: string;
+  dataHalls: string[];
   selectedCabinetUid: string | null;
+  selectedCabinetUids: Set<string>;
   selectedDeviceCabinetUid: string | null;
   connectedCabinetUids: Set<string>;
   isDeviceMode: boolean;
   mapSize: MapSize;
   progressDisplay: MapProgressDisplay;
-  onSelectCabinet: (cabinetUid: string) => void;
+  onSelectCabinet: (cabinetUid: string, gesture: SelectionGesture) => void;
   onClearSelection: () => void;
+  onDataHallChange: (dataHall: string) => void;
   onMapSizeChange: (mapSize: MapSize) => void;
   onProgressDisplayChange: (progressDisplay: MapProgressDisplay) => void;
-  onShowPortLayout: () => void;
-  canShowPortLayout: boolean;
 };
 
 export type MapSize = "compact" | "normal" | "large";
@@ -76,7 +80,11 @@ const PADDING = 24;
 
 export function CabinetMap({
   cabinets,
+  connectedDataHalls,
+  dataHall,
+  dataHalls,
   selectedCabinetUid,
+  selectedCabinetUids,
   selectedDeviceCabinetUid,
   connectedCabinetUids,
   isDeviceMode,
@@ -84,10 +92,9 @@ export function CabinetMap({
   progressDisplay,
   onSelectCabinet,
   onClearSelection,
+  onDataHallChange,
   onMapSizeChange,
   onProgressDisplayChange,
-  onShowPortLayout,
-  canShowPortLayout,
 }: CabinetMapProps) {
   const { t } = useI18n();
   const settings = MAP_SIZE_SETTINGS[mapSize];
@@ -96,7 +103,7 @@ export function CabinetMap({
   const maxRow = Math.max(...positioned.map((cabinet) => cabinet.row), 0);
   const width = PADDING * 2 + (maxBlock + 1) * 10 * settings.cellWidth + maxBlock * settings.blockGap;
   const height = PADDING * 2 + rowY(maxRow, settings) + settings.cellHeight;
-  const hasSelection = Boolean(selectedCabinetUid);
+  const hasSelection = selectedCabinetUids.size > 0;
   const mapPan = useDragPan<HTMLDivElement>();
 
   return (
@@ -107,11 +114,16 @@ export function CabinetMap({
           <h2>{cabinets[0]?.data_hall_id ?? t("dataHall.fallback")}</h2>
         </div>
         <div className="map-controls">
-          <div className="map-size-control" aria-label={t("portLayout.mode")}>
-            <button className="is-active">{t("map.cabinetMap")}</button>
-            <button disabled={!canShowPortLayout} onClick={onShowPortLayout}>
-              {t("portLayout.title")}
-            </button>
+          <div className="map-size-control" role="tablist" aria-label={t("dataHall.selector")}>
+            {dataHalls.map((hall) => (
+              <button
+                className={`${hall === dataHall ? "is-active" : ""} ${connectedDataHalls.has(hall) && hall !== dataHall ? "has-graph-neighbor" : ""}`}
+                key={hall}
+                onClick={() => onDataHallChange(hall)}
+              >
+                {hall}
+              </button>
+            ))}
           </div>
           <div className="map-size-control" aria-label={t("map.display")}>
             {(["text", "termination", "dress"] as MapProgressDisplay[]).map((display) => (
@@ -150,7 +162,8 @@ export function CabinetMap({
               cabinet.block * (10 * settings.cellWidth + settings.blockGap) +
               cabinet.col * settings.cellWidth;
             const y = PADDING + rowY(cabinet.row, settings);
-            const isSelected = cabinet.cabinet_uid === selectedCabinetUid;
+            const isSelected = selectedCabinetUids.has(cabinet.cabinet_uid);
+            const isPrimarySelected = cabinet.cabinet_uid === selectedCabinetUid;
             const isDeviceSource = isDeviceMode && cabinet.cabinet_uid === selectedDeviceCabinetUid;
             const isConnected = connectedCabinetUids.has(cabinet.cabinet_uid);
             const isDimmed = hasSelection && !isSelected && !isConnected;
@@ -164,15 +177,15 @@ export function CabinetMap({
             return (
               <g
                 key={cabinet.cabinet_uid}
-                className={`map-cabinet ${isSelected ? "is-selected" : ""} ${isDeviceSource ? "is-device-source" : ""} ${isConnected ? "is-connected" : ""} ${isDimmed ? "is-dimmed" : ""}`}
+                className={`map-cabinet ${isSelected ? "is-selected" : ""} ${isPrimarySelected ? "is-primary-selected" : ""} ${isDeviceSource ? "is-device-source" : ""} ${isConnected ? "is-connected" : ""} ${isDimmed ? "is-dimmed" : ""}`}
                 role="button"
                 tabIndex={0}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onSelectCabinet(cabinet.cabinet_uid);
+                  onSelectCabinet(cabinet.cabinet_uid, event);
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") onSelectCabinet(cabinet.cabinet_uid);
+                  if (event.key === "Enter" || event.key === " ") onSelectCabinet(cabinet.cabinet_uid, event);
                 }}
               >
                 <rect className="cabinet-rect" x={x} y={y} width={settings.cellWidth - 2} height={settings.cellHeight - 2} fill={fill}>
@@ -203,9 +216,9 @@ export function CabinetMap({
                 {progressDisplay !== "text" ? (
                   <ProgressBar
                     x={x + 2}
-                    y={y + settings.cellHeight * 0.58}
-                    width={settings.cellWidth - 5}
-                    height={Math.max(4, settings.cellHeight * 0.22)}
+                    y={y + settings.cellHeight * 0.53}
+                    width={settings.cellWidth - 4}
+                    height={Math.max(6, settings.cellHeight * 0.32)}
                     percent={
                       progressDisplay === "termination"
                         ? cabinet.cable_termination_percent
@@ -287,24 +300,28 @@ function ProgressBar({
 }) {
   const clamped = Math.min(100, Math.max(0, percent));
   const label = `${Math.round(clamped)}%`;
-  const labelWidth = Math.max(7, fontSize * 3.3);
-  const gap = 1;
-  const barX = x + labelWidth + gap;
-  const barWidth = Math.max(2, width - labelWidth - gap);
+  const labelFontSize = Math.min(fontSize, Math.max(5, height * 0.58));
   return (
     <g className="map-progress-bar">
-      <text x={x} y={y + height - 0.5} style={{ fontSize }}>
-        {label}
-      </text>
-      <rect className="map-progress-bg" x={barX} y={y} width={barWidth} height={height} />
+      <rect className="map-progress-bg" x={x} y={y} width={width} height={height} rx={1.5} />
       <rect
         className="map-progress-fill"
-        x={barX}
+        x={x}
         y={y}
-        width={(barWidth * clamped) / 100}
+        width={(width * clamped) / 100}
         height={height}
+        rx={1.5}
         fill={progressColor(clamped)}
       />
+      <text
+        dominantBaseline="central"
+        textAnchor="middle"
+        x={x + width / 2}
+        y={y + height / 2}
+        style={{ fontSize: labelFontSize }}
+      >
+        {label}
+      </text>
     </g>
   );
 }

@@ -151,9 +151,9 @@ export type UpdateCablePayload = {
     tasks?: Record<string, number>;
     task_values?: Record<string, { task_type: string; value: number | string | null; enum_values?: string[] }>;
   };
-  length_used_meters?: number;
+  length_used_meters?: number | null;
   length_meters?: number | null;
-  note?: string;
+  note?: string | null;
 };
 
 export async function updateCable(cableUid: string, payload: UpdateCablePayload): Promise<OperationResponse> {

@@ -6,7 +6,6 @@ type DevicePortLayoutProps = {
   device: Device | null;
   cableDetail: CableDetailResponse | null;
   selectedCable: CabinetCableDetail | null;
-  onShowCabinetMap: () => void;
 };
 
 type PortMarker = {
@@ -29,7 +28,7 @@ const PANEL_WIDTH = 940;
 const PANEL_HEIGHT = 250;
 const PANEL_INSET_X = 24;
 
-export function DevicePortLayout({ cableDetail, device, selectedCable, onShowCabinetMap }: DevicePortLayoutProps) {
+export function DevicePortLayout({ cableDetail, device, selectedCable }: DevicePortLayoutProps) {
   const { formatConstructionPhase, formatLifecycleStatus, formatNumber, t } = useI18n();
   const [selectedPortUid, setSelectedPortUid] = useState<string | null>(null);
   const deviceUid = device ? `${device.cabinet_id}:${device.rack_unit}`.toUpperCase() : "";
@@ -58,12 +57,6 @@ export function DevicePortLayout({ cableDetail, device, selectedCable, onShowCab
         <div>
           <span className="eyebrow">{t("portLayout.eyebrow")}</span>
           <h2>{device ? `${device.cabinet_id}:${device.rack_unit} ${device.device_model}` : t("portLayout.noDevice")}</h2>
-        </div>
-        <div className="map-controls">
-          <div className="map-size-control" aria-label={t("portLayout.mode")}>
-            <button onClick={onShowCabinetMap}>{t("map.cabinetMap")}</button>
-            <button className="is-active">{t("portLayout.title")}</button>
-          </div>
         </div>
       </div>
       {device ? (

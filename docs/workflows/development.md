@@ -35,11 +35,15 @@ By default the build uses:
 
 ## Load Existing Runtime JSON
 
-Use this when you already have a normalized JSON and do not want to re-ingest source spreadsheets:
+Use this only when you already have a normalized runtime database snapshot and deliberately do not want to
+re-ingest the management, RoCE, or overhead source spreadsheets:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\load_database.py data\exports\cutsheet_full.json --runtime-path data\runtime\current_database.json
+.\.venv\Scripts\python.exe scripts\load_database.py data\runtime\current_database.json.bak --runtime-path data\runtime\current_database.json
 ```
+
+Do not use legacy cutsheet-only exports such as `data\exports\cutsheet_full.json` when refreshing active runtime data.
+Those exports do not ingest the RoCE cutsheet. Use `scripts\build_database.py` with `--roce-cutsheet-path` instead.
 
 ## Manual Status Overrides
 

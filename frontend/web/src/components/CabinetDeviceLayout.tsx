@@ -2,15 +2,19 @@ import { useEffect } from "react";
 import { useDragPan } from "../hooks/useDragPan";
 import type { Device } from "../types";
 import { useI18n } from "../i18n";
+import type { SelectionGesture } from "../App";
 
 type CabinetDeviceLayoutProps = {
   devices: Device[];
   maxRackUnit: number;
   selectedDeviceUid: string | null;
+  selectedDeviceUids: string[];
   scrollRequest: number;
   connectedDeviceUids: Set<string>;
-  onSelectDevice: (device: Device) => void;
+  onSelectDevice: (device: Device, gesture: SelectionGesture) => void;
   onViewPortLayout: (device: Device) => void;
+  activePortLayoutDeviceUid: string | null;
+  onShowCabinetMap: () => void;
   canEdit: boolean;
   lifecycleStatuses: string[];
   onDeviceStatusChange: (device: Device, lifecycleStatus: string) => void;
@@ -20,16 +24,20 @@ export function CabinetDeviceLayout({
   devices,
   maxRackUnit,
   selectedDeviceUid,
+  selectedDeviceUids,
   scrollRequest,
   connectedDeviceUids,
   onSelectDevice,
   onViewPortLayout,
+  activePortLayoutDeviceUid,
+  onShowCabinetMap,
   canEdit,
   lifecycleStatuses,
   onDeviceStatusChange,
 }: CabinetDeviceLayoutProps) {
   const { formatConstructionPhase, formatLifecycleStatus, formatNumber, t } = useI18n();
   const rackGridPan = useDragPan<HTMLDivElement>();
+  const selectedDeviceUidSet = new Set(selectedDeviceUids);
   const devicesByRu = new Map<number, Device[]>();
   for (const device of devices) {
     devicesByRu.set(device.rack_unit, [...(devicesByRu.get(device.rack_unit) ?? []), device]);
@@ -111,7 +119,10 @@ export function CabinetDeviceLayout({
                 onDeviceStatusChange,
                 onSelectDevice,
                 onViewPortLayout,
+                activePortLayoutDeviceUid,
+                onShowCabinetMap,
                 selectedDeviceUid,
+                selectedDeviceUidSet,
                 t,
               }))}
             </div>
@@ -176,9 +187,12 @@ type DeviceChipRenderArgs = {
   index: number;
   lifecycleStatuses: string[];
   onDeviceStatusChange: (device: Device, lifecycleStatus: string) => void;
-  onSelectDevice: (device: Device) => void;
+  onSelectDevice: (device: Device, gesture: SelectionGesture) => void;
   onViewPortLayout: (device: Device) => void;
+  activePortLayoutDeviceUid: string | null;
+  onShowCabinetMap: () => void;
   selectedDeviceUid: string | null;
+  selectedDeviceUidSet: Set<string>;
   t: (key: string, values?: Record<string, string | number>) => string;
 };
 
@@ -194,18 +208,24 @@ function renderDeviceChip({
   onDeviceStatusChange,
   onSelectDevice,
   onViewPortLayout,
+  activePortLayoutDeviceUid,
+  onShowCabinetMap,
   selectedDeviceUid,
+  selectedDeviceUidSet,
   t,
 }: DeviceChipRenderArgs) {
   const deviceUid = deviceKey(device);
+  const isPortLayoutActive = activePortLayoutDeviceUid === deviceUid;
+  const isSelected = selectedDeviceUidSet.has(deviceUid);
+  const isPrimarySelected = selectedDeviceUid === deviceUid;
   return (
     <div
-      className={`device-chip ${selectedDeviceUid === deviceUid ? "is-selected" : ""} ${connectedDeviceUids.has(deviceUid) ? "is-connected" : ""}`}
+      className={`device-chip ${isSelected ? "is-selected" : ""} ${isPrimarySelected ? "is-primary-selected" : ""} ${connectedDeviceUids.has(deviceUid) ? "is-connected" : ""}`}
       data-device-uid={deviceUid}
       key={`${device.rack_unit}-${device.device_model}-${index}`}
       onClick={(event) => {
         event.stopPropagation();
-        onSelectDevice(device);
+        onSelectDevice(device, event);
       }}
       role="button"
       tabIndex={0}
@@ -239,14 +259,29 @@ function renderDeviceChip({
         </small>
       )}
       <button
-        className="device-layout-button"
+        aria-label={t("device.viewPortLayout")}
+        className={`device-layout-button ${isPortLayoutActive ? "is-active" : ""}`}
         onClick={(event) => {
           event.stopPropagation();
+          if (isPortLayoutActive) {
+            onShowCabinetMap();
+            return;
+          }
           onViewPortLayout(device);
         }}
+        title={t("device.viewPortLayout")}
         type="button"
       >
-        {t("device.viewPortLayout")}
+        {isPortLayoutActive ? (
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        ) : (
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+            <circle cx="12" cy="12" r="2.5" />
+          </svg>
+        )}
       </button>
     </div>
   );
