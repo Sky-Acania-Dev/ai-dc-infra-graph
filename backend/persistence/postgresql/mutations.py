@@ -193,6 +193,70 @@ def update_cable(
     )
 
 
+def bulk_update_status(
+    session: Session,
+    *,
+    entity_type: str,
+    entity_uids: list[str],
+    lifecycle_status: str | LifecycleStatus | None = None,
+    status: str | None = None,
+    expected_version: int | None = None,
+    user: MutationUser | None = None,
+) -> list[PersistedOperation]:
+    normalized_entity_type = entity_type.strip().lower()
+    normalized_uids = _normalized_bulk_uids(normalized_entity_type, entity_uids)
+    if not normalized_uids:
+        raise ValueError("At least one entity UID is required.")
+
+    operations: list[PersistedOperation] = []
+    if normalized_entity_type == "cabinet":
+        if lifecycle_status is None:
+            raise ValueError("lifecycle_status is required for cabinet bulk status updates.")
+        for cabinet_uid in normalized_uids:
+            operations.append(
+                update_cabinet_status(
+                    session,
+                    cabinet_uid=cabinet_uid,
+                    lifecycle_status=lifecycle_status,
+                    expected_version=expected_version,
+                    user=user,
+                )
+            )
+        return operations
+
+    if normalized_entity_type == "device":
+        if lifecycle_status is None:
+            raise ValueError("lifecycle_status is required for device bulk status updates.")
+        for device_uid in normalized_uids:
+            operations.append(
+                update_device_status(
+                    session,
+                    device_uid=device_uid,
+                    lifecycle_status=lifecycle_status,
+                    expected_version=expected_version,
+                    user=user,
+                )
+            )
+        return operations
+
+    if normalized_entity_type == "cable":
+        if status is None:
+            raise ValueError("status is required for cable bulk status updates.")
+        for cable_uid in normalized_uids:
+            operations.append(
+                update_cable(
+                    session,
+                    cable_uid=cable_uid,
+                    status=status,
+                    expected_version=expected_version,
+                    user=user,
+                )
+            )
+        return operations
+
+    raise ValueError("entity_type must be one of: cabinet, device, cable.")
+
+
 def list_operations(
     session: Session,
     *,
@@ -381,3 +445,13 @@ def _enum_value(value) -> str:
 def _normalize_device_uid(device_uid: str) -> str:
     data_hall_id, cabinet_id, rack_unit = device_uid.upper().split(":", 2)
     return f"{data_hall_id}:{cabinet_id}:{int(rack_unit)}"
+
+
+def _normalized_bulk_uids(entity_type: str, entity_uids: list[str]) -> list[str]:
+    if entity_type == "device":
+        normalized = [_normalize_device_uid(uid) for uid in entity_uids]
+    elif entity_type in {"cabinet", "cable"}:
+        normalized = [uid.upper() for uid in entity_uids]
+    else:
+        normalized = [uid.strip() for uid in entity_uids]
+    return sorted({uid for uid in normalized if uid})

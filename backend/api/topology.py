@@ -228,6 +228,14 @@ class UpdateCableRequest(BaseModel):
     expected_version: int | None = None
 
 
+class BulkStatusUpdateRequest(BaseModel):
+    entity_type: str
+    entity_uids: list[str] = Field(min_length=1)
+    lifecycle_status: LifecycleStatus | None = None
+    status: str | None = None
+    expected_version: int | None = None
+
+
 class Operation(BaseModel):
     opId: int
     type: str
@@ -243,6 +251,12 @@ class Operation(BaseModel):
 class OperationResponse(BaseModel):
     ok: bool
     operation: Operation
+    version: int
+
+
+class BulkOperationResponse(BaseModel):
+    ok: bool
+    operations: list[Operation]
     version: int
 
 
@@ -518,6 +532,36 @@ def update_cable(
     )
     _log_operation_timing(operation, response_start)
     return OperationResponse(ok=True, operation=operation, version=database.version)
+
+
+@router.patch("/bulk/status", response_model=BulkOperationResponse)
+def bulk_update_status(
+    request: BulkStatusUpdateRequest,
+    user: AuthUser = Depends(current_user),
+) -> BulkOperationResponse:
+    response_start = time.perf_counter()
+    require_editor(user)
+    if not use_postgresql_topology_storage():
+        raise HTTPException(status_code=422, detail="Bulk status updates are currently only available in PostgreSQL mode.")
+    try:
+        operations = _postgres_repository().bulk_update_status(
+            entity_type=request.entity_type,
+            entity_uids=request.entity_uids,
+            lifecycle_status=request.lifecycle_status,
+            status=request.status,
+            expected_version=request.expected_version,
+            user=_postgres_mutation_user(user),
+        )
+    except ValueError as exc:
+        raise _postgres_http_exception(exc) from exc
+    response_operations = [_operation_from_postgres(operation) for operation in operations]
+    if response_operations:
+        _log_operation_timing(response_operations[-1], response_start)
+    return BulkOperationResponse(
+        ok=True,
+        operations=response_operations,
+        version=operations[-1].version if operations else 0,
+    )
 
 
 @router.post("/operations/undo", response_model=OperationResponse)

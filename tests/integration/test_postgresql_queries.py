@@ -188,6 +188,48 @@ class PostgreSQLQueryTests(unittest.TestCase):
         self.assertEqual(cable.status, "Cable Is Ran: Not Terminated")
         self.assertEqual(repository.list_operations()[-1].version, first_operation.version)
 
+    def test_repository_bulk_status_update_is_atomic_and_logs_each_row(self) -> None:
+        repository = PostgresTopologyRepository(project_uid="MSK01", building_id="A")
+        user = MutationUser(uid="editor", display_name="Editor", role="editor")
+
+        operations = repository.bulk_update_status(
+            entity_type="cabinet",
+            entity_uids=["DH1:002", "DH1:001"],
+            lifecycle_status=LifecycleStatus.POWERED,
+            expected_version=0,
+            user=user,
+        )
+
+        loaded = repository.load()
+        cabinet_statuses = {
+            f"{cabinet.data_hall_id}:{cabinet.cabinet_id}": cabinet.lifecycle_status
+            for cabinet in loaded.cabinets
+            if cabinet.cabinet_id in {"001", "002"}
+        }
+        self.assertEqual([operation.entity_uid for operation in operations], ["DH1:001", "DH1:002"])
+        self.assertEqual([operation.entity_type for operation in operations], ["cabinet", "cabinet"])
+        self.assertEqual(cabinet_statuses["DH1:001"], LifecycleStatus.POWERED)
+        self.assertEqual(cabinet_statuses["DH1:002"], LifecycleStatus.POWERED)
+        self.assertEqual([operation.id for operation in repository.list_operations()], [operations[0].id, operations[1].id])
+
+    def test_repository_bulk_status_update_rolls_back_when_any_row_fails(self) -> None:
+        repository = PostgresTopologyRepository(project_uid="MSK01", building_id="A")
+        user = MutationUser(uid="editor", display_name="Editor", role="editor")
+
+        with self.assertRaises(ValueError):
+            repository.bulk_update_status(
+                entity_type="cabinet",
+                entity_uids=["DH1:001", "DH1:999"],
+                lifecycle_status=LifecycleStatus.POWERED,
+                expected_version=0,
+                user=user,
+            )
+
+        loaded = repository.load()
+        cabinet = next(item for item in loaded.cabinets if item.data_hall_id == "DH1" and item.cabinet_id == "001")
+        self.assertEqual(cabinet.lifecycle_status, LifecycleStatus.NOT_INSTALLED)
+        self.assertEqual(repository.list_operations(), [])
+
     def test_manager_can_override_stale_editor_row_update(self) -> None:
         repository = PostgresTopologyRepository(project_uid="MSK01", building_id="A")
         editor = MutationUser(uid="editor", display_name="Editor", role="editor")
@@ -271,6 +313,33 @@ class PostgreSQLQueryTests(unittest.TestCase):
         self.assertEqual(after_previous.version, response.version)
         self.assertEqual(after_current.operations, [])
         self.assertEqual(after_current.version, response.version)
+
+    def test_fastapi_bulk_status_update_uses_postgresql_in_db_mode(self) -> None:
+        editor = AuthUser(uid="api-editor", display_name="API Editor", role=UserRole.EDITOR)
+        previous_backend = os.environ.get("TOPOLOGY_STORAGE_BACKEND")
+        os.environ["TOPOLOGY_STORAGE_BACKEND"] = "postgresql"
+        try:
+            response = topology_api.bulk_update_status(
+                topology_api.BulkStatusUpdateRequest(
+                    entity_type="device",
+                    entity_uids=["DH1:001:20", "DH1:001:10"],
+                    lifecycle_status=LifecycleStatus.INSTALLED,
+                    expected_version=0,
+                ),
+                user=editor,
+            )
+            operations = topology_api.list_operations(after=0)
+        finally:
+            if previous_backend is None:
+                os.environ.pop("TOPOLOGY_STORAGE_BACKEND", None)
+            else:
+                os.environ["TOPOLOGY_STORAGE_BACKEND"] = previous_backend
+
+        self.assertTrue(response.ok)
+        self.assertEqual(response.version, response.operations[-1].opId)
+        self.assertEqual([operation.entityId for operation in response.operations], ["DH1:001:10", "DH1:001:20"])
+        self.assertEqual([operation.entityType for operation in response.operations], ["device", "device"])
+        self.assertEqual([operation.opId for operation in operations.operations], [operation.opId for operation in response.operations])
 
     def test_fastapi_reads_use_postgresql_in_db_mode(self) -> None:
         editor = AuthUser(uid="api-editor", display_name="API Editor", role=UserRole.EDITOR)

@@ -14,6 +14,7 @@ from backend.persistence import TopologyDatabase
 from backend.persistence.postgresql import models as db
 from backend.persistence.postgresql.importer import replace_project_topology
 from backend.persistence.postgresql.mutations import MutationUser, PersistedOperation
+from backend.persistence.postgresql.mutations import bulk_update_status as bulk_update_postgresql_status
 from backend.persistence.postgresql.mutations import list_operations as list_postgresql_operations
 from backend.persistence.postgresql.mutations import update_cabinet_status, update_cable, update_device_status
 from backend.persistence.postgresql.session import session_factory
@@ -98,6 +99,28 @@ class PostgresTopologyRepository(TopologyRepository):
                     current_phase=current_phase,
                     length_used_meters=length_used_meters,
                     note=note,
+                    expected_version=expected_version,
+                    user=user,
+                )
+
+    def bulk_update_status(
+        self,
+        *,
+        entity_type: str,
+        entity_uids: list[str],
+        lifecycle_status: str | LifecycleStatus | None = None,
+        status: str | None = None,
+        expected_version: int | None = None,
+        user: MutationUser | None = None,
+    ) -> list[PersistedOperation]:
+        with self._session_factory() as session:
+            with session.begin():
+                return bulk_update_postgresql_status(
+                    session,
+                    entity_type=entity_type,
+                    entity_uids=entity_uids,
+                    lifecycle_status=lifecycle_status,
+                    status=status,
                     expected_version=expected_version,
                     user=user,
                 )
