@@ -84,6 +84,42 @@ button {
   min-height: 24px;
 }
 
+.inline-select.is-write-success,
+.length-input.is-write-success {
+  animation: write-success-flash 900ms ease-out;
+}
+
+.inline-select.is-write-error,
+.length-input.is-write-error {
+  animation: write-error-flash 900ms ease-out;
+}
+
+@keyframes write-success-flash {
+  0% {
+    background: #dcfce7;
+    border-color: #22c55e;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18);
+  }
+  100% {
+    background: #ffffff;
+    border-color: #cbd5e1;
+    box-shadow: none;
+  }
+}
+
+@keyframes write-error-flash {
+  0% {
+    background: #fee2e2;
+    border-color: #ef4444;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.18);
+  }
+  100% {
+    background: #ffffff;
+    border-color: #cbd5e1;
+    box-shadow: none;
+  }
+}
+
 .device-status-select {
   display: block;
   margin-top: 4px;
@@ -359,17 +395,13 @@ button {
 }
 
 .map-cabinet:hover .cabinet-rect,
-.map-cabinet.is-selected .cabinet-rect {
+.map-cabinet.is-selected .cabinet-rect,
+.map-cabinet.is-primary-selected .cabinet-rect {
   stroke: #111827;
   stroke-width: 3;
 }
 
-.map-cabinet.is-primary-selected .cabinet-rect {
-  stroke: #f59e0b;
-  stroke-width: 4;
-}
-
-.map-cabinet.is-device-source .cabinet-rect {
+.map-cabinet.is-device-source:not(.is-selected) .cabinet-rect {
   stroke: #f59e0b;
   stroke-dasharray: 4 2;
   stroke-width: 4;

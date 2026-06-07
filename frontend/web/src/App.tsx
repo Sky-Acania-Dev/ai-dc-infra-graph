@@ -39,6 +39,7 @@ import type {
 import { useI18n, type Locale } from "./i18n";
 
 const DATA_HALLS = ["DH1", "DH2"];
+const OPERATION_POLL_INTERVAL_MS = 5000;
 type AppMode = "topology" | "validation" | "operations";
 type CenterViewMode = "cabinet_map" | "port_layout";
 export type SelectionMode = "single" | "multi" | "remove";
@@ -78,11 +79,14 @@ export function App() {
   const [pendingSaveCount, setPendingSaveCount] = useState(0);
   const [lastSavedVersion, setLastSavedVersion] = useState<number | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [operationCursorVersion, setOperationCursorVersion] = useState<number | null>(null);
   const [undoStack, setUndoStack] = useState<Operation[]>([]);
   const [redoStack, setRedoStack] = useState<Operation[]>([]);
   const cabinetLayoutCacheRef = useRef<Record<string, CabinetLayoutItem[]>>({});
   const dataHallCableSummaryCacheRef = useRef<Record<string, DataHallCableSummaryResponse>>({});
   const cableDetailRequestRef = useRef(0);
+  const lastSeenOperationIdRef = useRef<number | null>(null);
+  const isPollingOperationsRef = useRef(false);
   const canEdit = currentUser?.role === "manager" || currentUser?.role === "editor";
 
   useEffect(() => {
@@ -177,6 +181,29 @@ export function App() {
     if (mode !== "operations") return;
     refreshOperations();
   }, [mode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let intervalId: number | null = null;
+
+    fetchOperations(1)
+      .then((operations) => {
+        if (cancelled) return;
+        updateOperationCursor(operations.version);
+      })
+      .catch((requestError: Error) => {
+        if (!cancelled) setError(requestError.message);
+      });
+
+    intervalId = window.setInterval(() => {
+      pollOperations();
+    }, OPERATION_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (intervalId != null) window.clearInterval(intervalId);
+    };
+  }, []);
 
   const connectedCabinetUids = useMemo(() => {
     if (deviceDetail) return new Set(deviceDetail.connected_cabinet_uids);
@@ -399,6 +426,7 @@ export function App() {
   function handleOperationResponse(response: OperationResponse, options: { recordUndo?: boolean } = {}) {
     const shouldRecordUndo = options.recordUndo ?? true;
     applyOperation(response.operation);
+    updateOperationCursor(response.version);
     setLastSavedVersion(response.version);
     setLastSavedAt(new Date().toLocaleTimeString());
     if (shouldRecordUndo) {
@@ -466,8 +494,55 @@ export function App() {
   function refreshOperations() {
     setError(null);
     fetchOperations()
-      .then(setOperationList)
+      .then((operations) => {
+        setOperationList(operations);
+        updateOperationCursor(operations.version);
+      })
       .catch((requestError: Error) => setError(requestError.message));
+  }
+
+  function pollOperations() {
+    const after = lastSeenOperationIdRef.current;
+    if (after == null || isPollingOperationsRef.current) return;
+    isPollingOperationsRef.current = true;
+    fetchOperations(100, after)
+      .then((nextOperations) => {
+        if (!nextOperations.operations.length) {
+          updateOperationCursor(nextOperations.version);
+          return;
+        }
+        for (const operation of nextOperations.operations) {
+          applyOperation(operation);
+        }
+        const latestVersion = nextOperations.version;
+        updateOperationCursor(latestVersion);
+        setLastSavedVersion(latestVersion);
+        setLastSavedAt(new Date().toLocaleTimeString());
+        setOperationList((current) =>
+          current
+            ? {
+                operations: [
+                  ...current.operations.filter(
+                    (operation) => !nextOperations.operations.some((nextOperation) => nextOperation.opId === operation.opId),
+                  ),
+                  ...nextOperations.operations,
+                ],
+                version: latestVersion,
+              }
+            : nextOperations,
+        );
+        refreshTopologyContext();
+      })
+      .catch((requestError: Error) => setError(requestError.message))
+      .finally(() => {
+        isPollingOperationsRef.current = false;
+      });
+  }
+
+  function updateOperationCursor(version: number) {
+    const nextVersion = Math.max(lastSeenOperationIdRef.current ?? 0, version);
+    lastSeenOperationIdRef.current = nextVersion;
+    setOperationCursorVersion(nextVersion);
   }
 
   function applyOperation(operation: Operation) {
@@ -613,6 +688,7 @@ export function App() {
             onShowCabinetMap={() => setCenterViewMode("cabinet_map")}
             onClearDeviceSelection={clearDeviceSelection}
             canEdit={canEdit}
+            expectedVersion={operationCursorVersion}
             lifecycleStatuses={topologyEnums?.lifecycle_statuses ?? []}
             onStatusChanged={submitOperation}
           />
@@ -672,6 +748,7 @@ export function App() {
                 selectedCableUids={selectedCableUidSet}
                 selectionMode={selectionMode}
                 canEdit={canEdit}
+                expectedVersion={operationCursorVersion}
                 topologyEnums={topologyEnums}
                 onClose={closeCableDetail}
                 onSelectCable={(cable, gesture) => selectCable(cable.uid, gesture)}

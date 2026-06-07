@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 
-from backend.ingest.cutsheet import CutsheetIngestionResult, CutsheetSummary, ingest_cutsheet
+from backend.ingest.cutsheet import CutsheetIngestionResult, CutsheetSummary
+from backend.ingest.cutsheet_pipeline import CutsheetIngestionPipelineResult, CutsheetSourceSpec, ingest_cutsheet_sources
 from backend.ingest.overhead import OverheadIngestionResult, ingest_overhead
 from backend.models import Cabinet, ConnectorType, ConstructionPhase, Device, LifecycleStatus, PortConnector, Room
 from backend.persistence import TopologyDatabase
@@ -25,32 +26,61 @@ def build_topology_database_from_sources(
     status_overrides_path: str | Path | None = None,
     default_max_rack_unit: int = 48,
 ) -> TopologyDatabase:
-    cutsheet_result = ingest_cutsheet(
-        cutsheet_path,
+    cutsheet_sources = [
+        CutsheetSourceSpec(
+            source_name="management",
+            path=str(cutsheet_path),
+            sheet_name=cutsheet_sheet_name,
+            construction_phase=ConstructionPhase.MANAGEMENT_ETHERNET,
+        )
+    ]
+    if roce_cutsheet_path:
+        cutsheet_sources.append(
+            CutsheetSourceSpec(
+                source_name="roce",
+                path=str(roce_cutsheet_path),
+                sheet_name=roce_cutsheet_sheet_name,
+                construction_phase=ConstructionPhase.ROCE,
+            )
+        )
+    cutsheet_pipeline_result = ingest_cutsheet_sources(
+        cutsheet_sources,
         project_uid=project_uid,
         building_id=building_id,
-        sheet_name=cutsheet_sheet_name,
         breakout_rules=breakout_rules,
     )
-    roce_cutsheet_result = (
-        ingest_cutsheet(
-            roce_cutsheet_path,
-            project_uid=project_uid,
-            building_id=building_id,
-            sheet_name=roce_cutsheet_sheet_name,
-            breakout_rules=breakout_rules,
-        )
-        if roce_cutsheet_path
-        else None
-    )
     overhead_result = ingest_overhead(overhead_path, sheet_name=overhead_sheet_name)
-    return build_topology_database_from_results(
-        cutsheet_result=cutsheet_result,
+    return build_topology_database_from_pipeline_result(
+        cutsheet_pipeline_result=cutsheet_pipeline_result,
         overhead_result=overhead_result,
-        roce_cutsheet_result=roce_cutsheet_result,
         project_uid=project_uid,
         building_id=building_id,
         status_overrides=load_status_overrides(status_overrides_path),
+        default_max_rack_unit=default_max_rack_unit,
+        breakout_rules=breakout_rules,
+    )
+
+
+def build_topology_database_from_pipeline_result(
+    cutsheet_pipeline_result: CutsheetIngestionPipelineResult,
+    overhead_result: OverheadIngestionResult,
+    project_uid: str = "MSK01",
+    building_id: str = "A",
+    status_overrides: StatusOverrides | None = None,
+    default_max_rack_unit: int = 48,
+    breakout_rules: list[BreakoutFanoutRule] | None = None,
+) -> TopologyDatabase:
+    if not cutsheet_pipeline_result.sources:
+        raise ValueError("At least one cutsheet source is required.")
+    return _build_topology_database_from_cutsheet_inputs(
+        cutsheet_inputs=[
+            (source.result, source.construction_phase)
+            for source in cutsheet_pipeline_result.sources
+        ],
+        overhead_result=overhead_result,
+        project_uid=project_uid,
+        building_id=building_id,
+        status_overrides=status_overrides,
         default_max_rack_unit=default_max_rack_unit,
         breakout_rules=breakout_rules,
     )
@@ -66,8 +96,27 @@ def build_topology_database_from_results(
     default_max_rack_unit: int = 48,
     breakout_rules: list[BreakoutFanoutRule] | None = None,
 ) -> TopologyDatabase:
+    return _build_topology_database_from_cutsheet_inputs(
+        cutsheet_inputs=_cutsheet_phase_inputs(cutsheet_result, roce_cutsheet_result),
+        overhead_result=overhead_result,
+        project_uid=project_uid,
+        building_id=building_id,
+        status_overrides=status_overrides,
+        default_max_rack_unit=default_max_rack_unit,
+        breakout_rules=breakout_rules,
+    )
+
+
+def _build_topology_database_from_cutsheet_inputs(
+    cutsheet_inputs: list[tuple[CutsheetIngestionResult, ConstructionPhase]],
+    overhead_result: OverheadIngestionResult,
+    project_uid: str = "MSK01",
+    building_id: str = "A",
+    status_overrides: StatusOverrides | None = None,
+    default_max_rack_unit: int = 48,
+    breakout_rules: list[BreakoutFanoutRule] | None = None,
+) -> TopologyDatabase:
     status_overrides = status_overrides or StatusOverrides()
-    cutsheet_inputs = _cutsheet_phase_inputs(cutsheet_result, roce_cutsheet_result)
     combined_rows = [row for result, _phase in cutsheet_inputs for row in result.rows]
     combined_ports = _combined_ports(cutsheet_inputs)
     combined_findings = detect_port_collisions(combined_rows, breakout_rules=breakout_rules)

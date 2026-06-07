@@ -275,6 +275,71 @@ class TopologyApiTests(unittest.TestCase):
         self.assertEqual(termination.tasks[0].task_type, "percent")
         self.assertEqual(termination.tasks[1].enum_values, ["not_terminated", "terminated", "dressed"])
 
+    def test_stale_json_write_is_rejected(self) -> None:
+        _, runtime_path = _test_paths()
+        database = build_topology_database_from_results(
+            cutsheet_result=ingest_cutsheet_rows(
+                [
+                    {
+                        "STATUS": "Cable Not Run",
+                        "A-LOC:CAB:RU": "dh1:001:10",
+                        "A-PORT": "swp1",
+                        "A_MODEL": "Switch",
+                        "Z-LOC:CAB:RU": "dh1:002:20",
+                        "Z-PORT": "swp2",
+                        "Z_MODEL": "Patch Panel",
+                        "CABLE": "MPO",
+                    }
+                ]
+            ),
+            overhead_result=OverheadIngestionResult(
+                summary=OverheadIngestionSummary(cabinets=2, data_halls=1, unknown_category_cabinets=0),
+                cabinets=[
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:001",
+                        data_hall_id="DH1",
+                        cabinet_id="001",
+                        category="DPR-H1",
+                        cabinet_group="A",
+                        source_row=7,
+                        source_col=5,
+                    ),
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:002",
+                        data_hall_id="DH1",
+                        cabinet_id="002",
+                        category="DPR-H2",
+                        cabinet_group="A",
+                        source_row=7,
+                        source_col=6,
+                    ),
+                ],
+            ),
+        )
+        cable_uid = database.cables[0].uid
+        save_topology_database(database, runtime_path)
+        editor = AuthUser(uid="editor", display_name="Editor", role=UserRole.EDITOR)
+
+        first = update_cable(
+            cable_uid,
+            UpdateCableRequest(status="Cable Is Ran: Not Terminated", expected_version=0),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+
+        with self.assertRaisesRegex(Exception, "stale version 0") as context:
+            update_cable(
+                cable_uid,
+                UpdateCableRequest(status="Cable Is Ran: Complete", expected_version=0),
+                database_path=str(runtime_path),
+                user=editor,
+            )
+
+        self.assertEqual(context.exception.status_code, 409)
+        updated_cable = cabinet_connection_cables("DH1:001", "DH1:002", database_path=str(runtime_path)).cables[0]
+        self.assertEqual(first.version, 1)
+        self.assertEqual(updated_cable.status, "Cable Is Ran: Not Terminated")
+
     def test_stale_operation_log_does_not_block_topology_reads(self) -> None:
         _, runtime_path = _test_paths()
         database = build_topology_database_from_results(

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { updateCable } from "../api";
+import { updateCable, type UpdateCablePayload } from "../api";
 import type { CabinetCableDetail, CableDetailResponse, CableProgressPhase, CableProgressPhaseDefinition, OperationResponse, TopologyEnums } from "../types";
 import { useI18n } from "../i18n";
 import type { SelectionGesture, SelectionMode } from "../App";
@@ -12,6 +12,7 @@ type CableDetailOverlayProps = {
   selectedCableUids: Set<string>;
   selectionMode: SelectionMode;
   canEdit: boolean;
+  expectedVersion: number | null;
   topologyEnums: TopologyEnums | null;
   onClose: () => void;
   onSelectCable: (cable: CabinetCableDetail, gesture: SelectionGesture) => void;
@@ -63,6 +64,7 @@ export function CableDetailOverlay({
   selectedCableUids,
   selectionMode,
   canEdit,
+  expectedVersion,
   topologyEnums,
   onClose,
   onSelectCable,
@@ -359,6 +361,7 @@ export function CableDetailOverlay({
                       formatCableStatus,
                       formatConstructionPhase,
                       onCableUpdated,
+                      expectedVersion,
                       topologyEnums,
                     })}
                   </td>
@@ -524,6 +527,7 @@ function renderCableCell({
   formatCableStatus,
   formatConstructionPhase,
   onCableUpdated,
+  expectedVersion,
   topologyEnums,
 }: {
   cable: CabinetCableDetail;
@@ -534,6 +538,7 @@ function renderCableCell({
   formatCableStatus: (status: string) => string;
   formatConstructionPhase: (phase: string) => string;
   onCableUpdated: (response: OperationResponse) => void;
+  expectedVersion: number | null;
   topologyEnums: TopologyEnums | null;
 }) {
   if (columnKey === "status") {
@@ -541,7 +546,7 @@ function renderCableCell({
     return (
       <DeferredSelect
         className="inline-select"
-        onCommit={(value) => updateCable(cable.uid, { status: value }).then(onCableUpdated)}
+        onCommit={(value) => updateCable(cable.uid, withExpectedVersion({ status: value }, expectedVersion)).then(onCableUpdated)}
         options={(topologyEnums?.cable_import_statuses ?? [cable.status]).map((status) => ({
           label: formatCableStatus(status),
           value: status,
@@ -561,7 +566,7 @@ function renderCableCell({
       <DeferredNumberInput
         className="length-input"
         min={0.1}
-        onCommit={(value) => updateCable(cable.uid, { length_used_meters: value }).then(onCableUpdated)}
+        onCommit={(value) => updateCable(cable.uid, withExpectedVersion({ length_used_meters: value }, expectedVersion)).then(onCableUpdated)}
         step={0.1}
         value={cable.length_used_meters > 0 ? cable.length_used_meters : ""}
       />
@@ -574,6 +579,7 @@ function renderCableCell({
       cable,
       formatCableProgressPhaseName,
       formatCableProgressStep,
+      expectedVersion,
       onCableUpdated,
       topologyEnums,
     });
@@ -587,11 +593,13 @@ function renderPhaseEditor({
   formatCableProgressPhaseName,
   formatCableProgressStep,
   onCableUpdated,
+  expectedVersion,
   topologyEnums,
 }: {
   cable: CabinetCableDetail;
   formatCableProgressPhaseName: (phase: string) => string;
   formatCableProgressStep: (step: string) => string;
+  expectedVersion: number | null;
   onCableUpdated: (response: OperationResponse) => void;
   topologyEnums: TopologyEnums | null;
 }) {
@@ -603,7 +611,7 @@ function renderPhaseEditor({
   const secondaryTasks = phaseDefinition.tasks.filter((task) => task.name !== primaryTask?.name);
 
   function save(nextPhase: CableProgressPhase) {
-    updateCable(cable.uid, { current_phase: nextPhase }).then(onCableUpdated);
+    return updateCable(cable.uid, withExpectedVersion({ current_phase: nextPhase }, expectedVersion)).then(onCableUpdated);
   }
 
   return (
@@ -614,7 +622,7 @@ function renderPhaseEditor({
           commitOnChange
           onCommit={(value) => {
             const nextDefinition = phaseDefinitions.find((definition) => definition.name === value);
-            if (nextDefinition) save(defaultPhaseForDefinition(nextDefinition));
+            if (nextDefinition) return save(defaultPhaseForDefinition(nextDefinition));
           }}
           options={phaseDefinitions.map((definition) => ({
             label: formatPhaseName(definition.name, formatCableProgressPhaseName, formatCableProgressStep),
@@ -662,7 +670,7 @@ function renderProgressTaskInput({
   definition: CableProgressPhaseDefinition["tasks"][number];
   formatCableProgressStep: (step: string) => string;
   normalizedPhase: CableProgressPhase;
-  save: (nextPhase: CableProgressPhase) => void;
+  save: (nextPhase: CableProgressPhase) => Promise<unknown>;
 }) {
   const task = normalizedPhase.task_values[definition.name];
   if (definition.task_type === "enum") {
@@ -982,11 +990,12 @@ function DeferredNumberInput({
   className?: string;
   max?: number;
   min?: number;
-  onCommit: (value: number) => void;
+  onCommit: (value: number) => void | Promise<unknown>;
   step?: number;
   value: number | "";
 }) {
   const [draft, setDraft] = useState(value === "" ? "" : String(value));
+  const [writeFeedback, setWriteFeedback] = useState<"success" | "error" | null>(null);
   const skipNextBlur = useRef(false);
   const original = value === "" ? "" : String(value);
 
@@ -1001,7 +1010,7 @@ function DeferredNumberInput({
       setDraft(original);
       return;
     }
-    onCommit(nextValue);
+    handleCommitResult(onCommit(nextValue), setWriteFeedback, () => setDraft(original));
   }
 
   function revert() {
@@ -1010,7 +1019,7 @@ function DeferredNumberInput({
 
   return (
     <input
-      className={className}
+      className={`${className ?? ""} ${feedbackClass(writeFeedback)}`}
       data-cable-editable="true"
       max={max}
       min={min}
@@ -1060,11 +1069,12 @@ function DeferredSelect({
 }: {
   className?: string;
   commitOnChange?: boolean;
-  onCommit: (value: string) => void;
+  onCommit: (value: string) => void | Promise<unknown>;
   options: Array<{ label: string; value: string }>;
   value: string;
 }) {
   const [draft, setDraft] = useState(value);
+  const [writeFeedback, setWriteFeedback] = useState<"success" | "error" | null>(null);
   const skipNextBlur = useRef(false);
 
   useEffect(() => {
@@ -1072,11 +1082,11 @@ function DeferredSelect({
   }, [value]);
 
   function commit() {
-    if (draft !== value) onCommit(draft);
+    if (draft !== value) handleCommitResult(onCommit(draft), setWriteFeedback, () => setDraft(value));
   }
 
   function commitValue(nextValue: string) {
-    if (nextValue !== value) onCommit(nextValue);
+    if (nextValue !== value) handleCommitResult(onCommit(nextValue), setWriteFeedback, () => setDraft(value));
   }
 
   function revert() {
@@ -1085,7 +1095,7 @@ function DeferredSelect({
 
   return (
     <select
-      className={className}
+      className={`${className ?? ""} ${feedbackClass(writeFeedback)}`}
       data-cable-editable="true"
       onBlur={() => {
         if (skipNextBlur.current) {
@@ -1133,6 +1143,38 @@ function DeferredSelect({
       ))}
     </select>
   );
+}
+
+function handleCommitResult(
+  result: void | Promise<unknown>,
+  setWriteFeedback: (feedback: "success" | "error" | null) => void,
+  onError: () => void,
+) {
+  if (!result || typeof (result as Promise<unknown>).then !== "function") return;
+  (result as Promise<unknown>)
+    .then(() => flashLocalWriteFeedback(setWriteFeedback, "success"))
+    .catch(() => {
+      flashLocalWriteFeedback(setWriteFeedback, "error");
+      onError();
+    });
+}
+
+function flashLocalWriteFeedback(
+  setWriteFeedback: (feedback: "success" | "error" | null) => void,
+  feedback: "success" | "error",
+) {
+  setWriteFeedback(feedback);
+  window.setTimeout(() => setWriteFeedback(null), 900);
+}
+
+function feedbackClass(feedback?: "success" | "error" | null): string {
+  if (feedback === "success") return "is-write-success";
+  if (feedback === "error") return "is-write-error";
+  return "";
+}
+
+function withExpectedVersion(payload: UpdateCablePayload, expectedVersion: number | null): UpdateCablePayload {
+  return { ...payload, expected_version: expectedVersion ?? undefined };
 }
 
 function focusAdjacentEditable(current: HTMLElement, reverse: boolean) {

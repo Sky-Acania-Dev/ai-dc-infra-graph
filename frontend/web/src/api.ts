@@ -118,26 +118,34 @@ export async function fetchValidationReport(): Promise<ValidationResponse> {
   return response.json();
 }
 
-export async function updateCabinetStatus(cabinetUid: string, lifecycleStatus: string): Promise<OperationResponse> {
+export async function updateCabinetStatus(
+  cabinetUid: string,
+  lifecycleStatus: string,
+  expectedVersion?: number | null,
+): Promise<OperationResponse> {
   const response = await fetch(`${API_BASE_URL}/topology/cabinets/${encodeURIComponent(cabinetUid)}/status`, {
-    body: JSON.stringify({ lifecycle_status: lifecycleStatus }),
+    body: JSON.stringify({ lifecycle_status: lifecycleStatus, expected_version: expectedVersion ?? undefined }),
     headers: { "Content-Type": "application/json" },
     method: "PATCH",
   });
   if (!response.ok) {
-    throw new Error(`Failed to update cabinet status: ${response.status}`);
+    throw new Error(await errorMessage(response, "Failed to update cabinet status"));
   }
   return operationResponseFromJson(await response.json(), "update cabinet status");
 }
 
-export async function updateDeviceStatus(deviceUid: string, lifecycleStatus: string): Promise<OperationResponse> {
+export async function updateDeviceStatus(
+  deviceUid: string,
+  lifecycleStatus: string,
+  expectedVersion?: number | null,
+): Promise<OperationResponse> {
   const response = await fetch(`${API_BASE_URL}/topology/devices/${encodeURIComponent(deviceUid)}/status`, {
-    body: JSON.stringify({ lifecycle_status: lifecycleStatus }),
+    body: JSON.stringify({ lifecycle_status: lifecycleStatus, expected_version: expectedVersion ?? undefined }),
     headers: { "Content-Type": "application/json" },
     method: "PATCH",
   });
   if (!response.ok) {
-    throw new Error(`Failed to update device status: ${response.status}`);
+    throw new Error(await errorMessage(response, "Failed to update device status"));
   }
   return operationResponseFromJson(await response.json(), "update device status");
 }
@@ -154,6 +162,7 @@ export type UpdateCablePayload = {
   length_used_meters?: number | null;
   length_meters?: number | null;
   note?: string | null;
+  expected_version?: number | null;
 };
 
 export async function updateCable(cableUid: string, payload: UpdateCablePayload): Promise<OperationResponse> {
@@ -163,7 +172,7 @@ export async function updateCable(cableUid: string, payload: UpdateCablePayload)
     method: "PATCH",
   });
   if (!response.ok) {
-    throw new Error(`Failed to update cable: ${response.status}`);
+    throw new Error(await errorMessage(response, "Failed to update cable"));
   }
   return operationResponseFromJson(await response.json(), "update cable");
 }
@@ -184,8 +193,10 @@ export async function redoOperation(): Promise<OperationResponse> {
   return operationResponseFromJson(await response.json(), "redo operation");
 }
 
-export async function fetchOperations(limit = 100): Promise<OperationListResponse> {
-  const response = await fetch(`${API_BASE_URL}/topology/operations?limit=${limit}`);
+export async function fetchOperations(limit = 100, after?: number | null): Promise<OperationListResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (after != null) params.set("after", String(after));
+  const response = await fetch(`${API_BASE_URL}/topology/operations?${params.toString()}`);
   if (!response.ok) {
     throw new Error(`Failed to load operations: ${response.status}. Restart the backend so /topology/operations is registered.`);
   }
@@ -205,4 +216,18 @@ function operationResponseFromJson(payload: unknown, action: string): OperationR
   throw new Error(
     `Failed to ${action}: backend returned the old response shape. Restart the backend so operation-log endpoints are active.`,
   );
+}
+
+async function errorMessage(response: Response, fallback: string): Promise<string> {
+  let detail: unknown = null;
+  try {
+    detail = (await response.json()).detail;
+  } catch {
+    return `${fallback}: ${response.status}`;
+  }
+  if (typeof detail === "string") return `${fallback}: ${detail}`;
+  if (detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string") {
+    return `${fallback}: ${detail.message}`;
+  }
+  return `${fallback}: ${response.status}`;
 }

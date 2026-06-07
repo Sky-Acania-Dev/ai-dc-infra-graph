@@ -18,6 +18,8 @@ type CabinetDeviceLayoutProps = {
   canEdit: boolean;
   lifecycleStatuses: string[];
   onDeviceStatusChange: (device: Device, lifecycleStatus: string) => void;
+  statusDrafts?: Record<string, string>;
+  statusFeedback?: Record<string, "success" | "error">;
 };
 
 export function CabinetDeviceLayout({
@@ -34,6 +36,8 @@ export function CabinetDeviceLayout({
   canEdit,
   lifecycleStatuses,
   onDeviceStatusChange,
+  statusDrafts = {},
+  statusFeedback = {},
 }: CabinetDeviceLayoutProps) {
   const { formatConstructionPhase, formatLifecycleStatus, formatNumber, t } = useI18n();
   const rackGridPan = useDragPan<HTMLDivElement>();
@@ -123,6 +127,8 @@ export function CabinetDeviceLayout({
                 onShowCabinetMap,
                 selectedDeviceUid,
                 selectedDeviceUidSet,
+                statusDrafts,
+                statusFeedback,
                 t,
               }))}
             </div>
@@ -193,6 +199,8 @@ type DeviceChipRenderArgs = {
   onShowCabinetMap: () => void;
   selectedDeviceUid: string | null;
   selectedDeviceUidSet: Set<string>;
+  statusDrafts: Record<string, string>;
+  statusFeedback: Record<string, "success" | "error">;
   t: (key: string, values?: Record<string, string | number>) => string;
 };
 
@@ -212,6 +220,8 @@ function renderDeviceChip({
   onShowCabinetMap,
   selectedDeviceUid,
   selectedDeviceUidSet,
+  statusDrafts,
+  statusFeedback,
   t,
 }: DeviceChipRenderArgs) {
   const deviceUid = deviceKey(device);
@@ -239,8 +249,8 @@ function renderDeviceChip({
       ) : null}
       {canEdit ? (
         <select
-          className="inline-select device-status-select"
-          value={device.lifecycle_status}
+          className={`inline-select device-status-select ${feedbackClass(statusFeedback[`device:${deviceUid}`])}`}
+          value={statusDrafts[deviceUid] ?? device.lifecycle_status}
           onClick={(event) => event.stopPropagation()}
           onChange={(event) => onDeviceStatusChange(device, event.target.value)}
         >
@@ -285,6 +295,12 @@ function renderDeviceChip({
       </button>
     </div>
   );
+}
+
+function feedbackClass(feedback?: "success" | "error"): string {
+  if (feedback === "success") return "is-write-success";
+  if (feedback === "error") return "is-write-error";
+  return "";
 }
 
 function cssEscape(value: string) {

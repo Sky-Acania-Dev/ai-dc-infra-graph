@@ -1,0 +1,392 @@
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def jsonb_dict() -> Any:
+    return mapped_column(JSONB, nullable=False, server_default="{}")
+
+
+def jsonb_list() -> Any:
+    return mapped_column(JSONB, nullable=False, server_default="[]")
+
+
+class TimestampColumns:
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Project(TimestampColumns, Base):
+    __tablename__ = "projects"
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    full_name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+
+
+class Building(TimestampColumns, Base):
+    __tablename__ = "buildings"
+    __table_args__ = (
+        UniqueConstraint("project_uid", "building_id", name="uq_buildings_project_building_id"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    building_id: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+
+
+class Room(TimestampColumns, Base):
+    __tablename__ = "rooms"
+    __table_args__ = (
+        UniqueConstraint("building_uid", "room_id", name="uq_rooms_building_room_id"),
+        Index("ix_rooms_scope", "project_uid", "building_uid", "room_id"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    building_uid: Mapped[str] = mapped_column(ForeignKey("buildings.uid"), nullable=False)
+    room_id: Mapped[str] = mapped_column(Text, nullable=False)
+    room_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="data_hall")
+    lifecycle_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
+    construction_phase: Mapped[str] = mapped_column(Text, nullable=False, server_default="Management & Ethernet")
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+
+
+class Cabinet(TimestampColumns, Base):
+    __tablename__ = "cabinets"
+    __table_args__ = (
+        UniqueConstraint("room_uid", "cabinet_id", name="uq_cabinets_room_cabinet_id"),
+        Index("ix_cabinets_room_layout", "room_uid", "source_row", "source_col"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    building_uid: Mapped[str] = mapped_column(ForeignKey("buildings.uid"), nullable=False)
+    room_uid: Mapped[str] = mapped_column(ForeignKey("rooms.uid"), nullable=False)
+    cabinet_id: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    cabinet_group: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    lifecycle_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="not_installed")
+    construction_phase: Mapped[str] = mapped_column(Text, nullable=False, server_default="Management & Ethernet")
+    max_rack_unit: Mapped[int] = mapped_column(Integer, nullable=False, server_default="48")
+    source_row: Mapped[int | None] = mapped_column(Integer)
+    source_col: Mapped[int | None] = mapped_column(Integer)
+    layout: Mapped[dict[str, Any]] = jsonb_dict()
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+class DeviceModel(TimestampColumns, Base):
+    __tablename__ = "device_models"
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    model_name: Mapped[str] = mapped_column(Text, nullable=False)
+    manufacturer: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    rack_units: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    front_panel_svg: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    back_panel_svg: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    port_layout: Mapped[list[dict[str, Any]]] = jsonb_list()
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+class DeviceVariant(TimestampColumns, Base):
+    __tablename__ = "device_variants"
+    __table_args__ = (
+        Index("ix_device_variants_project_model", "project_uid", "device_model_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str | None] = mapped_column(ForeignKey("projects.uid"))
+    device_model_uid: Mapped[str | None] = mapped_column(ForeignKey("device_models.uid"))
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    variant: Mapped[dict[str, Any]] = jsonb_dict()
+
+
+class Device(TimestampColumns, Base):
+    __tablename__ = "devices"
+    __table_args__ = (
+        UniqueConstraint("cabinet_uid", "rack_unit", name="uq_devices_cabinet_rack_unit"),
+        Index("ix_devices_room", "room_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    building_uid: Mapped[str] = mapped_column(ForeignKey("buildings.uid"), nullable=False)
+    room_uid: Mapped[str] = mapped_column(ForeignKey("rooms.uid"), nullable=False)
+    cabinet_uid: Mapped[str] = mapped_column(ForeignKey("cabinets.uid"), nullable=False)
+    rack_unit: Mapped[int] = mapped_column(Integer, nullable=False)
+    device_model_uid: Mapped[str | None] = mapped_column(ForeignKey("device_models.uid"))
+    device_variant_uid: Mapped[str | None] = mapped_column(ForeignKey("device_variants.uid"))
+    device_model_name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    rack_units: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    lifecycle_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="not_installed")
+    construction_phase: Mapped[str] = mapped_column(Text, nullable=False, server_default="Management & Ethernet")
+    aliases: Mapped[list[str]] = jsonb_list()
+    model_aliases: Mapped[list[str]] = jsonb_list()
+    port_layout_overrides: Mapped[list[dict[str, Any]]] = jsonb_list()
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+class Port(TimestampColumns, Base):
+    __tablename__ = "ports"
+    __table_args__ = (
+        Index("ix_ports_device_port_name", "device_uid", "port_name"),
+        Index("ix_ports_cabinet", "cabinet_uid"),
+        Index("ix_ports_room", "room_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    building_uid: Mapped[str] = mapped_column(ForeignKey("buildings.uid"), nullable=False)
+    room_uid: Mapped[str] = mapped_column(ForeignKey("rooms.uid"), nullable=False)
+    cabinet_uid: Mapped[str] = mapped_column(ForeignKey("cabinets.uid"), nullable=False)
+    device_uid: Mapped[str | None] = mapped_column(ForeignKey("devices.uid"))
+    port_name: Mapped[str] = mapped_column(Text, nullable=False)
+    connector_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="other")
+    side: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    position: Mapped[dict[str, Any]] = jsonb_dict()
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+class Cable(TimestampColumns, Base):
+    __tablename__ = "cables"
+    __table_args__ = (
+        Index("ix_cables_a_port", "a_port_uid"),
+        Index("ix_cables_z_port", "z_port_uid"),
+        Index("ix_cables_project_phase", "project_uid", "construction_phase"),
+        Index("ix_cables_building_import_status", "building_uid", "import_status"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    building_uid: Mapped[str] = mapped_column(ForeignKey("buildings.uid"), nullable=False)
+    room_uid: Mapped[str | None] = mapped_column(ForeignKey("rooms.uid"))
+    a_port_uid: Mapped[str] = mapped_column(ForeignKey("ports.uid"), nullable=False)
+    z_port_uid: Mapped[str] = mapped_column(ForeignKey("ports.uid"), nullable=False)
+    cable_type: Mapped[str] = mapped_column(Text, nullable=False)
+    cable_group: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    import_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    construction_phase: Mapped[str] = mapped_column(Text, nullable=False, server_default="Management & Ethernet")
+    progress: Mapped[dict[str, Any]] = jsonb_dict()
+    current_phase: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    designed_length_meters: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    length_used_meters: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, server_default="0")
+    a_optic: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    z_optic: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+class LadderRackJunction(TimestampColumns, Base):
+    __tablename__ = "ladder_rack_junctions"
+    __table_args__ = (
+        Index("ix_ladder_rack_junctions_room", "room_uid"),
+        Index("ix_ladder_rack_junctions_scope", "project_uid", "building_uid", "junction_id"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    building_uid: Mapped[str] = mapped_column(ForeignKey("buildings.uid"), nullable=False)
+    room_uid: Mapped[str | None] = mapped_column(ForeignKey("rooms.uid"))
+    junction_id: Mapped[str] = mapped_column(Text, nullable=False)
+    junction_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    point: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    width: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    height: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    height_tier: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    lifecycle_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
+    construction_phase: Mapped[str] = mapped_column(Text, nullable=False, server_default="Management & Ethernet")
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+class LadderRackSegment(TimestampColumns, Base):
+    __tablename__ = "ladder_rack_segments"
+    __table_args__ = (
+        CheckConstraint("junction_a_uid <> junction_z_uid", name="ck_ladder_rack_segments_distinct_junctions"),
+        CheckConstraint("design_length_meters is null or design_length_meters >= 0", name="ck_ladder_rack_segments_design_length_non_negative"),
+        CheckConstraint("actual_length_meters is null or actual_length_meters >= 0", name="ck_ladder_rack_segments_actual_length_non_negative"),
+        Index("ix_ladder_rack_segments_room", "room_uid"),
+        Index("ix_ladder_rack_segments_junction_a", "junction_a_uid"),
+        Index("ix_ladder_rack_segments_junction_z", "junction_z_uid"),
+        Index("ix_ladder_rack_segments_scope", "project_uid", "building_uid", "segment_id"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    building_uid: Mapped[str] = mapped_column(ForeignKey("buildings.uid"), nullable=False)
+    room_uid: Mapped[str | None] = mapped_column(ForeignKey("rooms.uid"))
+    segment_id: Mapped[str] = mapped_column(Text, nullable=False)
+    polyline: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    design_length_meters: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    actual_length_meters: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    width: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    height: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    height_tier: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    junction_a_uid: Mapped[str] = mapped_column(ForeignKey("ladder_rack_junctions.uid"), nullable=False)
+    junction_z_uid: Mapped[str] = mapped_column(ForeignKey("ladder_rack_junctions.uid"), nullable=False)
+    lifecycle_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
+    construction_phase: Mapped[str] = mapped_column(Text, nullable=False, server_default="Management & Ethernet")
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+class CableBundle(TimestampColumns, Base):
+    __tablename__ = "cable_bundles"
+    __table_args__ = (
+        UniqueConstraint("scoped_uid", name="uq_cable_bundles_scoped_uid"),
+        Index("ix_cable_bundles_room", "room_uid"),
+        Index("ix_cable_bundles_primary_segment", "primary_ladder_rack_segment_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    scoped_uid: Mapped[str] = mapped_column(Text, nullable=False)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    building_uid: Mapped[str] = mapped_column(ForeignKey("buildings.uid"), nullable=False)
+    room_uid: Mapped[str | None] = mapped_column(ForeignKey("rooms.uid"))
+    name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    primary_ladder_rack_segment_uid: Mapped[str | None] = mapped_column(ForeignKey("ladder_rack_segments.uid"))
+    lifecycle_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
+    construction_phase: Mapped[str] = mapped_column(Text, nullable=False, server_default="Management & Ethernet")
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+class CableBundleCable(Base):
+    __tablename__ = "cable_bundle_cables"
+    __table_args__ = (
+        Index("ix_cable_bundle_cables_cable", "cable_uid"),
+    )
+
+    cable_bundle_uid: Mapped[str] = mapped_column(ForeignKey("cable_bundles.uid", ondelete="CASCADE"), primary_key=True)
+    cable_uid: Mapped[str] = mapped_column(ForeignKey("cables.uid", ondelete="CASCADE"), primary_key=True)
+    sequence: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class CableBundleLadderRackSegment(Base):
+    __tablename__ = "cable_bundle_ladder_rack_segments"
+    __table_args__ = (
+        Index("ix_cable_bundle_ladder_rack_segments_segment", "ladder_rack_segment_uid"),
+    )
+
+    cable_bundle_uid: Mapped[str] = mapped_column(ForeignKey("cable_bundles.uid", ondelete="CASCADE"), primary_key=True)
+    ladder_rack_segment_uid: Mapped[str] = mapped_column(ForeignKey("ladder_rack_segments.uid", ondelete="CASCADE"), primary_key=True)
+    sequence: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class User(TimestampColumns, Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role in ('manager', 'editor', 'viewer')", name="ck_users_role"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[str | None] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+
+
+Index(
+    "ix_users_email_lower",
+    func.lower(User.email),
+    unique=True,
+    postgresql_where=User.deleted_at.is_(None),
+)
+
+
+class PendingChange(Base):
+    __tablename__ = "pending_changes"
+    __table_args__ = (
+        Index("ix_pending_changes_status_created", "status", "created_at"),
+        Index("ix_pending_changes_target", "target_entity_type", "target_entity_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    requested_by_user_uid: Mapped[str] = mapped_column(ForeignKey("users.uid"), nullable=False)
+    reviewed_by_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    target_entity_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_entity_uid: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    payload: Mapped[dict[str, Any]] = jsonb_dict()
+    review_note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OperationLog(Base):
+    __tablename__ = "operation_log"
+    __table_args__ = (
+        Index("ix_operation_log_project_id", "project_uid", "id"),
+        Index("ix_operation_log_entity_id", "entity_type", "entity_uid", "id"),
+        Index("ix_operation_log_user_id", "user_uid", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    project_uid: Mapped[str | None] = mapped_column(ForeignKey("projects.uid"))
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_uid: Mapped[str] = mapped_column(Text, nullable=False)
+    operation_type: Mapped[str] = mapped_column(Text, nullable=False)
+    before: Mapped[dict[str, Any]] = jsonb_dict()
+    after: Mapped[dict[str, Any]] = jsonb_dict()
+    user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    user_role: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SourceImport(Base):
+    __tablename__ = "source_imports"
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str | None] = mapped_column(ForeignKey("projects.uid"))
+    source_type: Mapped[str] = mapped_column(Text, nullable=False)
+    source_path: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    summary: Mapped[dict[str, Any]] = jsonb_dict()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SourceCableRow(Base):
+    __tablename__ = "source_cable_rows"
+    __table_args__ = (
+        Index("ix_source_cable_rows_import_row", "source_import_uid", "row_number"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_import_uid: Mapped[str] = mapped_column(ForeignKey("source_imports.uid", ondelete="CASCADE"), nullable=False)
+    row_number: Mapped[int | None] = mapped_column(Integer)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    cable_uid: Mapped[str | None] = mapped_column(ForeignKey("cables.uid"))
+
+
+class ValidationFinding(Base):
+    __tablename__ = "validation_findings"
+    __table_args__ = (
+        Index("ix_validation_findings_project_type", "project_uid", "finding_type"),
+        Index("ix_validation_findings_entity", "entity_type", "entity_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str | None] = mapped_column(ForeignKey("projects.uid"))
+    finding_type: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    entity_uid: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    payload: Mapped[dict[str, Any]] = jsonb_dict()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

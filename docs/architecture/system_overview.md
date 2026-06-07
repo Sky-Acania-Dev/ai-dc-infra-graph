@@ -13,3 +13,7 @@ The graph layer represents infrastructure components as nodes and physical conne
 ## Future Visualization Goals
 
 Visualization support will build on the backend topology model rather than duplicate graph logic in client applications. Future desktop, web, and mobile frontends should consume API-ready topology views for cabinet layouts, cable tracing, progress heatmaps, QA status, and interactive infrastructure exploration.
+
+## Persistence Direction
+
+The runtime JSON snapshot remains the current development backend. The cautious path toward a PostgreSQL-backed, concurrent, role-aware system is tracked in [PostgreSQL Transition Plan](postgresql_transition.md).

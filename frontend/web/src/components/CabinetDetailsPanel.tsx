@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type { CabinetDetailResponse, CabinetLayoutItem, Device, OperationResponse } from "../types";
 import { CabinetDeviceLayout } from "./CabinetDeviceLayout";
 import { ProgressCircle } from "./ProgressCircle";
@@ -23,8 +23,16 @@ type CabinetDetailsPanelProps = {
   onShowCabinetMap: () => void;
   onClearDeviceSelection: () => void;
   canEdit: boolean;
+  expectedVersion: number | null;
   lifecycleStatuses: string[];
-  onStatusChanged: (operation: Promise<OperationResponse>) => void;
+  onStatusChanged: (
+    operation: Promise<OperationResponse>,
+    options?: {
+      onError?: () => void;
+      onSuccess?: (response: OperationResponse) => void;
+      recordUndo?: boolean;
+    },
+  ) => void;
 };
 
 export function CabinetDetailsPanel({
@@ -42,18 +50,30 @@ export function CabinetDetailsPanel({
   onShowCabinetMap,
   onClearDeviceSelection,
   canEdit,
+  expectedVersion,
   lifecycleStatuses,
   onStatusChanged,
 }: CabinetDetailsPanelProps) {
   const { formatConstructionPhase, formatLifecycleStatus, formatNumber, t } = useI18n();
   const categorySummaryPan = useDragPan<HTMLElement>();
   const [categorySummaryHasScrollbar, setCategorySummaryHasScrollbar] = useState(false);
+  const [writeFeedback, setWriteFeedback] = useState<Record<string, "success" | "error">>({});
+  const [cabinetStatusDraft, setCabinetStatusDraft] = useState("");
+  const [deviceStatusDrafts, setDeviceStatusDrafts] = useState<Record<string, string>>({});
   const selectedCabinets = selectedCabinetUids.length > 1
     ? cabinets.filter((cabinet) => selectedCabinetUids.includes(cabinet.cabinet_uid))
     : [];
   const selectedDevices = detail && selectedDeviceUids.length > 1
     ? detail.devices.filter((device) => selectedDeviceUids.includes(`${device.cabinet_id}:${device.rack_unit}`))
     : [];
+  const selectedDevice = detail && selectedDeviceUid
+    ? detail.devices.find((device) => `${device.cabinet_id}:${device.rack_unit}` === selectedDeviceUid) ?? null
+    : null;
+
+  useEffect(() => {
+    setCabinetStatusDraft(detail?.cabinet.lifecycle_status ?? "");
+    setDeviceStatusDrafts({});
+  }, [detail?.cabinet.cabinet_uid, detail?.cabinet.lifecycle_status]);
 
   useEffect(() => {
     if (detail) return;
@@ -154,74 +174,101 @@ export function CabinetDetailsPanel({
   return (
     <aside className="side-pane" onClick={onClearDeviceSelection}>
       <span className="eyebrow">{t("cabinet.details")}</span>
-      <h1>{detail.cabinet.cabinet_uid}</h1>
-      <dl className="facts">
-        <div>
-          <dt>{t("cabinet.category")}</dt>
-          <dd>{detail.cabinet.category}</dd>
-        </div>
-        <div>
-          <dt>{t("cabinet.group")}</dt>
-          <dd>{detail.cabinet.cabinet_group || t("cabinet.unassigned")}</dd>
-        </div>
-        <div>
-          <dt>{t("cabinet.status")}</dt>
-          <dd>
-            {canEdit ? (
-              <select
-                className="inline-select"
-                value={detail.cabinet.lifecycle_status}
-                onClick={(event) => event.stopPropagation()}
-                onChange={(event) => {
-                  onStatusChanged(updateCabinetStatus(detail.cabinet.cabinet_uid, event.target.value));
-                }}
-              >
-                {lifecycleStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {formatLifecycleStatus(status)}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              formatLifecycleStatus(detail.cabinet.lifecycle_status)
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>{t("cabinet.constructionPhase")}</dt>
-          <dd>{formatConstructionPhase(detail.cabinet.construction_phase)}</dd>
-        </div>
-        <div>
-          <dt>{t("cabinet.rackUnits")}</dt>
-          <dd>{formatNumber(detail.cabinet.max_rack_unit)}U</dd>
-        </div>
-        <div>
-          <dt>{t("cabinet.devices")}</dt>
-          <dd>{formatNumber(detail.stats.devices)}</dd>
-        </div>
-        <div>
-          <dt>{t("cabinet.ports")}</dt>
-          <dd>{formatNumber(detail.stats.ports)}</dd>
-        </div>
-        <div>
-          <dt>{t("cabinet.cables")}</dt>
-          <dd>{formatNumber(detail.stats.cables)}</dd>
-        </div>
-        <div>
-          <dt>{t("cabinet.termination")}</dt>
-          <dd className="progress-fact">
-            <ProgressCircle percent={detail.stats.cable_termination_percent} />
-            {formatNumber(detail.stats.cable_termination_percent)}%
-          </dd>
-        </div>
-        <div>
-          <dt>{t("cabinet.dress")}</dt>
-          <dd className="progress-fact">
-            <ProgressCircle percent={detail.stats.cable_dress_percent} />
-            {formatNumber(detail.stats.cable_dress_percent)}%
-          </dd>
-        </div>
-      </dl>
+      {selectedDevice ? (
+        <DeviceDetailSummary
+          canEdit={canEdit}
+          device={selectedDevice}
+          deviceStatusDraft={deviceStatusDrafts[`${selectedDevice.cabinet_id}:${selectedDevice.rack_unit}`]}
+          expectedVersion={expectedVersion}
+          formatConstructionPhase={formatConstructionPhase}
+          formatLifecycleStatus={formatLifecycleStatus}
+          formatNumber={formatNumber}
+          lifecycleStatuses={lifecycleStatuses}
+          onStatusChanged={onStatusChanged}
+          setDeviceStatusDrafts={setDeviceStatusDrafts}
+          setWriteFeedback={setWriteFeedback}
+          writeFeedback={writeFeedback}
+        />
+      ) : (
+        <>
+          <h1>{detail.cabinet.cabinet_uid}</h1>
+          <dl className="facts">
+            <div>
+              <dt>{t("cabinet.category")}</dt>
+              <dd>{detail.cabinet.category}</dd>
+            </div>
+            <div>
+              <dt>{t("cabinet.group")}</dt>
+              <dd>{detail.cabinet.cabinet_group || t("cabinet.unassigned")}</dd>
+            </div>
+            <div>
+              <dt>{t("cabinet.status")}</dt>
+              <dd>
+                {canEdit ? (
+                  <select
+                    className={`inline-select ${feedbackClass(writeFeedback.cabinetStatus)}`}
+                    value={cabinetStatusDraft || detail.cabinet.lifecycle_status}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => {
+                      const nextStatus = event.target.value;
+                      setCabinetStatusDraft(nextStatus);
+                      onStatusChanged(updateCabinetStatus(detail.cabinet.cabinet_uid, nextStatus, expectedVersion), {
+                        onError: () => {
+                          setCabinetStatusDraft(detail.cabinet.lifecycle_status);
+                          flashWriteFeedback(setWriteFeedback, "cabinetStatus", "error");
+                        },
+                        onSuccess: () => flashWriteFeedback(setWriteFeedback, "cabinetStatus", "success"),
+                      });
+                    }}
+                  >
+                    {lifecycleStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {formatLifecycleStatus(status)}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  formatLifecycleStatus(detail.cabinet.lifecycle_status)
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>{t("cabinet.constructionPhase")}</dt>
+              <dd>{formatConstructionPhase(detail.cabinet.construction_phase)}</dd>
+            </div>
+            <div>
+              <dt>{t("cabinet.rackUnits")}</dt>
+              <dd>{formatNumber(detail.cabinet.max_rack_unit)}U</dd>
+            </div>
+            <div>
+              <dt>{t("cabinet.devices")}</dt>
+              <dd>{formatNumber(detail.stats.devices)}</dd>
+            </div>
+            <div>
+              <dt>{t("cabinet.ports")}</dt>
+              <dd>{formatNumber(detail.stats.ports)}</dd>
+            </div>
+            <div>
+              <dt>{t("cabinet.cables")}</dt>
+              <dd>{formatNumber(detail.stats.cables)}</dd>
+            </div>
+            <div>
+              <dt>{t("cabinet.termination")}</dt>
+              <dd className="progress-fact">
+                <ProgressCircle percent={detail.stats.cable_termination_percent} />
+                {formatNumber(detail.stats.cable_termination_percent)}%
+              </dd>
+            </div>
+            <div>
+              <dt>{t("cabinet.dress")}</dt>
+              <dd className="progress-fact">
+                <ProgressCircle percent={detail.stats.cable_dress_percent} />
+                {formatNumber(detail.stats.cable_dress_percent)}%
+              </dd>
+            </div>
+          </dl>
+        </>
+      )}
       {selectedDevices.length > 1 ? (
         <DeviceSelectionSummary
           devices={selectedDevices}
@@ -244,11 +291,137 @@ export function CabinetDetailsPanel({
         canEdit={canEdit}
         lifecycleStatuses={lifecycleStatuses}
         onDeviceStatusChange={(device, lifecycleStatus) => {
-          onStatusChanged(updateDeviceStatus(`${device.cabinet_id}:${device.rack_unit}`, lifecycleStatus));
+          const deviceUid = `${device.cabinet_id}:${device.rack_unit}`;
+          setDeviceStatusDrafts((current) => ({ ...current, [deviceUid]: lifecycleStatus }));
+          onStatusChanged(updateDeviceStatus(deviceUid, lifecycleStatus, expectedVersion), {
+            onError: () => {
+              setDeviceStatusDrafts((current) => ({ ...current, [deviceUid]: device.lifecycle_status }));
+              flashWriteFeedback(setWriteFeedback, `device:${deviceUid}`, "error");
+            },
+            onSuccess: () => flashWriteFeedback(setWriteFeedback, `device:${deviceUid}`, "success"),
+          });
         }}
+        statusDrafts={deviceStatusDrafts}
+        statusFeedback={writeFeedback}
       />
     </aside>
   );
+}
+
+function DeviceDetailSummary({
+  canEdit,
+  device,
+  deviceStatusDraft,
+  expectedVersion,
+  formatConstructionPhase,
+  formatLifecycleStatus,
+  formatNumber,
+  lifecycleStatuses,
+  onStatusChanged,
+  setDeviceStatusDrafts,
+  setWriteFeedback,
+  writeFeedback,
+}: {
+  canEdit: boolean;
+  device: Device;
+  deviceStatusDraft?: string;
+  expectedVersion: number | null;
+  formatConstructionPhase: (value: string) => string;
+  formatLifecycleStatus: (value: string) => string;
+  formatNumber: (value: number) => string;
+  lifecycleStatuses: string[];
+  onStatusChanged: CabinetDetailsPanelProps["onStatusChanged"];
+  setDeviceStatusDrafts: Dispatch<SetStateAction<Record<string, string>>>;
+  setWriteFeedback: Dispatch<SetStateAction<Record<string, "success" | "error">>>;
+  writeFeedback: Record<string, "success" | "error">;
+}) {
+  const deviceUid = `${device.cabinet_id}:${device.rack_unit}`;
+  const portCount = Object.values(device.ports_by_type).reduce((total, ports) => total + (ports?.length ?? 0), 0);
+  const aliasCount = device.aliases.length + device.model_aliases.length;
+
+  return (
+    <>
+      <h1>{deviceUid}</h1>
+      <dl className="facts">
+        <div>
+          <dt>Model</dt>
+          <dd>{device.device_model}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>
+            {canEdit ? (
+              <select
+                className={`inline-select ${feedbackClass(writeFeedback[`device:${deviceUid}`])}`}
+                value={deviceStatusDraft ?? device.lifecycle_status}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => {
+                  const nextStatus = event.target.value;
+                  setDeviceStatusDrafts((current) => ({ ...current, [deviceUid]: nextStatus }));
+                  onStatusChanged(updateDeviceStatus(deviceUid, nextStatus, expectedVersion), {
+                    onError: () => {
+                      setDeviceStatusDrafts((current) => ({ ...current, [deviceUid]: device.lifecycle_status }));
+                      flashWriteFeedback(setWriteFeedback, `device:${deviceUid}`, "error");
+                    },
+                    onSuccess: () => flashWriteFeedback(setWriteFeedback, `device:${deviceUid}`, "success"),
+                  });
+                }}
+              >
+                {lifecycleStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {formatLifecycleStatus(status)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              formatLifecycleStatus(device.lifecycle_status)
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Phase</dt>
+          <dd>{formatConstructionPhase(device.construction_phase)}</dd>
+        </div>
+        <div>
+          <dt>Rack Unit</dt>
+          <dd>U{formatNumber(device.rack_unit)}</dd>
+        </div>
+        <div>
+          <dt>Rack Units</dt>
+          <dd>{formatNumber(device.rack_units)}U</dd>
+        </div>
+        <div>
+          <dt>Ports</dt>
+          <dd>{formatNumber(portCount)}</dd>
+        </div>
+        <div>
+          <dt>Aliases</dt>
+          <dd>{formatNumber(aliasCount)}</dd>
+        </div>
+      </dl>
+    </>
+  );
+}
+
+function feedbackClass(feedback?: "success" | "error"): string {
+  if (feedback === "success") return "is-write-success";
+  if (feedback === "error") return "is-write-error";
+  return "";
+}
+
+function flashWriteFeedback(
+  setWriteFeedback: Dispatch<SetStateAction<Record<string, "success" | "error">>>,
+  key: string,
+  feedback: "success" | "error",
+) {
+  setWriteFeedback((current) => ({ ...current, [key]: feedback }));
+  window.setTimeout(() => {
+    setWriteFeedback((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, 900);
 }
 
 function categoryCounts(cabinets: CabinetLayoutItem[]): [string, number][] {
