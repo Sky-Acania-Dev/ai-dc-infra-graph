@@ -11,6 +11,9 @@ dependencies = [
     "networkx",
     "pandas",
     "matplotlib",
+    "sqlalchemy",
+    "psycopg[binary]",
+    "alembic",
 ]
 
 [build-system]

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.api.auth import AuthUser, current_user, require_editor
+from backend.core.config import DEFAULT_BUILDING_ID, DEFAULT_PROJECT_UID, use_postgresql_topology_storage
 from backend.core.enums import (
     CableProgressPhaseType,
     CableProgressState,
@@ -28,6 +29,8 @@ from backend.core.progress_config import (
 from backend.graph import build_cabinet_graph
 from backend.models import Cabinet, Cable, CableProgressPhase, CableProgressTask, Device
 from backend.persistence import DEFAULT_RUNTIME_DATABASE_PATH, TopologyDatabase, load_topology_database, save_topology_database
+from backend.persistence.postgresql.mutations import MutationUser, PersistedOperation, RowLockedConflict, StaleWriteConflict
+from backend.persistence.postgresql.repository import PostgresTopologyRepository
 from backend.validation.device_models import DeviceModelFinding
 from backend.validation.port_collisions import PortConnectionFinding
 
@@ -205,6 +208,7 @@ class TopologyEnumResponse(BaseModel):
 
 class UpdateLifecycleStatusRequest(BaseModel):
     lifecycle_status: LifecycleStatus
+    expected_version: int | None = None
 
 
 class UpdateCableProgressPhaseRequest(BaseModel):
@@ -221,6 +225,7 @@ class UpdateCableRequest(BaseModel):
     length_used_meters: float | None = None
     length_meters: float | None = None
     note: str | None = None
+    expected_version: int | None = None
 
 
 class Operation(BaseModel):
@@ -361,10 +366,23 @@ def update_cabinet_status(
     response_start = time.perf_counter()
     require_editor(user)
     cabinet_uid = cabinet_uid.upper()
+    if use_postgresql_topology_storage():
+        try:
+            operation = _postgres_repository().update_cabinet_status(
+                cabinet_uid,
+                request.lifecycle_status,
+                expected_version=request.expected_version,
+                user=_postgres_mutation_user(user),
+            )
+        except ValueError as exc:
+            raise _postgres_http_exception(exc) from exc
+        _log_operation_timing(_operation_from_postgres(operation), response_start)
+        return OperationResponse(ok=True, operation=_operation_from_postgres(operation), version=operation.version)
     database = _load_cached_database(database_path)
     cabinet = _find_cabinet(database, cabinet_uid)
     if cabinet is None:
         raise HTTPException(status_code=404, detail=f"Cabinet '{cabinet_uid}' was not found.")
+    _reject_stale_json_write(database_path, entity_type="cabinet", entity_id=cabinet_uid, expected_version=request.expected_version, user=user)
     before = {"lifecycle_status": cabinet.lifecycle_status.value}
     after = {"lifecycle_status": request.lifecycle_status.value}
     operation = _commit_operation(
@@ -390,11 +408,24 @@ def update_device_status(
 ) -> OperationResponse:
     response_start = time.perf_counter()
     require_editor(user)
+    if use_postgresql_topology_storage():
+        try:
+            operation = _postgres_repository().update_device_status(
+                device_uid,
+                request.lifecycle_status,
+                expected_version=request.expected_version,
+                user=_postgres_mutation_user(user),
+            )
+        except ValueError as exc:
+            raise _postgres_http_exception(exc) from exc
+        _log_operation_timing(_operation_from_postgres(operation), response_start)
+        return OperationResponse(ok=True, operation=_operation_from_postgres(operation), version=operation.version)
     database = _load_cached_database(database_path)
     device = _find_device(database, device_uid)
     if device is None:
         raise HTTPException(status_code=404, detail=f"Device '{device_uid}' was not found.")
     normalized_device_uid = _normalize_device_uid(device_uid)
+    _reject_stale_json_write(database_path, entity_type="device", entity_id=normalized_device_uid, expected_version=request.expected_version, user=user)
     before = {"lifecycle_status": device.lifecycle_status.value}
     after = {"lifecycle_status": request.lifecycle_status.value}
     operation = _commit_operation(
@@ -420,10 +451,31 @@ def update_cable(
 ) -> OperationResponse:
     response_start = time.perf_counter()
     require_editor(user)
+    if use_postgresql_topology_storage():
+        phase_payload = None
+        if request.current_phase is not None:
+            phase_payload = _model_to_payload(request.current_phase)
+        length_used = request.length_used_meters if request.length_used_meters is not None else request.length_meters
+        try:
+            operation = _postgres_repository().update_cable(
+                cable_uid,
+                status=request.status,
+                progress=request.progress,
+                current_phase=phase_payload,
+                length_used_meters=length_used,
+                note=request.note,
+                expected_version=request.expected_version,
+                user=_postgres_mutation_user(user),
+            )
+        except ValueError as exc:
+            raise _postgres_http_exception(exc) from exc
+        _log_operation_timing(_operation_from_postgres(operation), response_start)
+        return OperationResponse(ok=True, operation=_operation_from_postgres(operation), version=operation.version)
     database = _load_cached_database(database_path)
     cable = _find_cable(database, cable_uid)
     if cable is None:
         raise HTTPException(status_code=404, detail=f"Cable '{cable_uid}' was not found.")
+    _reject_stale_json_write(database_path, entity_type="cable", entity_id=cable.uid, expected_version=request.expected_version, user=user)
     before: dict[str, Any] = {}
     after: dict[str, Any] = {}
     if request.status is not None:
@@ -527,13 +579,22 @@ def redo_operation(
 @router.get("/operations", response_model=OperationListResponse)
 def list_operations(
     limit: int = 100,
+    after: int | None = None,
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
 ) -> OperationListResponse:
     normalized_limit = min(500, max(1, limit))
+    if use_postgresql_topology_storage():
+        operations = _postgres_repository().list_operations(limit=normalized_limit, after=after)
+        return OperationListResponse(
+            operations=[_operation_from_postgres(operation) for operation in operations],
+            version=operations[-1].version if operations else (after or 0),
+        )
     operations = _load_operations(_operations_path(database_path))
+    if after is not None:
+        operations = [operation for operation in operations if operation.opId > after]
     return OperationListResponse(
         operations=operations[-normalized_limit:],
-        version=operations[-1].opId if operations else 0,
+        version=operations[-1].opId if operations else (after or 0),
     )
 
 
@@ -889,6 +950,94 @@ def _log_operation_timing(operation: Operation, response_start: float) -> None:
     )
 
 
+def _postgres_repository() -> PostgresTopologyRepository:
+    return PostgresTopologyRepository(project_uid=DEFAULT_PROJECT_UID, building_id=DEFAULT_BUILDING_ID)
+
+
+def _postgres_mutation_user(user: AuthUser) -> MutationUser:
+    return MutationUser(uid=user.uid, display_name=user.display_name, role=user.role.value)
+
+
+def _operation_from_postgres(operation: PersistedOperation) -> Operation:
+    return Operation(
+        opId=operation.id,
+        type=operation.operation_type,
+        entityType=operation.entity_type,
+        entityId=operation.entity_uid,
+        before=operation.before,
+        after=operation.after,
+        timestamp=operation.created_at.isoformat() if operation.created_at else "",
+        userUid=operation.user_uid,
+        userRole=operation.user_role,
+    )
+
+
+def _postgres_http_exception(exc: ValueError) -> HTTPException:
+    detail = str(exc)
+    if isinstance(exc, RowLockedConflict):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "message": detail,
+                "entity_type": exc.entity_type,
+                "entity_uid": exc.entity_uid,
+            },
+        )
+    if isinstance(exc, StaleWriteConflict):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "message": detail,
+                "entity_type": exc.entity_type,
+                "entity_uid": exc.entity_uid,
+                "expected_version": exc.expected_version,
+                "current_version": exc.current_version,
+            },
+        )
+    status_code = 404 if "was not found" in detail else 422
+    return HTTPException(status_code=status_code, detail=detail)
+
+
+def _reject_stale_json_write(
+    database_path: str,
+    *,
+    entity_type: str,
+    entity_id: str,
+    expected_version: int | None,
+    user: AuthUser | None,
+) -> None:
+    if expected_version is None:
+        return
+    latest_operation = max(
+        (operation for operation in _load_operations(_operations_path(database_path)) if operation.entityType == entity_type and operation.entityId == entity_id),
+        key=lambda operation: operation.opId,
+        default=None,
+    )
+    if latest_operation is None or latest_operation.opId <= expected_version:
+        return
+    if _role_rank(user.role.value if user else None) > _role_rank(latest_operation.userRole):
+        return
+    latest = latest_operation.opId
+    if latest > expected_version:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": (
+                    f"{entity_type.title()} '{entity_id}' changed at operation {latest}; "
+                    f"refresh before writing from stale version {expected_version}."
+                ),
+                "entity_type": entity_type,
+                "entity_uid": entity_id,
+                "expected_version": expected_version,
+                "current_version": latest,
+            },
+        )
+
+
+def _role_rank(role: str | None) -> int:
+    return {"viewer": 0, "editor": 1, "manager": 2}.get(role or "", 0)
+
+
 def _find_cabinet(database: TopologyDatabase, cabinet_uid: str) -> Cabinet | None:
     normalized_uid = cabinet_uid.upper()
     for cabinet in database.cabinets:
@@ -957,6 +1106,8 @@ def _port_collision_examples(database: TopologyDatabase, port_uid: str) -> list[
 
 
 def _load_cached_database(database_path: str) -> TopologyDatabase:
+    if use_postgresql_topology_storage():
+        return _postgres_repository().load()
     cache_key = _normalized_database_path(database_path)
     if cache_key not in _DATABASE_CACHE:
         _DATABASE_CACHE.clear()
@@ -967,6 +1118,8 @@ def _load_cached_database(database_path: str) -> TopologyDatabase:
 
 
 def _load_cached_graph(database_path: str, database: TopologyDatabase):
+    if use_postgresql_topology_storage():
+        return build_cabinet_graph(database)
     path = Path(database_path)
     cache_key = (str(path), path.stat().st_mtime)
     if cache_key not in _GRAPH_CACHE:
@@ -979,6 +1132,8 @@ def _load_cached_cabinet_progress(
     database_path: str,
     database: TopologyDatabase,
 ) -> dict[str, tuple[float, float]]:
+    if use_postgresql_topology_storage():
+        return _cabinet_cable_progress_stats_by_cabinet(database.cables)
     path = Path(database_path)
     cache_key = (str(path), path.stat().st_mtime)
     if cache_key not in _CABINET_PROGRESS_CACHE:
