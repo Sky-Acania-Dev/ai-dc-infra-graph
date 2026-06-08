@@ -310,6 +310,56 @@ Index(
 )
 
 
+class Personnel(TimestampColumns, Base):
+    __tablename__ = "personnel"
+    __table_args__ = (
+        UniqueConstraint("project_uid", "employee_uid", name="uq_personnel_project_employee_uid"),
+        Index("ix_personnel_project_active", "project_uid", "active"),
+        Index("ix_personnel_user", "user_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    employee_uid: Mapped[str] = mapped_column(Text, nullable=False)
+    user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[str | None] = mapped_column(Text)
+    phone: Mapped[str | None] = mapped_column(Text)
+    trade: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    company: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+
+
+class Crew(TimestampColumns, Base):
+    __tablename__ = "crews"
+    __table_args__ = (
+        UniqueConstraint("project_uid", "name", name="uq_crews_project_name"),
+        Index("ix_crews_project_active", "project_uid", "active"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    crew_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+
+
+class CrewMember(Base):
+    __tablename__ = "crew_members"
+    __table_args__ = (
+        CheckConstraint("role_in_crew in ('lead', 'member', 'foreman')", name="ck_crew_members_role"),
+        Index("ix_crew_members_personnel", "personnel_uid", "active"),
+    )
+
+    crew_uid: Mapped[str] = mapped_column(ForeignKey("crews.uid", ondelete="CASCADE"), primary_key=True)
+    personnel_uid: Mapped[str] = mapped_column(ForeignKey("personnel.uid", ondelete="CASCADE"), primary_key=True)
+    role_in_crew: Mapped[str] = mapped_column(Text, nullable=False, server_default="member")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class PendingChange(Base):
     __tablename__ = "pending_changes"
     __table_args__ = (
@@ -329,6 +379,120 @@ class PendingChange(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class FilterPreset(TimestampColumns, Base):
+    __tablename__ = "filter_presets"
+    __table_args__ = (
+        CheckConstraint("entity_type in ('cabinet', 'device', 'cable', 'port', 'bundle')", name="ck_filter_presets_entity_type"),
+        CheckConstraint("visibility in ('private', 'project')", name="ck_filter_presets_visibility"),
+        Index("ix_filter_presets_project_entity", "project_uid", "entity_type", "visibility"),
+        Index("ix_filter_presets_owner_entity", "owner_user_uid", "entity_type"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    owner_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False)
+    visibility: Mapped[str] = mapped_column(Text, nullable=False, server_default="private")
+    filter_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    sort_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    column_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+Index(
+    "uq_filter_presets_private_owner_name",
+    FilterPreset.project_uid,
+    FilterPreset.owner_user_uid,
+    FilterPreset.entity_type,
+    FilterPreset.name,
+    unique=True,
+    postgresql_where=FilterPreset.owner_user_uid.is_not(None),
+)
+Index(
+    "uq_filter_presets_project_name",
+    FilterPreset.project_uid,
+    FilterPreset.entity_type,
+    FilterPreset.name,
+    unique=True,
+    postgresql_where=FilterPreset.owner_user_uid.is_(None),
+)
+
+
+class Task(TimestampColumns, Base):
+    __tablename__ = "tasks"
+    __table_args__ = (
+        CheckConstraint(
+            "task_type in ('cable_pull', 'cable_dress', 'cable_termination', 'cable_test', 'cable_label', 'cable_rework', 'inspection')",
+            name="ck_tasks_task_type",
+        ),
+        CheckConstraint(
+            "status in ('draft', 'assigned', 'in_progress', 'submitted', 'approved', 'denied', 'cancelled')",
+            name="ck_tasks_status",
+        ),
+        CheckConstraint("priority in ('low', 'normal', 'high', 'urgent')", name="ck_tasks_priority"),
+        CheckConstraint("entity_type in ('cable', 'cabinet', 'device', 'port', 'bundle')", name="ck_tasks_entity_type"),
+        Index("ix_tasks_project_status", "project_uid", "status", "created_at"),
+        Index("ix_tasks_assigned_crew", "assigned_crew_uid", "status"),
+        Index("ix_tasks_assigned_personnel", "assigned_personnel_uid", "status"),
+        Index("ix_tasks_review_queue", "project_uid", "status", "submitted_at"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    task_type: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    priority: Mapped[str] = mapped_column(Text, nullable=False, server_default="normal")
+    created_by_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    assigned_crew_uid: Mapped[str | None] = mapped_column(ForeignKey("crews.uid"))
+    assigned_personnel_uid: Mapped[str | None] = mapped_column(ForeignKey("personnel.uid"))
+    submitted_by_personnel_uid: Mapped[str | None] = mapped_column(ForeignKey("personnel.uid"))
+    reviewed_by_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="cable")
+    entity_filter_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    target_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    submission_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    review_note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TaskEntity(Base):
+    __tablename__ = "task_entities"
+    __table_args__ = (
+        Index("ix_task_entities_entity", "entity_type", "entity_uid"),
+    )
+
+    task_uid: Mapped[str] = mapped_column(ForeignKey("tasks.uid", ondelete="CASCADE"), primary_key=True)
+    entity_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    entity_uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    sequence: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class TaskEvent(Base):
+    __tablename__ = "task_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type in ('created', 'assigned', 'started', 'submitted', 'approved', 'denied', 'cancelled', 'applied')",
+            name="ck_task_events_type",
+        ),
+        Index("ix_task_events_task_created", "task_uid", "created_at"),
+        Index("ix_task_events_actor", "actor_user_uid", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    task_uid: Mapped[str] = mapped_column(ForeignKey("tasks.uid", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    actor_personnel_uid: Mapped[str | None] = mapped_column(ForeignKey("personnel.uid"))
+    payload: Mapped[dict[str, Any]] = jsonb_dict()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class OperationLog(Base):
