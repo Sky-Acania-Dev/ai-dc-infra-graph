@@ -83,6 +83,58 @@ class PortCollisionTests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertIn("unique breakout slot/port", findings[0].message)
 
+    def test_allows_two_connections_for_2x2_shuffle_ports(self) -> None:
+        findings = detect_port_collisions(
+            [
+                {
+                    "cable_type": "MPO12 2x2",
+                    "a_port_uid": "DH1:023:37:ibs0p0",
+                    "z_port_uid": "DH1:030:38:swp1s0",
+                },
+                {
+                    "cable_type": "MPO12 2x2",
+                    "a_port_uid": "DH1:023:37:ibs0p0",
+                    "z_port_uid": "DH1:031:38:swp1s0",
+                },
+            ]
+        )
+
+        self.assertEqual(findings, [])
+
+    def test_flags_2x2_shuffle_port_used_more_than_twice(self) -> None:
+        findings = detect_port_collisions(
+            [
+                {
+                    "cable_type": "MPO12 2x2",
+                    "a_port_uid": "DH1:023:37:ibs0p0",
+                    "z_port_uid": f"DH1:03{index}:38:swp1s0",
+                }
+                for index in range(3)
+            ]
+        )
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].port_uid, "DH1:023:37:ibs0p0")
+
+    def test_flags_mixed_2x2_and_non_shuffle_duplicate_port(self) -> None:
+        findings = detect_port_collisions(
+            [
+                {
+                    "cable_type": "MPO12 2x2",
+                    "a_port_uid": "DH1:023:37:ibs0p0",
+                    "z_port_uid": "DH1:030:38:swp1s0",
+                },
+                {
+                    "cable_type": "CAT6a",
+                    "a_port_uid": "DH1:023:37:ibs0p0",
+                    "z_port_uid": "DH1:031:38:swp1s0",
+                },
+            ]
+        )
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].port_uid, "DH1:023:37:ibs0p0")
+
     def test_port_collision_api(self) -> None:
         findings = find_port_collisions(
             PortCollisionRequest(

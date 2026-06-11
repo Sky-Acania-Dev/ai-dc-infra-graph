@@ -26,6 +26,9 @@ class PersistedOperation(BaseModel):
     operation_type: str
     entity_type: str
     entity_uid: str
+    operation_group_uid: str | None = None
+    source_type: str | None = None
+    source_uid: str | None = None
     before: dict[str, Any] = Field(default_factory=dict)
     after: dict[str, Any] = Field(default_factory=dict)
     user_uid: str | None = None
@@ -60,6 +63,9 @@ def update_cabinet_status(
     lifecycle_status: str | LifecycleStatus,
     expected_version: int | None = None,
     user: MutationUser | None = None,
+    operation_group_uid: str | None = None,
+    source_type: str | None = None,
+    source_uid: str | None = None,
 ) -> PersistedOperation:
     cabinet_uid = cabinet_uid.upper()
     _acquire_write_gate(session, entity_type="cabinet", entity_uid=cabinet_uid, user=user)
@@ -84,6 +90,9 @@ def update_cabinet_status(
         before=before,
         after=after,
         user=user,
+        operation_group_uid=operation_group_uid,
+        source_type=source_type,
+        source_uid=source_uid,
     )
 
 
@@ -94,6 +103,9 @@ def update_device_status(
     lifecycle_status: str | LifecycleStatus,
     expected_version: int | None = None,
     user: MutationUser | None = None,
+    operation_group_uid: str | None = None,
+    source_type: str | None = None,
+    source_uid: str | None = None,
 ) -> PersistedOperation:
     device_uid = _normalize_device_uid(device_uid)
     _acquire_write_gate(session, entity_type="device", entity_uid=device_uid, user=user)
@@ -118,6 +130,9 @@ def update_device_status(
         before=before,
         after=after,
         user=user,
+        operation_group_uid=operation_group_uid,
+        source_type=source_type,
+        source_uid=source_uid,
     )
 
 
@@ -132,6 +147,9 @@ def update_cable(
     note: str | None = None,
     expected_version: int | None = None,
     user: MutationUser | None = None,
+    operation_group_uid: str | None = None,
+    source_type: str | None = None,
+    source_uid: str | None = None,
 ) -> PersistedOperation:
     cable_uid = cable_uid.upper()
     _acquire_write_gate(session, entity_type="cable", entity_uid=cable_uid, user=user)
@@ -190,6 +208,9 @@ def update_cable(
         before=before,
         after=after,
         user=user,
+        operation_group_uid=operation_group_uid,
+        source_type=source_type,
+        source_uid=source_uid,
     )
 
 
@@ -202,11 +223,15 @@ def bulk_update_status(
     status: str | None = None,
     expected_version: int | None = None,
     user: MutationUser | None = None,
+    operation_group_uid: str | None = None,
+    source_type: str | None = None,
+    source_uid: str | None = None,
 ) -> list[PersistedOperation]:
     normalized_entity_type = entity_type.strip().lower()
     normalized_uids = _normalized_bulk_uids(normalized_entity_type, entity_uids)
     if not normalized_uids:
         raise ValueError("At least one entity UID is required.")
+    _validate_bulk_targets_exist(session, normalized_entity_type, normalized_uids)
 
     operations: list[PersistedOperation] = []
     if normalized_entity_type == "cabinet":
@@ -220,6 +245,9 @@ def bulk_update_status(
                     lifecycle_status=lifecycle_status,
                     expected_version=expected_version,
                     user=user,
+                    operation_group_uid=operation_group_uid,
+                    source_type=source_type,
+                    source_uid=source_uid,
                 )
             )
         return operations
@@ -235,6 +263,9 @@ def bulk_update_status(
                     lifecycle_status=lifecycle_status,
                     expected_version=expected_version,
                     user=user,
+                    operation_group_uid=operation_group_uid,
+                    source_type=source_type,
+                    source_uid=source_uid,
                 )
             )
         return operations
@@ -250,6 +281,9 @@ def bulk_update_status(
                     status=status,
                     expected_version=expected_version,
                     user=user,
+                    operation_group_uid=operation_group_uid,
+                    source_type=source_type,
+                    source_uid=source_uid,
                 )
             )
         return operations
@@ -289,6 +323,9 @@ def _append_operation(
     after: dict[str, Any],
     user: MutationUser | None,
     operation_type: str = "update",
+    operation_group_uid: str | None = None,
+    source_type: str | None = None,
+    source_uid: str | None = None,
 ) -> PersistedOperation:
     if user is not None:
         _ensure_user(session, user)
@@ -297,6 +334,9 @@ def _append_operation(
         entity_type=entity_type,
         entity_uid=entity_uid,
         operation_type=operation_type,
+        operation_group_uid=operation_group_uid,
+        source_type=source_type,
+        source_uid=source_uid,
         before=before,
         after=after,
         user_uid=user.uid if user else None,
@@ -386,6 +426,9 @@ def _operation_payload(operation: db.OperationLog) -> PersistedOperation:
         operation_type=operation.operation_type,
         entity_type=operation.entity_type,
         entity_uid=operation.entity_uid,
+        operation_group_uid=operation.operation_group_uid,
+        source_type=operation.source_type,
+        source_uid=operation.source_uid,
         before=operation.before,
         after=operation.after,
         user_uid=operation.user_uid,
@@ -455,3 +498,25 @@ def _normalized_bulk_uids(entity_type: str, entity_uids: list[str]) -> list[str]
     else:
         normalized = [uid.strip() for uid in entity_uids]
     return sorted({uid for uid in normalized if uid})
+
+
+def _validate_bulk_targets_exist(session: Session, entity_type: str, entity_uids: list[str]) -> None:
+    model_map = {
+        "cabinet": db.Cabinet,
+        "device": db.Device,
+        "cable": db.Cable,
+    }
+    model_type = model_map.get(entity_type)
+    if model_type is None:
+        raise ValueError("entity_type must be one of: cabinet, device, cable.")
+    existing = set(
+        session.execute(
+            select(model_type.uid).where(
+                model_type.uid.in_(entity_uids),
+                model_type.deleted_at.is_(None),
+            )
+        ).scalars()
+    )
+    missing = [uid for uid in entity_uids if uid not in existing]
+    if missing:
+        raise ValueError(f"Some {entity_type} UIDs were not found: {', '.join(missing)}")

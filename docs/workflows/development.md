@@ -21,7 +21,10 @@ Build the normalized runtime JSON from the source cutsheet and overhead files:
 ```powershell
 .\.venv\Scripts\python.exe scripts\build_database.py `
   --cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET.ods" `
-  --roce-cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET ROCE.ods" `
+  --roce-cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET ROCE FULL.ods" `
+  --roce-cutsheet-sheet-name "DH1 NODE TO TIER-0" `
+  --roce-cutsheet-sheet-name "DH2 NODE TO TIER-0" `
+  --roce-cutsheet-sheet-name "DH1,DH2 TIER-0 TO TIER-1" `
   --overhead-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\OVERHEAD.ods" `
   --runtime-path data\runtime\current_database.json
 ```
@@ -65,6 +68,8 @@ From the repository root, start the FastAPI backend on localhost:
 .\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
+This starts the default JSON-backed development backend.
+
 Backend URL:
 
 ```text
@@ -76,6 +81,62 @@ Health check:
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
+
+## Run PostgreSQL Backend
+
+Use this when testing the PostgreSQL storage path instead of the default JSON runtime snapshot. Docker Desktop must be running.
+
+Start the repo-local PostgreSQL container:
+
+```powershell
+docker compose up -d postgres
+```
+
+Apply migrations:
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic upgrade head
+```
+
+If the database is empty or you want to refresh it from the source spreadsheets, import topology data into PostgreSQL:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\import_topology_to_postgresql.py `
+  --cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET.ods" `
+  --roce-cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET ROCE FULL.ods" `
+  --roce-cutsheet-sheet-name "DH1 NODE TO TIER-0" `
+  --roce-cutsheet-sheet-name "DH2 NODE TO TIER-0" `
+  --roce-cutsheet-sheet-name "DH1,DH2 TIER-0 TO TIER-1" `
+  --overhead-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\OVERHEAD.ods"
+```
+
+Start FastAPI in PostgreSQL mode:
+
+```powershell
+$env:TOPOLOGY_STORAGE_BACKEND = "postgresql"
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+The development database URL is provided by `docker-compose.yml`:
+
+```text
+postgresql://ai_dc_infra_graph:ai_dc_infra_graph_dev@localhost:5432/ai_dc_infra_graph
+```
+
+Run PostgreSQL integration tests after the container is up and migrations are applied:
+
+```powershell
+$env:RUN_POSTGRESQL_TESTS = "1"
+.\.venv\Scripts\python.exe -m unittest tests.integration.test_postgresql_queries
+```
+
+Stop the PostgreSQL container when finished:
+
+```powershell
+docker compose stop postgres
+```
+
+See `docs\workflows\postgresql_dev.md` for more Docker PostgreSQL notes, including deleting the local volume and using Docker PostgreSQL for other projects.
 
 ## Run Frontend
 

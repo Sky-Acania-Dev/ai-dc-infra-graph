@@ -26,13 +26,18 @@ def replace_project_topology(session: Session, database: TopologyDatabase) -> No
 
     _delete_project_topology(session, project_uid)
 
-    session.add(
-        db.Project(
-            uid=project_uid,
-            full_name=project_uid,
-            metadata_json={"source": "cutsheet_import"},
+    project = session.get(db.Project, project_uid)
+    if project is None:
+        session.add(
+            db.Project(
+                uid=project_uid,
+                full_name=project_uid,
+                metadata_json={"source": "cutsheet_import"},
+            )
         )
-    )
+    else:
+        project.full_name = project.full_name or project_uid
+        project.metadata_json = {**project.metadata_json, "source": "cutsheet_import"}
     session.flush()
     session.add(
         db.Building(
@@ -173,7 +178,6 @@ def _delete_project_topology(session: Session, project_uid: str) -> None:
     ):
         if "project_uid" in table_model.__table__.columns:
             session.execute(delete(table_model).where(table_model.__table__.c.project_uid == project_uid))
-    session.execute(delete(db.Project).where(db.Project.uid == project_uid))
     session.execute(delete(db.DeviceModel))
 
 

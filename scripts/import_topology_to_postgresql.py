@@ -24,7 +24,12 @@ def main() -> None:
     parser.add_argument("--project-uid", default=DEFAULT_PROJECT_UID)
     parser.add_argument("--building-id", default=DEFAULT_BUILDING_ID)
     parser.add_argument("--cutsheet-sheet-name", default=None)
-    parser.add_argument("--roce-cutsheet-sheet-name", default=None)
+    parser.add_argument(
+        "--roce-cutsheet-sheet-name",
+        action="append",
+        default=None,
+        help="RoCE sheet name to ingest. Repeat to ingest multiple sheets from the same RoCE workbook.",
+    )
     parser.add_argument("--overhead-sheet-name", default=None)
     parser.add_argument("--breakout-max-children", type=int, default=4)
     parser.add_argument("--status-overrides-path", default="data/status_overrides.json")

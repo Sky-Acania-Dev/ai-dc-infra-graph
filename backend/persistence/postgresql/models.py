@@ -452,14 +452,18 @@ class Task(TimestampColumns, Base):
     assigned_personnel_uid: Mapped[str | None] = mapped_column(ForeignKey("personnel.uid"))
     submitted_by_personnel_uid: Mapped[str | None] = mapped_column(ForeignKey("personnel.uid"))
     reviewed_by_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    applied_by_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
     entity_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="cable")
     entity_filter_payload: Mapped[dict[str, Any]] = jsonb_dict()
     target_payload: Mapped[dict[str, Any]] = jsonb_dict()
     submission_payload: Mapped[dict[str, Any]] = jsonb_dict()
     review_note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class TaskEntity(Base):
@@ -501,6 +505,8 @@ class OperationLog(Base):
         Index("ix_operation_log_project_id", "project_uid", "id"),
         Index("ix_operation_log_entity_id", "entity_type", "entity_uid", "id"),
         Index("ix_operation_log_user_id", "user_uid", "id"),
+        Index("ix_operation_log_group", "operation_group_uid", "id"),
+        Index("ix_operation_log_source", "source_type", "source_uid", "id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -508,6 +514,9 @@ class OperationLog(Base):
     entity_type: Mapped[str] = mapped_column(Text, nullable=False)
     entity_uid: Mapped[str] = mapped_column(Text, nullable=False)
     operation_type: Mapped[str] = mapped_column(Text, nullable=False)
+    operation_group_uid: Mapped[str | None] = mapped_column(Text)
+    source_type: Mapped[str | None] = mapped_column(Text)
+    source_uid: Mapped[str | None] = mapped_column(Text)
     before: Mapped[dict[str, Any]] = jsonb_dict()
     after: Mapped[dict[str, Any]] = jsonb_dict()
     user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))

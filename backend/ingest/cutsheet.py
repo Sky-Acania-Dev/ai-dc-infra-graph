@@ -104,6 +104,7 @@ def ingest_cutsheet_rows(
 
     for row in rows:
         normalized_row = {_normalize_header(key): str(value or "").strip() for key, value in row.items()}
+        normalized_row = _convert_roce_node_to_tier_row(normalized_row)
         status = normalized_row.get("status", "")
         if not any(normalized_row.values()):
             continue
@@ -278,6 +279,29 @@ def _is_valid_cable_row(row: dict[str, str]) -> bool:
         and row.get("z_port", "")
         and row.get("cable", "")
     )
+
+
+def _convert_roce_node_to_tier_row(row: dict[str, str]) -> dict[str, str]:
+    if not _is_roce_node_to_tier_row(row):
+        return row
+
+    converted_row = dict(row)
+    converted_row["a_port"] = row["a_interface"]
+    converted_row["z_port"] = row["z_interface"]
+    converted_row["cable"] = "MPO12 2x2"
+    return converted_row
+
+
+def _is_roce_node_to_tier_row(row: dict[str, str]) -> bool:
+    required_fields = {
+        "a_loc_cab_ru",
+        "a_interface",
+        "z_loc_cab_ru",
+        "z_interface",
+        "a_mpo",
+        "z_mpo",
+    }
+    return not row.get("cable", "") and all(row.get(field, "") for field in required_fields)
 
 
 def _get_or_create_port(

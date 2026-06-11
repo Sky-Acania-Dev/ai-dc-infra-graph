@@ -30,18 +30,22 @@ def detect_port_collisions(
     breakout_rules: list[BreakoutFanoutRule] | None = None,
 ) -> list[PortConnectionFinding]:
     connection_counts: Counter[str] = Counter()
+    shuffle_2x2_counts: Counter[str] = Counter()
     breakout_ports: dict[str, BreakoutFanoutRule] = {}
     breakout_slot_ports: dict[str, set[str]] = {}
     rules = breakout_rules or DEFAULT_BREAKOUT_RULES
 
     for row in rows:
+        is_shuffle_2x2 = _is_shuffle_2x2_cable(row)
         _track_side(
             row=row,
             side_prefix="a",
             port_uid=_row_value(row, "a_port_uid"),
             breakout_loc_cab_ru=_row_value(row, "a_breakout_loc_cab_ru"),
             breakout_slot_port=_row_value(row, "a_breakout_slot_port"),
+            is_shuffle_2x2=is_shuffle_2x2,
             connection_counts=connection_counts,
+            shuffle_2x2_counts=shuffle_2x2_counts,
             breakout_ports=breakout_ports,
             breakout_slot_ports=breakout_slot_ports,
             breakout_rules=rules,
@@ -52,13 +56,15 @@ def detect_port_collisions(
             port_uid=_row_value(row, "z_port_uid"),
             breakout_loc_cab_ru=_row_value(row, "z_breakout_loc_cab_ru"),
             breakout_slot_port=_row_value(row, "z_breakout_slot_port"),
+            is_shuffle_2x2=is_shuffle_2x2,
             connection_counts=connection_counts,
+            shuffle_2x2_counts=shuffle_2x2_counts,
             breakout_ports=breakout_ports,
             breakout_slot_ports=breakout_slot_ports,
             breakout_rules=rules,
         )
 
-    return _connection_findings(connection_counts, breakout_ports, breakout_slot_ports)
+    return _connection_findings(connection_counts, shuffle_2x2_counts, breakout_ports, breakout_slot_ports)
 
 
 def _track_side(
@@ -67,7 +73,9 @@ def _track_side(
     port_uid: str,
     breakout_loc_cab_ru: str,
     breakout_slot_port: str,
+    is_shuffle_2x2: bool,
     connection_counts: Counter[str],
+    shuffle_2x2_counts: Counter[str],
     breakout_ports: dict[str, BreakoutFanoutRule],
     breakout_slot_ports: dict[str, set[str]],
     breakout_rules: list[BreakoutFanoutRule],
@@ -76,6 +84,8 @@ def _track_side(
         return
 
     connection_counts[port_uid] += 1
+    if is_shuffle_2x2:
+        shuffle_2x2_counts[port_uid] += 1
     if not breakout_loc_cab_ru and not breakout_slot_port:
         return
 
@@ -90,6 +100,7 @@ def _track_side(
 
 def _connection_findings(
     connection_counts: Counter[str],
+    shuffle_2x2_counts: Counter[str],
     breakout_ports: dict[str, BreakoutFanoutRule],
     breakout_slot_ports: dict[str, set[str]],
 ) -> list[PortConnectionFinding]:
@@ -123,11 +134,15 @@ def _connection_findings(
             continue
 
         if count > 1:
+            shuffle_2x2_count = shuffle_2x2_counts.get(port_uid, 0)
+            if shuffle_2x2_count == count and count <= 2:
+                continue
+
             findings.append(
                 PortConnectionFinding(
                     port_uid=port_uid,
                     count=count,
-                    message=f"Port has {count} cable connections; only breakout rows may fan out.",
+                    message=f"Port has {count} cable connections; only breakout or 2x2 shuffle rows may fan out.",
                 )
             )
     return findings
@@ -150,6 +165,10 @@ def _contains_if_configured(value: str, expected: str) -> bool:
     if not expected:
         return True
     return expected.upper() in value.upper()
+
+
+def _is_shuffle_2x2_cable(row: Any) -> bool:
+    return "2X2" in _row_value(row, "cable_type").upper().replace(" ", "")
 
 
 def _row_value(row: Any, key: str) -> str:

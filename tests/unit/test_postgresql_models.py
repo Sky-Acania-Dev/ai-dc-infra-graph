@@ -62,6 +62,7 @@ class PostgreSQLModelTests(unittest.TestCase):
         task_columns = Base.metadata.tables["tasks"].columns
         task_entity_columns = Base.metadata.tables["task_entities"].columns
         task_event_columns = Base.metadata.tables["task_events"].columns
+        operation_log_columns = Base.metadata.tables["operation_log"].columns
 
         self.assertIn("user_uid", personnel_columns)
         self.assertIn("employee_uid", personnel_columns)
@@ -73,8 +74,15 @@ class PostgreSQLModelTests(unittest.TestCase):
         self.assertIn("submission_payload", task_columns)
         self.assertIn("assigned_crew_uid", task_columns)
         self.assertIn("assigned_personnel_uid", task_columns)
+        self.assertIn("started_at", task_columns)
+        self.assertIn("applied_by_user_uid", task_columns)
+        self.assertIn("applied_at", task_columns)
+        self.assertIn("cancelled_at", task_columns)
         self.assertIn("entity_uid", task_entity_columns)
         self.assertIn("event_type", task_event_columns)
+        self.assertIn("operation_group_uid", operation_log_columns)
+        self.assertIn("source_type", operation_log_columns)
+        self.assertIn("source_uid", operation_log_columns)
 
 
 if __name__ == "__main__":

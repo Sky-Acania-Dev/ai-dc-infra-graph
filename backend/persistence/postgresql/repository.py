@@ -112,6 +112,9 @@ class PostgresTopologyRepository(TopologyRepository):
         status: str | None = None,
         expected_version: int | None = None,
         user: MutationUser | None = None,
+        operation_group_uid: str | None = None,
+        source_type: str | None = None,
+        source_uid: str | None = None,
     ) -> list[PersistedOperation]:
         with self._session_factory() as session:
             with session.begin():
@@ -123,6 +126,9 @@ class PostgresTopologyRepository(TopologyRepository):
                     status=status,
                     expected_version=expected_version,
                     user=user,
+                    operation_group_uid=operation_group_uid,
+                    source_type=source_type,
+                    source_uid=source_uid,
                 )
 
     def list_operations(self, limit: int = 100, after: int | None = None) -> list[PersistedOperation]:

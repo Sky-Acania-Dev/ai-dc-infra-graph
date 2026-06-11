@@ -157,7 +157,7 @@ class CutsheetIngestionTests(unittest.TestCase):
         )
 
         self.assertEqual(len(result.findings), 1)
-        self.assertIn("only breakout rows", result.findings[0].message)
+        self.assertIn("only breakout or 2x2 shuffle rows", result.findings[0].message)
 
     def test_ingests_cable_not_run_rows(self) -> None:
         result = ingest_cutsheet_rows(
@@ -195,6 +195,53 @@ class CutsheetIngestionTests(unittest.TestCase):
         self.assertEqual(len(result.rows), 1)
         self.assertEqual(result.rows[0].status, "")
         self.assertEqual(result.rows[0].cable_type, "MPO12 2x2")
+
+    def test_converts_roce_node_to_tier_rows(self) -> None:
+        result = ingest_cutsheet_rows(
+            [
+                {
+                    "STATUS": "",
+                    "A-SIDE-DNS-NAME": "dh1-r023-node-01-us-central-10a",
+                    "A-LOC:CAB:RU": "dh1:023:37",
+                    "A-MODEL": "GPU-GB300-02",
+                    "A-MPO": "A1",
+                    "A-PORT": "gpu0",
+                    "A-INTERFACE": "ibs0p0",
+                    "A-OPTIC": "MMS4X00-NM-FLT",
+                    "Z-SIDE-DNS-NAME": "dh1-t0a-01-rail1-r030-us-central-10a",
+                    "Z-LOC:CAB:RU": "dh1:030:38",
+                    "Z-MODEL": "SN5610",
+                    "Z-MPO": "B1",
+                    "Z-PORT": "swp1",
+                    "Z-INTERFACE": "swp1s0",
+                    "Z-OPTIC": "MMS4X00-NM-T",
+                },
+                {
+                    "STATUS": "",
+                    "A-SIDE-DNS-NAME": "dh1-r023-node-01-us-central-10a",
+                    "A-LOC:CAB:RU": "dh1:023:37",
+                    "A-MODEL": "GPU-GB300-02",
+                    "A-MPO": "A1",
+                    "A-PORT": "gpu0",
+                    "A-INTERFACE": "ibs0p1",
+                    "A-OPTIC": "MMS4X00-NM-FLT",
+                    "Z-SIDE-DNS-NAME": "dh1-t0b-01-rail1-r030-us-central-10a",
+                    "Z-LOC:CAB:RU": "dh1:030:39",
+                    "Z-MODEL": "SN5610",
+                    "Z-MPO": "B1",
+                    "Z-PORT": "swp1",
+                    "Z-INTERFACE": "swp1s1",
+                    "Z-OPTIC": "MMS4X00-NM-T",
+                },
+            ]
+        )
+
+        self.assertEqual(len(result.rows), 2)
+        self.assertEqual(result.rows[0].a_port_id, "ibs0p0")
+        self.assertEqual(result.rows[0].z_port_id, "swp1s0")
+        self.assertEqual(result.rows[0].cable_type, "MPO12 2x2")
+        self.assertEqual(result.rows[1].a_port_id, "ibs0p1")
+        self.assertEqual(result.findings, [])
 
     def test_json_report_has_summary_and_explicit_collision_findings(self) -> None:
         result = ingest_cutsheet_rows(

@@ -4,6 +4,7 @@ import json
 import logging
 import threading
 import time
+from uuid import uuid4
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import aliased
 
 from backend.api.auth import AuthUser, current_user, require_editor
 from backend.core.config import DEFAULT_BUILDING_ID, DEFAULT_PROJECT_UID, use_postgresql_topology_storage
@@ -27,10 +30,12 @@ from backend.core.progress_config import (
     normalize_cable_progress_phase,
 )
 from backend.graph import build_cabinet_graph
-from backend.models import Cabinet, Cable, CableProgressPhase, CableProgressTask, Device
+from backend.models import Cabinet, Cable, CableProgressPhase, CableProgressTask, ConnectorType, Device, DevicePortLayoutEntry, PortConnector
 from backend.persistence import DEFAULT_RUNTIME_DATABASE_PATH, TopologyDatabase, load_topology_database, save_topology_database
+from backend.persistence.postgresql import models as db
 from backend.persistence.postgresql.mutations import MutationUser, PersistedOperation, RowLockedConflict, StaleWriteConflict
 from backend.persistence.postgresql.repository import PostgresTopologyRepository
+from backend.persistence.postgresql.session import session_factory
 from backend.validation.device_models import DeviceModelFinding
 from backend.validation.port_collisions import PortConnectionFinding
 
@@ -234,6 +239,9 @@ class BulkStatusUpdateRequest(BaseModel):
     lifecycle_status: LifecycleStatus | None = None
     status: str | None = None
     expected_version: int | None = None
+    operation_group_uid: str | None = None
+    source_type: str | None = None
+    source_uid: str | None = None
 
 
 class Operation(BaseModel):
@@ -246,6 +254,9 @@ class Operation(BaseModel):
     timestamp: str
     userUid: str | None = None
     userRole: str | None = None
+    operationGroupUid: str | None = None
+    sourceType: str | None = None
+    sourceUid: str | None = None
 
 
 class OperationResponse(BaseModel):
@@ -270,6 +281,9 @@ def cabinet_layout(
     data_hall: str | None = None,
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
 ) -> list[CabinetLayoutItem]:
+    if use_postgresql_topology_storage():
+        return _postgres_cabinet_layout(data_hall)
+
     database = _load_cached_database(database_path)
     cabinets = database.cabinets
     if data_hall:
@@ -285,6 +299,9 @@ def data_hall_cable_summary(
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
 ) -> DataHallCableSummaryResponse:
     data_hall_id = data_hall_id.upper()
+    if use_postgresql_topology_storage():
+        return _postgres_data_hall_cable_summary(data_hall_id)
+
     database = _load_cached_database(database_path)
     internal_cables = _data_hall_internal_cables(database.cables, data_hall_id)
     external_by_hall: dict[str, list[Cable]] = {}
@@ -341,6 +358,9 @@ def data_hall_cables(
 
 @router.get("/enums", response_model=TopologyEnumResponse)
 def topology_enums(database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH)) -> TopologyEnumResponse:
+    if use_postgresql_topology_storage():
+        return _postgres_topology_enums()
+
     database = _load_cached_database(database_path)
     imported_statuses = sorted({cable.status or "Unknown" for cable in database.cables})
     phase_definitions = cable_progress_phase_definitions()
@@ -543,6 +563,7 @@ def bulk_update_status(
     require_editor(user)
     if not use_postgresql_topology_storage():
         raise HTTPException(status_code=422, detail="Bulk status updates are currently only available in PostgreSQL mode.")
+    operation_group_uid = request.operation_group_uid or f"bulk:{uuid4().hex}"
     try:
         operations = _postgres_repository().bulk_update_status(
             entity_type=request.entity_type,
@@ -551,6 +572,9 @@ def bulk_update_status(
             status=request.status,
             expected_version=request.expected_version,
             user=_postgres_mutation_user(user),
+            operation_group_uid=operation_group_uid,
+            source_type=request.source_type or "manual_bulk",
+            source_uid=request.source_uid,
         )
     except ValueError as exc:
         raise _postgres_http_exception(exc) from exc
@@ -732,6 +756,9 @@ def cabinet_detail(
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
 ) -> CabinetDetailResponse:
     cabinet_uid = cabinet_uid.upper()
+    if use_postgresql_topology_storage():
+        return _postgres_cabinet_detail(cabinet_uid)
+
     database = _load_cached_database(database_path)
     cabinet = _find_cabinet(database, cabinet_uid)
     if cabinet is None:
@@ -1013,6 +1040,9 @@ def _operation_from_postgres(operation: PersistedOperation) -> Operation:
         timestamp=operation.created_at.isoformat() if operation.created_at else "",
         userUid=operation.user_uid,
         userRole=operation.user_role,
+        operationGroupUid=operation.operation_group_uid,
+        sourceType=operation.source_type,
+        sourceUid=operation.source_uid,
     )
 
 
@@ -1040,6 +1070,345 @@ def _postgres_http_exception(exc: ValueError) -> HTTPException:
         )
     status_code = 404 if "was not found" in detail else 422
     return HTTPException(status_code=status_code, detail=detail)
+
+
+def _postgres_cabinet_layout(data_hall: str | None = None) -> list[CabinetLayoutItem]:
+    with session_factory()() as session:
+        clauses = [
+            db.Cabinet.project_uid == DEFAULT_PROJECT_UID,
+            db.Cabinet.deleted_at.is_(None),
+        ]
+        if data_hall:
+            clauses.append(db.Cabinet.room_uid == _postgres_room_uid(data_hall.upper()))
+
+        rows = session.execute(
+            select(db.Cabinet)
+            .where(*clauses)
+            .order_by(db.Cabinet.room_uid, db.Cabinet.source_row, db.Cabinet.source_col, db.Cabinet.cabinet_id)
+        ).scalars()
+        return [_postgres_layout_item(row) for row in rows]
+
+
+def _postgres_data_hall_cable_summary(data_hall_id: str) -> DataHallCableSummaryResponse:
+    room_uid = _postgres_room_uid(data_hall_id)
+    with session_factory()() as session:
+        a_port = aliased(db.Port)
+        z_port = aliased(db.Port)
+        rows = session.execute(
+            select(
+                a_port.room_uid.label("a_room_uid"),
+                z_port.room_uid.label("z_room_uid"),
+                db.Cable.cable_type,
+                db.Cable.import_status,
+                func.count().label("total_cables"),
+            )
+            .join(a_port, db.Cable.a_port_uid == a_port.uid)
+            .join(z_port, db.Cable.z_port_uid == z_port.uid)
+            .where(
+                db.Cable.project_uid == DEFAULT_PROJECT_UID,
+                db.Cable.deleted_at.is_(None),
+                or_(a_port.room_uid == room_uid, z_port.room_uid == room_uid),
+            )
+            .group_by(a_port.room_uid, z_port.room_uid, db.Cable.cable_type, db.Cable.import_status)
+        ).all()
+
+    internal_rows = [row for row in rows if row.a_room_uid == room_uid and row.z_room_uid == room_uid]
+    external_by_hall: dict[str, list] = {}
+    for row in rows:
+        other_room_uid = None
+        if row.a_room_uid == room_uid and row.z_room_uid != room_uid:
+            other_room_uid = row.z_room_uid
+        elif row.z_room_uid == room_uid and row.a_room_uid != room_uid:
+            other_room_uid = row.a_room_uid
+        if other_room_uid:
+            external_by_hall.setdefault(other_room_uid.rsplit(":", 1)[-1], []).append(row)
+
+    return DataHallCableSummaryResponse(
+        data_hall_id=data_hall_id,
+        internal=_postgres_data_hall_bucket("internal", internal_rows),
+        external=[
+            _postgres_data_hall_bucket("external", target_rows, target_data_hall=target_data_hall)
+            for target_data_hall, target_rows in sorted(external_by_hall.items())
+        ],
+    )
+
+
+def _postgres_topology_enums() -> TopologyEnumResponse:
+    with session_factory()() as session:
+        imported_statuses = sorted(
+            status or "Unknown"
+            for status in session.execute(
+                select(db.Cable.import_status)
+                .where(db.Cable.project_uid == DEFAULT_PROJECT_UID, db.Cable.deleted_at.is_(None))
+                .distinct()
+            ).scalars()
+        )
+    phase_definitions = cable_progress_phase_definitions()
+    return TopologyEnumResponse(
+        lifecycle_statuses=[status.value for status in LifecycleStatus],
+        construction_phases=[phase.value for phase in ConstructionPhase],
+        cable_import_statuses=imported_statuses,
+        cable_progress_steps=[step.value for step in CableProgressStep],
+        cable_progress_states=[state.value for state in CableProgressState],
+        cable_progress_phase_types=[phase_type.value for phase_type in CableProgressPhaseType],
+        cable_progress_phase_names=[phase.name for phase in phase_definitions],
+        cable_progress_phases=[
+            CableProgressPhaseDefinitionResponse(
+                name=phase.name,
+                tasks=[
+                    CableProgressTaskDefinitionResponse(
+                        name=task.name,
+                        task_type=task.task_type.value,
+                        enum_values=list(task.enum_values),
+                        default_value=task.default_value,
+                    )
+                    for task in phase.tasks
+                ],
+            )
+            for phase in phase_definitions
+        ],
+    )
+
+
+def _postgres_cabinet_detail(cabinet_uid: str) -> CabinetDetailResponse:
+    with session_factory()() as session:
+        cabinet_row = session.get(db.Cabinet, cabinet_uid)
+        if cabinet_row is None or cabinet_row.deleted_at is not None or cabinet_row.project_uid != DEFAULT_PROJECT_UID:
+            raise HTTPException(status_code=404, detail=f"Cabinet '{cabinet_uid}' was not found.")
+
+        port_rows = list(
+            session.execute(
+                select(db.Port)
+                .where(db.Port.cabinet_uid == cabinet_uid, db.Port.deleted_at.is_(None))
+                .order_by(db.Port.device_uid, db.Port.uid)
+            ).scalars()
+        )
+        ports_by_device: dict[str, dict[ConnectorType, list[PortConnector]]] = {}
+        for port_row in port_rows:
+            if not port_row.device_uid:
+                continue
+            connector_type = _postgres_connector_type(port_row.connector_type)
+            ports_by_device.setdefault(port_row.device_uid, {}).setdefault(connector_type, []).append(
+                PortConnector(uid=port_row.uid, type=connector_type, note=port_row.note)
+            )
+
+        device_rows = session.execute(
+            select(db.Device)
+            .where(db.Device.cabinet_uid == cabinet_uid, db.Device.deleted_at.is_(None))
+            .order_by(db.Device.rack_unit, db.Device.device_model_name, db.Device.uid)
+        ).scalars()
+        devices = [
+            Device(
+                cabinet_id=row.cabinet_uid,
+                rack_unit=row.rack_unit,
+                device_model=row.device_model_name,
+                device_model_uid=row.device_model_uid or "",
+                rack_units=row.rack_units,
+                lifecycle_status=LifecycleStatus(row.lifecycle_status),
+                construction_phase=ConstructionPhase(row.construction_phase),
+                aliases=list(row.aliases),
+                model_aliases=list(row.model_aliases),
+                port_layout_overrides=[_postgres_model_from_payload(DevicePortLayoutEntry, item) for item in row.port_layout_overrides],
+                ports_by_type={
+                    connector_type: ports
+                    for connector_type, ports in sorted(
+                        ports_by_device.get(row.uid, {}).items(),
+                        key=lambda item: item[0].value,
+                    )
+                },
+                note=row.note,
+            )
+            for row in device_rows
+        ]
+
+        cable_rows = _postgres_cables_for_cabinet(session, cabinet_uid)
+        connection_target_uids = {
+            _postgres_other_cabinet_uid(row.a_cabinet_uid, row.z_cabinet_uid, cabinet_uid)
+            for row in cable_rows
+        }
+        target_rows = {
+            row.uid: row
+            for row in session.execute(
+                select(db.Cabinet).where(db.Cabinet.uid.in_(connection_target_uids), db.Cabinet.deleted_at.is_(None))
+            ).scalars()
+        } if connection_target_uids else {}
+
+        connections: list[CabinetConnection] = []
+        intra_cabinet_connection = None
+        for target_uid, target_cables in sorted(_postgres_group_cables_by_target(cable_rows, cabinet_uid).items()):
+            target = target_rows.get(target_uid)
+            connection = CabinetConnection(
+                target_cabinet_uid=target_uid,
+                target_category=target.category if target else "",
+                target_cabinet_group=target.cabinet_group if target else "",
+                total_cables=len(target_cables),
+                cable_type_counts=_postgres_count_by(target_cables, "cable_type"),
+                status_summary=_postgres_status_summary(target_cables),
+            )
+            if target_uid == cabinet_uid:
+                intra_cabinet_connection = connection
+            else:
+                connections.append(connection)
+
+        cable_termination_percent, cable_dress_percent = _postgres_cabinet_progress_stats(cable_rows, cabinet_uid)
+        cable_type_counts = _postgres_count_by(cable_rows, "cable_type")
+        return CabinetDetailResponse(
+            cabinet=_postgres_layout_item(
+                cabinet_row,
+                cable_termination_percent=cable_termination_percent,
+                cable_dress_percent=cable_dress_percent,
+            ),
+            stats=CabinetStats(
+                devices=len(devices),
+                ports=len(port_rows),
+                cables=len(cable_rows),
+                connected_cabinets=len({connection.target_cabinet_uid for connection in connections}),
+                cable_termination_percent=cable_termination_percent,
+                cable_dress_percent=cable_dress_percent,
+                cable_type_counts=cable_type_counts,
+            ),
+            devices=devices,
+            intra_cabinet_connection=intra_cabinet_connection,
+            connections=sorted(connections, key=lambda connection: (-connection.total_cables, connection.target_cabinet_uid)),
+        )
+
+
+def _postgres_layout_item(
+    row: db.Cabinet,
+    cable_termination_percent: float = 0.0,
+    cable_dress_percent: float = 0.0,
+) -> CabinetLayoutItem:
+    data_hall_id = row.room_uid.rsplit(":", 1)[-1]
+    return CabinetLayoutItem(
+        cabinet_uid=row.uid,
+        data_hall_id=data_hall_id,
+        cabinet_id=row.cabinet_id,
+        category=row.category,
+        cabinet_group=row.cabinet_group,
+        lifecycle_status=row.lifecycle_status,
+        construction_phase=row.construction_phase,
+        max_rack_unit=row.max_rack_unit,
+        cable_termination_percent=cable_termination_percent,
+        cable_dress_percent=cable_dress_percent,
+        source_row=row.source_row,
+        source_col=row.source_col,
+    )
+
+
+def _postgres_cables_for_cabinet(session, cabinet_uid: str):
+    a_port = aliased(db.Port)
+    z_port = aliased(db.Port)
+    return session.execute(
+        select(
+            db.Cable.uid,
+            db.Cable.cable_type,
+            db.Cable.import_status,
+            db.Cable.current_phase,
+            db.Cable.a_port_uid,
+            db.Cable.z_port_uid,
+            a_port.cabinet_uid.label("a_cabinet_uid"),
+            z_port.cabinet_uid.label("z_cabinet_uid"),
+        )
+        .join(a_port, db.Cable.a_port_uid == a_port.uid)
+        .join(z_port, db.Cable.z_port_uid == z_port.uid)
+        .where(
+            db.Cable.project_uid == DEFAULT_PROJECT_UID,
+            db.Cable.deleted_at.is_(None),
+            or_(a_port.cabinet_uid == cabinet_uid, z_port.cabinet_uid == cabinet_uid),
+        )
+    ).all()
+
+
+def _postgres_group_cables_by_target(cable_rows, cabinet_uid: str):
+    grouped: dict[str, list] = {}
+    for row in cable_rows:
+        target_uid = _postgres_other_cabinet_uid(row.a_cabinet_uid, row.z_cabinet_uid, cabinet_uid)
+        grouped.setdefault(target_uid, []).append(row)
+    return grouped
+
+
+def _postgres_other_cabinet_uid(a_cabinet_uid: str, z_cabinet_uid: str, cabinet_uid: str) -> str:
+    if a_cabinet_uid == cabinet_uid and z_cabinet_uid == cabinet_uid:
+        return cabinet_uid
+    return z_cabinet_uid if a_cabinet_uid == cabinet_uid else a_cabinet_uid
+
+
+def _postgres_cabinet_progress_stats(cable_rows, cabinet_uid: str) -> tuple[float, float]:
+    termination_total = 0.0
+    dress_total = 0.0
+    endpoint_count = 0
+    for row in cable_rows:
+        current_phase = _postgres_optional_model(CableProgressPhase, row.current_phase)
+        if row.a_cabinet_uid == cabinet_uid:
+            termination, dress = cable_endpoint_termination_and_dress_percent(current_phase, "a")
+            termination_total += termination
+            dress_total += dress
+            endpoint_count += 1
+        if row.z_cabinet_uid == cabinet_uid:
+            termination, dress = cable_endpoint_termination_and_dress_percent(current_phase, "z")
+            termination_total += termination
+            dress_total += dress
+            endpoint_count += 1
+    if endpoint_count == 0:
+        return 0.0, 0.0
+    return round(termination_total / endpoint_count, 1), round(dress_total / endpoint_count, 1)
+
+
+def _postgres_status_summary(rows) -> CableStatusSummary:
+    return CableStatusSummary(
+        completed=sum(_postgres_row_count(row) for row in rows if _is_completed_status(row.import_status)),
+        total=sum(_postgres_row_count(row) for row in rows),
+        status_counts=_postgres_count_by(rows, "import_status"),
+    )
+
+
+def _postgres_data_hall_bucket(
+    scope: str,
+    rows,
+    target_data_hall: str | None = None,
+) -> DataHallCableBucket:
+    return DataHallCableBucket(
+        scope=scope,
+        target_data_hall=target_data_hall,
+        total_cables=sum(_postgres_row_count(row) for row in rows),
+        cable_type_counts=_postgres_count_by(rows, "cable_type"),
+        status_summary=_postgres_status_summary(rows),
+    )
+
+
+def _postgres_count_by(rows, attribute: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = getattr(row, attribute) or "Unknown"
+        counts[value] = counts.get(value, 0) + _postgres_row_count(row)
+    return dict(sorted(counts.items()))
+
+
+def _postgres_row_count(row) -> int:
+    return int(getattr(row, "total_cables", 1) or 1)
+
+
+def _postgres_room_uid(data_hall_id: str) -> str:
+    return f"{DEFAULT_PROJECT_UID}:{DEFAULT_BUILDING_ID}:{data_hall_id}".upper()
+
+
+def _postgres_connector_type(value: str) -> ConnectorType:
+    try:
+        return ConnectorType(value)
+    except ValueError:
+        return ConnectorType.OTHER
+
+
+def _postgres_optional_model(model_type: type[BaseModel], payload: dict[str, Any] | None):
+    if payload is None:
+        return None
+    return _postgres_model_from_payload(model_type, payload)
+
+
+def _postgres_model_from_payload(model_type: type[BaseModel], payload: dict[str, Any]):
+    if hasattr(model_type, "model_validate"):
+        return model_type.model_validate(payload)
+    return model_type.parse_obj(payload)
 
 
 def _reject_stale_json_write(

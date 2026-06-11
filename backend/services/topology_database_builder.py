@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from typing import Sequence
 
 from backend.ingest.cutsheet import CutsheetIngestionResult, CutsheetSummary
 from backend.ingest.cutsheet_pipeline import CutsheetIngestionPipelineResult, CutsheetSourceSpec, ingest_cutsheet_sources
@@ -20,7 +21,7 @@ def build_topology_database_from_sources(
     project_uid: str = "MSK01",
     building_id: str = "A",
     cutsheet_sheet_name: str | None = None,
-    roce_cutsheet_sheet_name: str | None = None,
+    roce_cutsheet_sheet_name: str | Sequence[str] | None = None,
     overhead_sheet_name: str | None = None,
     breakout_rules: list[BreakoutFanoutRule] | None = None,
     status_overrides_path: str | Path | None = None,
@@ -35,14 +36,16 @@ def build_topology_database_from_sources(
         )
     ]
     if roce_cutsheet_path:
-        cutsheet_sources.append(
-            CutsheetSourceSpec(
-                source_name="roce",
-                path=str(roce_cutsheet_path),
-                sheet_name=roce_cutsheet_sheet_name,
-                construction_phase=ConstructionPhase.ROCE,
+        for sheet_name in _source_sheet_names(roce_cutsheet_sheet_name):
+            source_name = "roce" if sheet_name is None else f"roce:{sheet_name}"
+            cutsheet_sources.append(
+                CutsheetSourceSpec(
+                    source_name=source_name,
+                    path=str(roce_cutsheet_path),
+                    sheet_name=sheet_name,
+                    construction_phase=ConstructionPhase.ROCE,
+                )
             )
-        )
     cutsheet_pipeline_result = ingest_cutsheet_sources(
         cutsheet_sources,
         project_uid=project_uid,
@@ -59,6 +62,14 @@ def build_topology_database_from_sources(
         default_max_rack_unit=default_max_rack_unit,
         breakout_rules=breakout_rules,
     )
+
+
+def _source_sheet_names(sheet_name: str | Sequence[str] | None) -> list[str | None]:
+    if sheet_name is None:
+        return [None]
+    if isinstance(sheet_name, str):
+        return [sheet_name]
+    return list(sheet_name) or [None]
 
 
 def build_topology_database_from_pipeline_result(

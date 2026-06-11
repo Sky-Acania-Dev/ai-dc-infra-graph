@@ -1,14 +1,42 @@
 import unittest
+from unittest.mock import patch
 
 from backend.ingest.cutsheet import ingest_cutsheet_rows
 from backend.ingest.overhead import CabinetInventoryRecord, OverheadIngestionResult, OverheadIngestionSummary
 from backend.graph import build_cabinet_graph
 from backend.models import ConstructionPhase, LifecycleStatus
-from backend.services import build_topology_database_from_results
+from backend.services import build_topology_database_from_results, build_topology_database_from_sources
 from backend.services.status_overrides import DeviceModelOverride, DeviceStatusOverride, StatusOverrides
 
 
 class TopologyDatabaseBuilderTests(unittest.TestCase):
+    def test_build_from_sources_expands_multiple_roce_sheet_names(self) -> None:
+        with (
+            patch("backend.services.topology_database_builder.ingest_cutsheet_sources") as ingest_sources,
+            patch("backend.services.topology_database_builder.ingest_overhead") as ingest_overhead,
+            patch("backend.services.topology_database_builder.build_topology_database_from_pipeline_result") as build_from_pipeline,
+        ):
+            ingest_sources.return_value = object()
+            ingest_overhead.return_value = object()
+            build_from_pipeline.return_value = object()
+
+            database = build_topology_database_from_sources(
+                cutsheet_path="management.ods",
+                roce_cutsheet_path="roce.ods",
+                overhead_path="overhead.ods",
+                roce_cutsheet_sheet_name=["DH1 NODE TO TIER-0", "DH2 NODE TO TIER-0"],
+            )
+
+        self.assertIs(database, build_from_pipeline.return_value)
+        sources = ingest_sources.call_args.args[0]
+        self.assertEqual([source.source_name for source in sources], ["management", "roce:DH1 NODE TO TIER-0", "roce:DH2 NODE TO TIER-0"])
+        self.assertEqual([source.path for source in sources], ["management.ods", "roce.ods", "roce.ods"])
+        self.assertEqual([source.sheet_name for source in sources], [None, "DH1 NODE TO TIER-0", "DH2 NODE TO TIER-0"])
+        self.assertEqual(
+            [source.construction_phase for source in sources],
+            [ConstructionPhase.MANAGEMENT_ETHERNET, ConstructionPhase.ROCE, ConstructionPhase.ROCE],
+        )
+
     def test_combines_overhead_cabinets_with_cutsheet_connectivity(self) -> None:
         cutsheet_result = ingest_cutsheet_rows(
             [

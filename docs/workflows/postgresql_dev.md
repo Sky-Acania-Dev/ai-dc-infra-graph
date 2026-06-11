@@ -46,11 +46,15 @@ Use the standardized cutsheet pipeline to build normalized topology data and per
 .\.venv\Scripts\python.exe .\scripts\import_topology_to_postgresql.py `
   --cutsheet-path <management-cutsheet.csv-or-ods> `
   --roce-cutsheet-path <roce-cutsheet.csv-or-ods> `
+  --roce-cutsheet-sheet-name "DH1 NODE TO TIER-0" `
+  --roce-cutsheet-sheet-name "DH2 NODE TO TIER-0" `
+  --roce-cutsheet-sheet-name "DH1,DH2 TIER-0 TO TIER-1" `
   --overhead-path <overhead.ods> `
   --overhead-sheet-name Sheet1
 ```
 
-Omit `--roce-cutsheet-path` when only one cutsheet source should be imported.
+Omit `--roce-cutsheet-path` when only one cutsheet source should be imported. Repeat
+`--roce-cutsheet-sheet-name` to ingest multiple sheets from the same RoCE workbook.
 
 ## Run PostgreSQL Query Tests
 
