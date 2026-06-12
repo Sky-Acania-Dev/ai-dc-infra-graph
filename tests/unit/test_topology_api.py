@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from backend.api.auth import AuthUser, UserRole
@@ -26,6 +27,16 @@ from tests.unit.test_json_database import _test_paths
 
 
 class TopologyApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._previous_storage_backend = os.environ.get("TOPOLOGY_STORAGE_BACKEND")
+        os.environ["TOPOLOGY_STORAGE_BACKEND"] = "json"
+
+    def tearDown(self) -> None:
+        if self._previous_storage_backend is None:
+            os.environ.pop("TOPOLOGY_STORAGE_BACKEND", None)
+        else:
+            os.environ["TOPOLOGY_STORAGE_BACKEND"] = self._previous_storage_backend
+
     def test_cabinet_detail_includes_devices_and_connections(self) -> None:
         _, runtime_path = _test_paths()
         database = build_topology_database_from_results(

@@ -14,79 +14,9 @@ If unit tests are needed and `pytest` is not installed, either install it into t
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
 ```
 
-## Build Runtime Database
+## Prepare PostgreSQL Database
 
-Build the normalized runtime JSON from the source cutsheet and overhead files:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\build_database.py `
-  --cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET.ods" `
-  --roce-cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET ROCE FULL.ods" `
-  --roce-cutsheet-sheet-name "DH1 NODE TO TIER-0" `
-  --roce-cutsheet-sheet-name "DH2 NODE TO TIER-0" `
-  --roce-cutsheet-sheet-name "DH1,DH2 TIER-0 TO TIER-1" `
-  --overhead-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\OVERHEAD.ods" `
-  --runtime-path data\runtime\current_database.json
-```
-
-By default the build uses:
-
-- Project UID: `MSK01`
-- Building ID: `A`
-- Status overrides: `data/status_overrides.json`
-- Default cabinet size: `48U`
-
-## Load Existing Runtime JSON
-
-Use this only when you already have a normalized runtime database snapshot and deliberately do not want to
-re-ingest the management, RoCE, or overhead source spreadsheets:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\load_database.py data\runtime\current_database.json.bak --runtime-path data\runtime\current_database.json
-```
-
-Do not use legacy cutsheet-only exports such as `data\exports\cutsheet_full.json` when refreshing active runtime data.
-Those exports do not ingest the RoCE cutsheet. Use `scripts\build_database.py` with `--roce-cutsheet-path` instead.
-
-## Manual Status Overrides
-
-Status overrides live in `data/status_overrides.json`. Use `data/status_overrides.example.json` as the format reference.
-
-Supported override areas:
-
-- data hall lifecycle status
-- cabinet lifecycle status
-- cabinet max RU count
-- device lifecycle/model/note placeholders
-- cable progress, length, and note by cable UID
-
-## Run Backend
-
-From the repository root, start the FastAPI backend on localhost:
-
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
-```
-
-This starts the default JSON-backed development backend.
-
-Backend URL:
-
-```text
-http://127.0.0.1:8000
-```
-
-Health check:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
-```
-
-## Run PostgreSQL Backend
-
-Use this when testing the PostgreSQL storage path instead of the default JSON runtime snapshot. Docker Desktop must be running.
-
-Start the repo-local PostgreSQL container:
+Docker Desktop must be running. Start the repo-local PostgreSQL container:
 
 ```powershell
 docker compose up -d postgres
@@ -110,33 +40,85 @@ If the database is empty or you want to refresh it from the source spreadsheets,
   --overhead-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\OVERHEAD.ods"
 ```
 
-Start FastAPI in PostgreSQL mode:
-
-```powershell
-$env:TOPOLOGY_STORAGE_BACKEND = "postgresql"
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
-```
-
 The development database URL is provided by `docker-compose.yml`:
 
 ```text
 postgresql://ai_dc_infra_graph:ai_dc_infra_graph_dev@localhost:5432/ai_dc_infra_graph
 ```
 
-Run PostgreSQL integration tests after the container is up and migrations are applied:
+By default the import uses:
+
+- Project UID: `MSK01`
+- Building ID: `A`
+- Status overrides: `data/status_overrides.json`
+- Default cabinet size: `48U`
+
+## Manual Status Overrides
+
+Status overrides live in `data/status_overrides.json`. Use `data/status_overrides.example.json` as the format reference.
+
+Supported override areas:
+
+- data hall lifecycle status
+- cabinet lifecycle status
+- cabinet max RU count
+- device lifecycle/model/note placeholders
+- cable progress, length, and note by cable UID
+
+## Run Backend
+
+From the repository root, start the FastAPI backend on localhost. PostgreSQL is the default storage backend:
 
 ```powershell
-$env:RUN_POSTGRESQL_TESTS = "1"
-.\.venv\Scripts\python.exe -m unittest tests.integration.test_postgresql_queries
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-Stop the PostgreSQL container when finished:
+Backend URL:
+
+```text
+http://127.0.0.1:8000
+```
+
+Health check:
 
 ```powershell
-docker compose stop postgres
+Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-See `docs\workflows\postgresql_dev.md` for more Docker PostgreSQL notes, including deleting the local volume and using Docker PostgreSQL for other projects.
+To force the legacy JSON backend for debugging or rollback:
+
+```powershell
+$env:TOPOLOGY_STORAGE_BACKEND = "json"
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+## Legacy JSON Runtime
+
+Use this only when you deliberately want to run the old JSON-backed development path.
+
+Build the normalized runtime JSON from the source cutsheet and overhead files:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_database.py `
+  --cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET.ods" `
+  --roce-cutsheet-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\CUTSHEET ROCE FULL.ods" `
+  --roce-cutsheet-sheet-name "DH1 NODE TO TIER-0" `
+  --roce-cutsheet-sheet-name "DH2 NODE TO TIER-0" `
+  --roce-cutsheet-sheet-name "DH1,DH2 TIER-0 TO TIER-1" `
+  --overhead-path "C:\Personal Folder\Work\Megawatt\OK Muskogee\OVERHEAD.ods" `
+  --runtime-path data\runtime\current_database.json
+```
+
+Load an existing normalized runtime snapshot without re-ingesting source spreadsheets:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\load_database.py data\runtime\current_database.json.bak --runtime-path data\runtime\current_database.json
+```
+
+Do not use legacy cutsheet-only exports such as `data\exports\cutsheet_full.json` when refreshing active runtime data.
+Those exports do not ingest the RoCE cutsheet. Use `scripts\build_database.py` with `--roce-cutsheet-path` instead.
+
+See `docs\workflows\postgresql_dev.md` for more Docker PostgreSQL notes, including integration tests, stopping the container, deleting the local volume, and using Docker PostgreSQL for other projects.
 
 ## Run Frontend
 

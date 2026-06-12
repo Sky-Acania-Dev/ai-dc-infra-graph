@@ -11,7 +11,7 @@ DEFAULT_BUILDING_ID = "A"
 DEFAULT_RUNTIME_DATABASE_PATH = Path("data/runtime/current_database.json")
 DEFAULT_STATUS_OVERRIDES_PATH = Path("data/status_overrides.json")
 DEFAULT_MAX_RACK_UNIT = 48
-DEFAULT_TOPOLOGY_STORAGE_BACKEND = "json"
+DEFAULT_TOPOLOGY_STORAGE_BACKEND = "postgresql"
 
 
 @dataclass(frozen=True)
