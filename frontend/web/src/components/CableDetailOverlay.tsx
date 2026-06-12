@@ -15,6 +15,7 @@ type CableDetailOverlayProps = {
   expectedVersion: number | null;
   topologyEnums: TopologyEnums | null;
   onClose: () => void;
+  onPageRequest?: (offset: number, limit: (typeof PAGE_SIZE_OPTIONS)[number]) => void;
   onSelectCable: (cable: CabinetCableDetail, gesture: SelectionGesture) => void;
   onCableUpdated: (response: OperationResponse) => void;
 };
@@ -67,6 +68,7 @@ export function CableDetailOverlay({
   expectedVersion,
   topologyEnums,
   onClose,
+  onPageRequest,
   onSelectCable,
   onCableUpdated,
 }: CableDetailOverlayProps) {
@@ -87,6 +89,14 @@ export function CableDetailOverlay({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(250);
   const debouncedFilterText = useDebouncedValue(filterText, 500);
+  const serverTotalRows =
+    cableDetail && "total_cables" in cableDetail && typeof cableDetail.total_cables === "number" ? cableDetail.total_cables : null;
+  const serverLimit =
+    cableDetail && "limit" in cableDetail && typeof cableDetail.limit === "number" && PAGE_SIZE_OPTIONS.includes(cableDetail.limit as (typeof PAGE_SIZE_OPTIONS)[number])
+      ? (cableDetail.limit as (typeof PAGE_SIZE_OPTIONS)[number])
+      : null;
+  const serverOffset = cableDetail && "offset" in cableDetail && typeof cableDetail.offset === "number" ? cableDetail.offset : 0;
+  const isServerPaged = Boolean(onPageRequest && serverTotalRows !== null);
   const uniqueValues = useMemo(() => {
     const values: Partial<Record<CableColumnKey, string[]>> = {};
     if (!cableDetail) return values;
@@ -147,22 +157,26 @@ export function CableDetailOverlay({
         return sortDirection === "asc" ? result : -result;
       });
   }, [cableDetail, filters, rangeFilters, sortDirection, sortKey]);
-  const pageCount = Math.max(1, Math.ceil(visibleCables.length / pageSize));
-  const normalizedPage = Math.min(page, pageCount);
-  const pageStartIndex = (normalizedPage - 1) * pageSize;
-  const pagedCables = visibleCables.slice(pageStartIndex, pageStartIndex + pageSize);
+  const effectivePageSize = isServerPaged ? serverLimit ?? pageSize : pageSize;
+  const totalRows = isServerPaged ? serverTotalRows ?? visibleCables.length : visibleCables.length;
+  const pageCount = Math.max(1, Math.ceil(totalRows / effectivePageSize));
+  const normalizedPage = isServerPaged ? Math.floor(serverOffset / effectivePageSize) + 1 : Math.min(page, pageCount);
+  const pageStartIndex = isServerPaged ? serverOffset : (normalizedPage - 1) * effectivePageSize;
+  const pagedCables = isServerPaged ? visibleCables : visibleCables.slice(pageStartIndex, pageStartIndex + effectivePageSize);
   const selectedCables = useMemo(
     () => cableDetail?.cables.filter((cable) => selectedCableUids.has(cable.uid)) ?? [],
     [cableDetail, selectedCableUids],
   );
 
   useEffect(() => {
+    if (isServerPaged) return;
     setPage(1);
-  }, [cableDetail, filters, rangeFilters, sortDirection, sortKey]);
+  }, [cableDetail, filters, isServerPaged, rangeFilters, sortDirection, sortKey]);
 
   useEffect(() => {
+    if (isServerPaged) return;
     if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
+  }, [isServerPaged, page, pageCount]);
 
   if (!cableDetail && !isLoading) return null;
   const sourceLabel =
@@ -223,7 +237,7 @@ export function CableDetailOverlay({
             {cableDetail
               ? t("cable.countVisible", {
                   visible: formatNumber(visibleCables.length),
-                  total: formatNumber(cableDetail.cables.length),
+                  total: formatNumber(totalRows),
                 })
               : t("common.loading", { target: t("cable.details") })}
             {selectedCables.length > 1 ? ` · Selected ${formatNumber(selectedCables.length)}` : ""}
@@ -245,16 +259,20 @@ export function CableDetailOverlay({
         <>
       <PaginationBar
         formatNumber={formatNumber}
-        onPageChange={setPage}
+        onPageChange={(nextPage) => {
+          if (isServerPaged && onPageRequest) onPageRequest((nextPage - 1) * effectivePageSize, effectivePageSize);
+          else setPage(nextPage);
+        }}
         onPageSizeChange={(nextPageSize) => {
           setPageSize(nextPageSize);
           setPage(1);
+          if (isServerPaged && onPageRequest) onPageRequest(0, nextPageSize);
         }}
         page={normalizedPage}
         pageCount={pageCount}
-        pageSize={pageSize}
+        pageSize={effectivePageSize}
         startIndex={pageStartIndex}
-        totalRows={visibleCables.length}
+        totalRows={totalRows}
       />
       <div className="table-scroll" onClick={() => setOpenFilterColumn(null)}>
         <table>
@@ -374,16 +392,20 @@ export function CableDetailOverlay({
       </div>
       <PaginationBar
         formatNumber={formatNumber}
-        onPageChange={setPage}
+        onPageChange={(nextPage) => {
+          if (isServerPaged && onPageRequest) onPageRequest((nextPage - 1) * effectivePageSize, effectivePageSize);
+          else setPage(nextPage);
+        }}
         onPageSizeChange={(nextPageSize) => {
           setPageSize(nextPageSize);
           setPage(1);
+          if (isServerPaged && onPageRequest) onPageRequest(0, nextPageSize);
         }}
         page={normalizedPage}
         pageCount={pageCount}
-        pageSize={pageSize}
+        pageSize={effectivePageSize}
         startIndex={pageStartIndex}
-        totalRows={visibleCables.length}
+        totalRows={totalRows}
       />
         </>
       ) : null}

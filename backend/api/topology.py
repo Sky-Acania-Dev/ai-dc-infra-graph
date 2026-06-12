@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import aliased
 
 from backend.api.auth import AuthUser, current_user, require_editor
@@ -136,6 +136,10 @@ class CabinetCableDetailResponse(BaseModel):
     source_cabinet_uid: str
     target_cabinet_uid: str
     cables: list[CabinetCableDetail]
+    total_cables: int | None = None
+    limit: int | None = None
+    offset: int = 0
+    has_more: bool = False
 
 
 class DeviceCableDetailResponse(BaseModel):
@@ -327,9 +331,23 @@ def data_hall_cables(
     scope: str = "internal",
     target_data_hall: str | None = None,
     cable_type: str | None = None,
+    limit: int = 500,
+    offset: int = 0,
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
 ) -> CabinetCableDetailResponse:
     data_hall_id = data_hall_id.upper()
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+    if use_postgresql_topology_storage():
+        return _postgres_data_hall_cables(
+            data_hall_id,
+            scope=scope,
+            target_data_hall=target_data_hall,
+            cable_type=cable_type,
+            limit=limit,
+            offset=offset,
+        )
+
     database = _load_cached_database(database_path)
     if scope == "internal":
         cables = _data_hall_internal_cables(database.cables, data_hall_id)
@@ -348,11 +366,17 @@ def data_hall_cables(
 
     if cable_type:
         cables = [cable for cable in cables if cable.cable_type == cable_type]
+    sorted_cables = sorted((_cable_detail(cable) for cable in cables), key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid))
+    total_cables = len(sorted_cables)
 
     return CabinetCableDetailResponse(
         source_cabinet_uid=data_hall_id,
         target_cabinet_uid=target_label,
-        cables=sorted((_cable_detail(cable) for cable in cables), key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid)),
+        cables=sorted_cables[offset : offset + limit],
+        total_cables=total_cables,
+        limit=limit,
+        offset=offset,
+        has_more=offset + limit < total_cables,
     )
 
 
@@ -799,6 +823,9 @@ def cabinet_connection_cables(
 ) -> CabinetCableDetailResponse:
     source_cabinet_uid = source_cabinet_uid.upper()
     target_cabinet_uid = target_cabinet_uid.upper()
+    if use_postgresql_topology_storage():
+        return _postgres_cabinet_connection_cables(source_cabinet_uid, target_cabinet_uid)
+
     database = _load_cached_database(database_path)
     cables = [
         _cable_detail(cable)
@@ -822,6 +849,9 @@ def device_connection_cables(
 ) -> DeviceCableDetailResponse:
     source_device_uid = source_device_uid.upper()
     target_device_uid = target_device_uid.upper()
+    if use_postgresql_topology_storage():
+        return _postgres_device_connection_cables(source_device_uid, target_device_uid)
+
     database = _load_cached_database(database_path)
     cables = [
         _cable_detail(cable)
@@ -1273,6 +1303,100 @@ def _postgres_cabinet_detail(cabinet_uid: str) -> CabinetDetailResponse:
         )
 
 
+def _postgres_data_hall_cables(
+    data_hall_id: str,
+    *,
+    scope: str,
+    target_data_hall: str | None,
+    cable_type: str | None,
+    limit: int,
+    offset: int,
+) -> CabinetCableDetailResponse:
+    room_uid = _postgres_room_uid(data_hall_id)
+    normalized_target_room_uid = _postgres_room_uid(target_data_hall.upper()) if target_data_hall else None
+    with session_factory()() as session:
+        if session.get(db.Room, room_uid) is None:
+            raise HTTPException(status_code=404, detail=f"Data hall '{data_hall_id}' was not found.")
+        room_ports = _postgres_port_uid_scope(room_uid=room_uid)
+        clauses: list[Any] = [
+            db.Cable.project_uid == DEFAULT_PROJECT_UID,
+            db.Cable.deleted_at.is_(None),
+        ]
+        if scope == "internal":
+            clauses.append(db.Cable.a_port_uid.in_(room_ports))
+            clauses.append(db.Cable.z_port_uid.in_(room_ports))
+            target_label = data_hall_id
+        elif scope == "external":
+            clauses.append(or_(db.Cable.a_port_uid.in_(room_ports), db.Cable.z_port_uid.in_(room_ports)))
+            if normalized_target_room_uid is not None:
+                target_ports = _postgres_port_uid_scope(room_uid=normalized_target_room_uid)
+                clauses.append(or_(db.Cable.a_port_uid.in_(target_ports), db.Cable.z_port_uid.in_(target_ports)))
+            else:
+                clauses.append(or_(db.Cable.a_port_uid.not_in(room_ports), db.Cable.z_port_uid.not_in(room_ports)))
+            target_label = target_data_hall.upper() if target_data_hall else "EXTERNAL"
+        else:
+            raise HTTPException(status_code=422, detail="scope must be 'internal' or 'external'.")
+        if cable_type:
+            clauses.append(db.Cable.cable_type == cable_type)
+        total_cables = session.scalar(select(func.count()).select_from(db.Cable).where(*clauses)) or 0
+        rows = _postgres_cable_detail_models(session, clauses=clauses, limit=limit, offset=offset)
+    return CabinetCableDetailResponse(
+        source_cabinet_uid=data_hall_id,
+        target_cabinet_uid=target_label,
+        cables=[_postgres_cable_detail(row) for row in rows],
+        total_cables=total_cables,
+        limit=limit,
+        offset=offset,
+        has_more=offset + limit < total_cables,
+    )
+
+
+def _postgres_cabinet_connection_cables(source_cabinet_uid: str, target_cabinet_uid: str) -> CabinetCableDetailResponse:
+    with session_factory()() as session:
+        _postgres_require_cabinet(session, source_cabinet_uid)
+        _postgres_require_cabinet(session, target_cabinet_uid)
+        rows = _postgres_cable_detail_models(
+            session,
+            clauses=[
+                db.Cable.project_uid == DEFAULT_PROJECT_UID,
+                db.Cable.deleted_at.is_(None),
+                _postgres_bidirectional_port_scope_clause(
+                    _postgres_port_uid_scope(cabinet_uid=source_cabinet_uid),
+                    _postgres_port_uid_scope(cabinet_uid=target_cabinet_uid),
+                ),
+            ],
+        )
+    return CabinetCableDetailResponse(
+        source_cabinet_uid=source_cabinet_uid,
+        target_cabinet_uid=target_cabinet_uid,
+        cables=sorted((_postgres_cable_detail(row) for row in rows), key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid)),
+    )
+
+
+def _postgres_device_connection_cables(source_device_uid: str, target_device_uid: str) -> DeviceCableDetailResponse:
+    source_device_uid = _normalize_device_uid(source_device_uid)
+    target_device_uid = _normalize_device_uid(target_device_uid)
+    with session_factory()() as session:
+        _postgres_require_device(session, source_device_uid)
+        _postgres_require_device(session, target_device_uid)
+        rows = _postgres_cable_detail_models(
+            session,
+            clauses=[
+                db.Cable.project_uid == DEFAULT_PROJECT_UID,
+                db.Cable.deleted_at.is_(None),
+                _postgres_bidirectional_port_scope_clause(
+                    _postgres_port_uid_scope(device_uid=source_device_uid),
+                    _postgres_port_uid_scope(device_uid=target_device_uid),
+                ),
+            ],
+        )
+    return DeviceCableDetailResponse(
+        source_device_uid=source_device_uid,
+        target_device_uid=target_device_uid,
+        cables=sorted((_postgres_cable_detail(row) for row in rows), key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid)),
+    )
+
+
 def _postgres_layout_item(
     row: db.Cabinet,
     cable_termination_percent: float = 0.0,
@@ -1298,6 +1422,7 @@ def _postgres_layout_item(
 def _postgres_cables_for_cabinet(session, cabinet_uid: str):
     a_port = aliased(db.Port)
     z_port = aliased(db.Port)
+    cabinet_ports = _postgres_port_uid_scope(cabinet_uid=cabinet_uid)
     return session.execute(
         select(
             db.Cable.uid,
@@ -1314,9 +1439,91 @@ def _postgres_cables_for_cabinet(session, cabinet_uid: str):
         .where(
             db.Cable.project_uid == DEFAULT_PROJECT_UID,
             db.Cable.deleted_at.is_(None),
-            or_(a_port.cabinet_uid == cabinet_uid, z_port.cabinet_uid == cabinet_uid),
+            or_(db.Cable.a_port_uid.in_(cabinet_ports), db.Cable.z_port_uid.in_(cabinet_ports)),
         )
     ).all()
+
+
+def _postgres_cable_detail_models(
+    session,
+    *,
+    clauses: list[Any],
+    limit: int | None = None,
+    offset: int | None = None,
+):
+    statement = select(db.Cable).where(*clauses).order_by(db.Cable.cable_type, db.Cable.a_port_uid, db.Cable.z_port_uid, db.Cable.uid)
+    if offset is not None:
+        statement = statement.offset(offset)
+    if limit is not None:
+        statement = statement.limit(limit)
+    return list(session.execute(statement).scalars())
+
+
+def _postgres_port_uid_scope(
+    *,
+    cabinet_uid: str | None = None,
+    device_uid: str | None = None,
+    room_uid: str | None = None,
+):
+    clauses = [db.Port.deleted_at.is_(None)]
+    if cabinet_uid is not None:
+        clauses.append(db.Port.cabinet_uid == cabinet_uid)
+    if device_uid is not None:
+        clauses.append(db.Port.device_uid == device_uid)
+    if room_uid is not None:
+        clauses.append(db.Port.room_uid == room_uid)
+    return select(db.Port.uid).where(*clauses)
+
+
+def _postgres_bidirectional_port_scope_clause(source_ports, target_ports):
+    return or_(
+        and_(db.Cable.a_port_uid.in_(source_ports), db.Cable.z_port_uid.in_(target_ports)),
+        and_(db.Cable.a_port_uid.in_(target_ports), db.Cable.z_port_uid.in_(source_ports)),
+    )
+
+
+def _postgres_cable_detail(row) -> CabinetCableDetail:
+    progress = {
+        str(key): value.value if hasattr(value, "value") else str(value)
+        for key, value in (row.progress or {}).items()
+    }
+    current_phase = _postgres_optional_model(CableProgressPhase, row.current_phase)
+    return CabinetCableDetail(
+        uid=row.uid,
+        group=row.cable_group,
+        status=row.import_status,
+        cable_type=row.cable_type,
+        construction_phase=row.construction_phase,
+        progress=progress,
+        current_phase=normalize_cable_progress_phase(current_phase) if current_phase is not None else None,
+        designed_length_meters=float(row.designed_length_meters) if row.designed_length_meters is not None else None,
+        length_used_meters=float(row.length_used_meters or 0),
+        length_meters=float(row.length_used_meters) if row.length_used_meters else None,
+        note=row.note,
+        a_port_uid=row.a_port_uid,
+        z_port_uid=row.z_port_uid,
+        a_optic=_postgres_optic_model(row.a_optic),
+        z_optic=_postgres_optic_model(row.z_optic),
+    )
+
+
+def _postgres_optic_model(payload: dict[str, Any] | None) -> str:
+    if not payload:
+        return ""
+    model = payload.get("model")
+    return str(model) if model is not None else ""
+
+
+def _postgres_require_cabinet(session, cabinet_uid: str) -> None:
+    cabinet = session.get(db.Cabinet, cabinet_uid)
+    if cabinet is None or cabinet.deleted_at is not None or cabinet.project_uid != DEFAULT_PROJECT_UID:
+        raise HTTPException(status_code=404, detail=f"Cabinet '{cabinet_uid}' was not found.")
+
+
+def _postgres_require_device(session, device_uid: str) -> None:
+    device = session.get(db.Device, device_uid)
+    if device is None or device.deleted_at is not None or device.project_uid != DEFAULT_PROJECT_UID:
+        raise HTTPException(status_code=404, detail=f"Device '{device_uid}' was not found.")
 
 
 def _postgres_group_cables_by_target(cable_rows, cabinet_uid: str):

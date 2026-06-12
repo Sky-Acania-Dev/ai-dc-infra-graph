@@ -54,9 +54,13 @@ export async function fetchDataHallCables(
   scope: "internal" | "external",
   cableType: string,
   targetDataHall?: string | null,
+  limit = 500,
+  offset = 0,
 ): Promise<CableDetailResponse> {
   const params = new URLSearchParams({ scope, cable_type: cableType });
   if (targetDataHall) params.set("target_data_hall", targetDataHall);
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
   const response = await fetch(
     `${API_BASE_URL}/topology/data-halls/${encodeURIComponent(dataHall)}/cables?${params.toString()}`,
   );

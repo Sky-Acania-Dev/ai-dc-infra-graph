@@ -42,6 +42,7 @@ const DATA_HALLS = ["DH1", "DH2"];
 const OPERATION_POLL_INTERVAL_MS = 5000;
 type AppMode = "topology" | "validation" | "operations";
 type CenterViewMode = "cabinet_map" | "port_layout";
+type CableDetailPageLoader = (offset: number, limit: number) => Promise<CableDetailResponse>;
 export type SelectionMode = "single" | "multi" | "remove";
 export type SelectionGesture = {
   ctrlKey: boolean;
@@ -62,6 +63,7 @@ export function App() {
   const [selectedCableUids, setSelectedCableUids] = useState<string[]>([]);
   const [isCableDetailLoading, setIsCableDetailLoading] = useState(false);
   const [cableDetailRoute, setCableDetailRoute] = useState<{ source: string; target: string } | null>(null);
+  const [cableDetailPageLoader, setCableDetailPageLoader] = useState<CableDetailPageLoader | null>(null);
   const [selectedDeviceUid, setSelectedDeviceUid] = useState<string | null>(null);
   const [selectedDeviceUids, setSelectedDeviceUids] = useState<string[]>([]);
   const [deviceScrollRequest, setDeviceScrollRequest] = useState(0);
@@ -263,19 +265,27 @@ export function App() {
 
   function viewDataHallCables(bucket: DataHallCableBucket, cableType: string) {
     const target = bucket.scope === "internal" ? `${dataHall} ${cableType}` : `${bucket.target_data_hall ?? "External"} ${cableType}`;
+    const loadPage: CableDetailPageLoader = (offset, limit) =>
+      fetchDataHallCables(dataHall, bucket.scope, cableType, bucket.target_data_hall, limit, offset);
     openCableDetail(
       { source: dataHall, target },
-      () => fetchDataHallCables(dataHall, bucket.scope, cableType, bucket.target_data_hall),
+      () => loadPage(0, 500),
+      loadPage,
     );
   }
 
-  function openCableDetail(route: { source: string; target: string }, load: () => Promise<CableDetailResponse>) {
+  function openCableDetail(
+    route: { source: string; target: string },
+    load: () => Promise<CableDetailResponse>,
+    pageLoad: CableDetailPageLoader | null = null,
+  ) {
     const requestId = cableDetailRequestRef.current + 1;
     cableDetailRequestRef.current = requestId;
     setCableDetail(null);
     setSelectedCableUid(null);
     setSelectedCableUids([]);
     setCableDetailRoute(route);
+    setCableDetailPageLoader(() => pageLoad);
     setIsCableDetailLoading(true);
     setError(null);
     load()
@@ -302,7 +312,31 @@ export function App() {
     setSelectedCableUid(null);
     setSelectedCableUids([]);
     setCableDetailRoute(null);
+    setCableDetailPageLoader(null);
     setIsCableDetailLoading(false);
+  }
+
+  function requestCableDetailPage(offset: number, limit: number) {
+    if (!cableDetailPageLoader) return;
+    const requestId = cableDetailRequestRef.current + 1;
+    cableDetailRequestRef.current = requestId;
+    setIsCableDetailLoading(true);
+    setError(null);
+    cableDetailPageLoader(offset, limit)
+      .then((nextCableDetail) => {
+        if (cableDetailRequestRef.current !== requestId) return;
+        setCableDetail(nextCableDetail);
+        const firstCableUid = nextCableDetail.cables[0]?.uid ?? null;
+        setSelectedCableUid(firstCableUid);
+        setSelectedCableUids(firstCableUid ? [firstCableUid] : []);
+      })
+      .catch((requestError: Error) => {
+        if (cableDetailRequestRef.current !== requestId) return;
+        setError(requestError.message);
+      })
+      .finally(() => {
+        if (cableDetailRequestRef.current === requestId) setIsCableDetailLoading(false);
+      });
   }
 
   function selectDevice(device: Device) {
@@ -751,6 +785,7 @@ export function App() {
                 expectedVersion={operationCursorVersion}
                 topologyEnums={topologyEnums}
                 onClose={closeCableDetail}
+                onPageRequest={cableDetailPageLoader ? requestCableDetailPage : undefined}
                 onSelectCable={(cable, gesture) => selectCable(cable.uid, gesture)}
                 onCableUpdated={handleOperationResponse}
               />

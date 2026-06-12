@@ -180,6 +180,10 @@ export type CabinetCableDetailResponse = {
   source_cabinet_uid: string;
   target_cabinet_uid: string;
   cables: CabinetCableDetail[];
+  total_cables?: number | null;
+  limit?: number | null;
+  offset?: number;
+  has_more?: boolean;
 };
 
 export type DeviceCableDetailResponse = {
