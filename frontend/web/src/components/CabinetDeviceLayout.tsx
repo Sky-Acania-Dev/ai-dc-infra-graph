@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useDragPan } from "../hooks/useDragPan";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import type { Device } from "../types";
 import { useI18n } from "../i18n";
 import type { SelectionGesture } from "../App";
@@ -41,6 +42,7 @@ export function CabinetDeviceLayout({
 }: CabinetDeviceLayoutProps) {
   const { formatConstructionPhase, formatLifecycleStatus, formatNumber, t } = useI18n();
   const rackGridPan = useDragPan<HTMLDivElement>();
+  const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (min-width: 760px) and (orientation: landscape)");
   const selectedDeviceUidSet = new Set(selectedDeviceUids);
   const devicesByRu = new Map<number, Device[]>();
   for (const device of devices) {
@@ -49,9 +51,10 @@ export function CabinetDeviceLayout({
   const rackUnits = Array.from({ length: maxRackUnit }, (_, index) => maxRackUnit - index);
   const baseRowMinHeights = new Map<number, number>();
   for (const [rackUnit, unitDevices] of devicesByRu.entries()) {
-    baseRowMinHeights.set(rackUnit, baseRackRowMinHeight(unitDevices, canEdit));
+    baseRowMinHeights.set(rackUnit, baseRackRowMinHeight(unitDevices, canEdit, isPhoneLandscape));
   }
-  const rackGridTemplateRows = rackUnits.map((rackUnit) => `${baseRowMinHeights.get(rackUnit) ?? 24}px`).join(" ");
+  const emptyRowHeight = isPhoneLandscape ? 16 : 24;
+  const rackGridTemplateRows = rackUnits.map((rackUnit) => `${baseRowMinHeights.get(rackUnit) ?? emptyRowHeight}px`).join(" ");
 
   useEffect(() => {
     if (!scrollRequest || !selectedDeviceUid || !rackGridPan.ref.current) return;
@@ -84,7 +87,7 @@ export function CabinetDeviceLayout({
             style={{
               gridColumn: 1,
               gridRow: rackRow(maxRackUnit, rackUnit),
-              minHeight: `${baseRowMinHeights.get(rackUnit) ?? 24}px`,
+              minHeight: `${baseRowMinHeights.get(rackUnit) ?? emptyRowHeight}px`,
             }}
           >
             {t("rack.unitLabel", { unit: rackUnit })}
@@ -97,7 +100,7 @@ export function CabinetDeviceLayout({
             style={{
               gridColumn: 2,
               gridRow: rackRow(maxRackUnit, rackUnit),
-              minHeight: `${baseRowMinHeights.get(rackUnit) ?? 24}px`,
+              minHeight: `${baseRowMinHeights.get(rackUnit) ?? emptyRowHeight}px`,
             }}
           />
         ))}
@@ -147,21 +150,30 @@ function deviceRackUnits(device: Device): number {
   return Math.max(1, Number(device.rack_units ?? 1));
 }
 
-function baseRackRowMinHeight(devices: Device[], canEdit: boolean): number {
+function baseRackRowMinHeight(devices: Device[], canEdit: boolean, isPhoneLandscape: boolean): number {
   const rowGap = Math.max(0, devices.length - 1) * 2;
   const contentHeight = devices.reduce(
-    (total, device) => total + baseRowDeviceHeight(device, canEdit),
+    (total, device) => total + baseRowDeviceHeight(device, canEdit, isPhoneLandscape),
     rowGap + 4,
   );
-  return Math.max(24, contentHeight);
+  return Math.max(isPhoneLandscape ? 16 : 24, contentHeight);
 }
 
-function baseRowDeviceHeight(device: Device, canEdit: boolean): number {
-  const occupiedUpperRowHeight = Math.max(0, deviceRackUnits(device) - 1) * 24;
-  return Math.max(24, estimatedDeviceChipHeight(device, canEdit) - occupiedUpperRowHeight);
+function baseRowDeviceHeight(device: Device, canEdit: boolean, isPhoneLandscape: boolean): number {
+  const rackUnitHeight = isPhoneLandscape ? 16 : 24;
+  const occupiedUpperRowHeight = Math.max(0, deviceRackUnits(device) - 1) * rackUnitHeight;
+  return Math.max(rackUnitHeight, estimatedDeviceChipHeight(device, canEdit, isPhoneLandscape) - occupiedUpperRowHeight);
 }
 
-function estimatedDeviceChipHeight(device: Device, canEdit: boolean): number {
+function estimatedDeviceChipHeight(device: Device, canEdit: boolean, isPhoneLandscape: boolean): number {
+  if (isPhoneLandscape) {
+    let height = 24;
+    if (deviceRackUnits(device) > 1) height += 10;
+    if (device.aliases.length || device.model_aliases.length) height += 10;
+    height += canEdit ? 23 : 10;
+    return height;
+  }
+
   let height = 42;
   if (deviceRackUnits(device) > 1) height += 14;
   if (device.aliases.length || device.model_aliases.length) height += 14;

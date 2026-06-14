@@ -16,7 +16,7 @@ import {
   type UpdateCablePayload,
 } from "./api";
 import { CableDetailOverlay } from "./components/CableDetailOverlay";
-import { CabinetConnectionsPanel } from "./components/CabinetConnectionsPanel";
+import { CabinetConnectionsPanel, type CabinetCableRoute, type DeviceCableRoute } from "./components/CabinetConnectionsPanel";
 import { CabinetDetailsPanel } from "./components/CabinetDetailsPanel";
 import { CabinetMap } from "./components/CabinetMap";
 import { DevicePortLayout } from "./components/DevicePortLayout";
@@ -25,6 +25,8 @@ import type { MapProgressDisplay, MapSize } from "./components/CabinetMap";
 import type {
   CableDetailResponse,
   CabinetDetailResponse,
+  CabinetCableDetail,
+  CabinetCableDetailResponse,
   CabinetLayoutItem,
   AuthUser,
   DataHallCableBucket,
@@ -32,6 +34,7 @@ import type {
   Device,
   DeviceConnectionResponse,
   Operation,
+  BulkOperationResponse,
   OperationListResponse,
   OperationResponse,
   TopologyEnums,
@@ -58,6 +61,7 @@ export function App() {
   const [selectedCabinetUid, setSelectedCabinetUid] = useState<string | null>(null);
   const [selectedCabinetUids, setSelectedCabinetUids] = useState<string[]>([]);
   const [detail, setDetail] = useState<CabinetDetailResponse | null>(null);
+  const [selectedCabinetDetails, setSelectedCabinetDetails] = useState<CabinetDetailResponse[]>([]);
   const [cableDetail, setCableDetail] = useState<CableDetailResponse | null>(null);
   const [selectedCableUid, setSelectedCableUid] = useState<string | null>(null);
   const [selectedCableUids, setSelectedCableUids] = useState<string[]>([]);
@@ -68,6 +72,7 @@ export function App() {
   const [selectedDeviceUids, setSelectedDeviceUids] = useState<string[]>([]);
   const [deviceScrollRequest, setDeviceScrollRequest] = useState(0);
   const [deviceDetail, setDeviceDetail] = useState<DeviceConnectionResponse | null>(null);
+  const [selectedDeviceDetails, setSelectedDeviceDetails] = useState<DeviceConnectionResponse[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [mapSize, setMapSize] = useState<MapSize>("normal");
@@ -85,7 +90,9 @@ export function App() {
   const [undoStack, setUndoStack] = useState<Operation[]>([]);
   const [redoStack, setRedoStack] = useState<Operation[]>([]);
   const cabinetLayoutCacheRef = useRef<Record<string, CabinetLayoutItem[]>>({});
+  const cabinetDetailCacheRef = useRef<Record<string, CabinetDetailResponse>>({});
   const dataHallCableSummaryCacheRef = useRef<Record<string, DataHallCableSummaryResponse>>({});
+  const deviceDetailCacheRef = useRef<Record<string, DeviceConnectionResponse>>({});
   const cableDetailRequestRef = useRef(0);
   const lastSeenOperationIdRef = useRef<number | null>(null);
   const isPollingOperationsRef = useRef(false);
@@ -174,10 +181,53 @@ export function App() {
   useEffect(() => {
     if (!selectedCabinetUid) return;
     setError(null);
-    fetchCabinetDetail(selectedCabinetUid)
+    loadCabinetDetail(selectedCabinetUid)
       .then(setDetail)
       .catch((requestError: Error) => setError(requestError.message));
   }, [selectedCabinetUid]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (selectedCabinetUids.length <= 1) {
+      setSelectedCabinetDetails([]);
+      return;
+    }
+
+    setSelectedCabinetDetails((current) =>
+      current.filter((selectedDetail) => selectedCabinetUids.includes(selectedDetail.cabinet.cabinet_uid)),
+    );
+    setError(null);
+    Promise.all(selectedCabinetUids.map(loadCabinetDetail))
+      .then((details) => {
+        if (!cancelled) setSelectedCabinetDetails(details);
+      })
+      .catch((requestError: Error) => {
+        if (!cancelled) setError(requestError.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCabinetUids]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (selectedDeviceUids.length <= 1) {
+      setSelectedDeviceDetails([]);
+      return;
+    }
+
+    setError(null);
+    Promise.all(selectedDeviceUids.map(loadDeviceConnections))
+      .then((details) => {
+        if (!cancelled) setSelectedDeviceDetails(details);
+      })
+      .catch((requestError: Error) => {
+        if (!cancelled) setError(requestError.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDeviceUids]);
 
   useEffect(() => {
     if (mode !== "operations") return;
@@ -207,10 +257,23 @@ export function App() {
     };
   }, []);
 
+  const cabinetConnectionCounts = useMemo(() => {
+    if (selectedCabinetUids.length <= 1) return new Map<string, number>();
+    const selectedCabinetUidSet = new Set(selectedCabinetUids);
+    const counts = new Map<string, number>();
+    for (const selectedDetail of selectedCabinetDetails) {
+      if (!selectedCabinetUidSet.has(selectedDetail.cabinet.cabinet_uid)) continue;
+      for (const connection of selectedDetail.connections) {
+        counts.set(connection.target_cabinet_uid, (counts.get(connection.target_cabinet_uid) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [selectedCabinetDetails, selectedCabinetUids]);
   const connectedCabinetUids = useMemo(() => {
     if (deviceDetail) return new Set(deviceDetail.connected_cabinet_uids);
+    if (selectedCabinetUids.length > 1) return new Set(cabinetConnectionCounts.keys());
     return new Set(detail?.connections.map((connection) => connection.target_cabinet_uid) ?? []);
-  }, [detail, deviceDetail]);
+  }, [cabinetConnectionCounts, detail, deviceDetail, selectedCabinetUids.length]);
   const connectedDataHalls = useMemo(
     () => new Set([...connectedCabinetUids].map((cabinetUid) => cabinetUid.split(":")[0])),
     [connectedCabinetUids],
@@ -235,31 +298,65 @@ export function App() {
     setSelectedCabinetUid(null);
     setSelectedCabinetUids([]);
     setDetail(null);
+    setSelectedCabinetDetails([]);
     closeCableDetail();
     setCenterViewMode("cabinet_map");
     clearDeviceSelection();
+  }
+
+  function loadCabinetDetail(cabinetUid: string): Promise<CabinetDetailResponse> {
+    const cachedDetail = cabinetDetailCacheRef.current[cabinetUid];
+    if (cachedDetail) return Promise.resolve(cachedDetail);
+    return fetchCabinetDetail(cabinetUid).then((nextDetail) => {
+      cabinetDetailCacheRef.current[cabinetUid] = nextDetail;
+      return nextDetail;
+    });
+  }
+
+  function loadDeviceConnections(deviceUid: string): Promise<DeviceConnectionResponse> {
+    const cachedDetail = deviceDetailCacheRef.current[deviceUid];
+    if (cachedDetail) return Promise.resolve(cachedDetail);
+    const parsed = parseDeviceUid(deviceUid);
+    if (!parsed) return Promise.reject(new Error(`Invalid device uid: ${deviceUid}`));
+    return fetchDeviceConnections(parsed.cabinetUid, parsed.rackUnit).then((nextDetail) => {
+      deviceDetailCacheRef.current[deviceUid] = nextDetail;
+      return nextDetail;
+    });
   }
 
   function clearDeviceSelection() {
     setSelectedDeviceUid(null);
     setSelectedDeviceUids([]);
     setDeviceDetail(null);
+    setSelectedDeviceDetails([]);
     setCenterViewMode("cabinet_map");
   }
 
-  function viewConnectionCables(targetCabinetUid: string) {
-    if (!selectedCabinetUid) return;
+  function viewConnectionCables(routes: CabinetCableRoute[]) {
+    if (!routes.length) return;
+    const sourceLabel = routes.length === 1 ? routes[0].sourceCabinetUid : `${routes.length} cabinet routes`;
+    const targetUids = [...new Set(routes.map((route) => route.targetCabinetUid))];
+    const targetLabel = targetUids.length === 1 ? targetUids[0] : `${targetUids.length} peer cabinets`;
     openCableDetail(
-      { source: selectedCabinetUid, target: targetCabinetUid },
-      () => fetchCabinetConnectionCables(selectedCabinetUid, targetCabinetUid),
+      { source: sourceLabel, target: targetLabel },
+      () =>
+        Promise.all(
+          routes.map((route) => fetchCabinetConnectionCables(route.sourceCabinetUid, route.targetCabinetUid)),
+        ).then((responses) => mergeCabinetCableDetails(sourceLabel, targetLabel, responses)),
     );
   }
 
-  function viewDeviceConnectionCables(targetDeviceUid: string) {
-    if (!selectedDeviceUid) return;
+  function viewDeviceConnectionCables(routes: DeviceCableRoute[]) {
+    if (!routes.length) return;
+    const sourceLabel = routes.length === 1 ? routes[0].sourceDeviceUid : `${routes.length} device routes`;
+    const targetUids = [...new Set(routes.map((route) => route.targetDeviceUid))];
+    const targetLabel = targetUids.length === 1 ? targetUids[0] : `${targetUids.length} peer devices`;
     openCableDetail(
-      { source: selectedDeviceUid, target: targetDeviceUid },
-      () => fetchDeviceConnectionCables(selectedDeviceUid, targetDeviceUid),
+      { source: sourceLabel, target: targetLabel },
+      () =>
+        Promise.all(routes.map((route) => fetchDeviceConnectionCables(route.sourceDeviceUid, route.targetDeviceUid))).then(
+          (responses) => mergeDeviceCableDetails(sourceLabel, targetLabel, responses),
+        ),
     );
   }
 
@@ -345,7 +442,7 @@ export function App() {
     setSelectedDeviceUids([deviceUid]);
     closeCableDetail();
     setError(null);
-    fetchDeviceConnections(device.cabinet_id, device.rack_unit)
+    loadDeviceConnections(deviceUid)
       .then(setDeviceDetail)
       .catch((requestError: Error) => setError(requestError.message));
   }
@@ -367,7 +464,7 @@ export function App() {
     setDeviceScrollRequest((current) => current + 1);
     closeCableDetail();
     setError(null);
-    fetchDeviceConnections(parsed.cabinetUid, parsed.rackUnit)
+    loadDeviceConnections(parsed.deviceUid)
       .then(setDeviceDetail)
       .catch((requestError: Error) => setError(requestError.message));
   }
@@ -380,10 +477,22 @@ export function App() {
 
   function refreshTopologyContext() {
     cabinetLayoutCacheRef.current = {};
+    cabinetDetailCacheRef.current = {};
     dataHallCableSummaryCacheRef.current = {};
+    deviceDetailCacheRef.current = {};
     if (selectedCabinetUid) {
-      fetchCabinetDetail(selectedCabinetUid)
+      loadCabinetDetail(selectedCabinetUid)
         .then(setDetail)
+        .catch((requestError: Error) => setError(requestError.message));
+    }
+    if (selectedCabinetUids.length > 1) {
+      Promise.all(selectedCabinetUids.map(loadCabinetDetail))
+        .then(setSelectedCabinetDetails)
+        .catch((requestError: Error) => setError(requestError.message));
+    }
+    if (selectedDeviceUids.length > 1) {
+      Promise.all(selectedDeviceUids.map(loadDeviceConnections))
+        .then(setSelectedDeviceDetails)
         .catch((requestError: Error) => setError(requestError.message));
     }
     fetchCabinetLayout(dataHall)
@@ -436,7 +545,7 @@ export function App() {
     setSelectedDeviceUid(deviceUid);
     closeCableDetail();
     setError(null);
-    fetchDeviceConnections(device.cabinet_id, device.rack_unit)
+    loadDeviceConnections(deviceUid)
       .then(setDeviceDetail)
       .catch((requestError: Error) => setError(requestError.message));
   }
@@ -490,6 +599,51 @@ export function App() {
     operation
       .then((response) => {
         handleOperationResponse(response, { recordUndo: options.recordUndo });
+        options.onSuccess?.(response);
+      })
+      .catch((requestError: Error) => {
+        setError(requestError.message);
+        options.onError?.();
+      })
+      .finally(() => setPendingSaveCount((current) => Math.max(0, current - 1)));
+  }
+
+  function submitBulkOperation(
+    operation: Promise<BulkOperationResponse>,
+    options: {
+      onError?: () => void;
+      onSuccess?: (response: BulkOperationResponse) => void;
+      recordUndo?: boolean;
+    } = {},
+  ) {
+    const shouldRecordUndo = options.recordUndo ?? true;
+    setPendingSaveCount((current) => current + 1);
+    setError(null);
+    operation
+      .then((response) => {
+        for (const nextOperation of response.operations) {
+          applyOperation(nextOperation);
+        }
+        updateOperationCursor(response.version);
+        setLastSavedVersion(response.version);
+        setLastSavedAt(new Date().toLocaleTimeString());
+        if (shouldRecordUndo && response.operations.length) {
+          setUndoStack((current) => [...current, ...response.operations]);
+          setRedoStack([]);
+        }
+        setOperationList((current) =>
+          current
+            ? {
+                operations: [
+                  ...current.operations.filter(
+                    (operation) => !response.operations.some((nextOperation) => nextOperation.opId === operation.opId),
+                  ),
+                  ...response.operations,
+                ],
+                version: response.version,
+              }
+            : current,
+        );
         options.onSuccess?.(response);
       })
       .catch((requestError: Error) => {
@@ -602,23 +756,49 @@ export function App() {
           ? { ...current, cabinet: { ...current.cabinet, lifecycle_status: lifecycleStatus } }
           : current,
       );
+      setSelectedCabinetDetails((current) =>
+        current.map((selectedDetail) =>
+          selectedDetail.cabinet.cabinet_uid === operation.entityId
+            ? { ...selectedDetail, cabinet: { ...selectedDetail.cabinet, lifecycle_status: lifecycleStatus } }
+            : selectedDetail,
+        ),
+      );
+      cabinetDetailCacheRef.current = Object.fromEntries(
+        Object.entries(cabinetDetailCacheRef.current).map(([cabinetUid, cachedDetail]) => [
+          cabinetUid,
+          cachedDetail.cabinet.cabinet_uid === operation.entityId
+            ? { ...cachedDetail, cabinet: { ...cachedDetail.cabinet, lifecycle_status: lifecycleStatus } }
+            : cachedDetail,
+        ]),
+      );
       return;
     }
 
     if (operation.entityType === "device") {
       const lifecycleStatus = asString(values.lifecycle_status);
       if (!lifecycleStatus) return;
+      const updateDevices = (devices: Device[]) =>
+        devices.map((device) =>
+          `${device.cabinet_id}:${device.rack_unit}`.toUpperCase() === operation.entityId.toUpperCase()
+            ? { ...device, lifecycle_status: lifecycleStatus }
+            : device,
+        );
       setDetail((current) => {
         if (!current) return current;
         return {
           ...current,
-          devices: current.devices.map((device) =>
-            `${device.cabinet_id}:${device.rack_unit}`.toUpperCase() === operation.entityId.toUpperCase()
-              ? { ...device, lifecycle_status: lifecycleStatus }
-              : device,
-          ),
+          devices: updateDevices(current.devices),
         };
       });
+      setSelectedCabinetDetails((current) =>
+        current.map((selectedDetail) => ({ ...selectedDetail, devices: updateDevices(selectedDetail.devices) })),
+      );
+      cabinetDetailCacheRef.current = Object.fromEntries(
+        Object.entries(cabinetDetailCacheRef.current).map(([cabinetUid, cachedDetail]) => [
+          cabinetUid,
+          { ...cachedDetail, devices: updateDevices(cachedDetail.devices) },
+        ]),
+      );
       return;
     }
 
@@ -725,6 +905,7 @@ export function App() {
             expectedVersion={operationCursorVersion}
             lifecycleStatuses={topologyEnums?.lifecycle_statuses ?? []}
             onStatusChanged={submitOperation}
+            onBulkStatusChanged={submitBulkOperation}
           />
           {isLoading ? (
             <section className="map-pane loading-pane">{t("common.loading", { target: dataHall })}</section>
@@ -764,6 +945,7 @@ export function App() {
                   selectedCabinetUids={selectedCabinetUidSet}
                   selectedDeviceCabinetUid={deviceDetail?.source_cabinet_uid ?? null}
                   connectedCabinetUids={connectedCabinetUids}
+                  connectedCabinetCounts={cabinetConnectionCounts}
                   isDeviceMode={Boolean(selectedDeviceUid)}
                   mapSize={mapSize}
                   progressDisplay={mapProgressDisplay}
@@ -793,7 +975,9 @@ export function App() {
           )}
           <CabinetConnectionsPanel
             detail={detail}
+            selectedCabinetDetails={selectedCabinetDetails}
             deviceDetail={deviceDetail}
+            selectedDeviceDetails={selectedDeviceDetails}
             dataHallCableSummary={dataHallCableSummary}
             onViewCables={viewConnectionCables}
             onViewDeviceCables={viewDeviceConnectionCables}
@@ -803,6 +987,52 @@ export function App() {
       )}
     </main>
   );
+}
+
+function mergeCabinetCableDetails(
+  sourceCabinetUid: string,
+  targetCabinetUid: string,
+  responses: CableDetailResponse[],
+): CabinetCableDetailResponse {
+  const cables = uniqueCables(responses.flatMap((response) => response.cables));
+  const totalCables = responses.reduce((total, response) => total + (cableDetailTotal(response) ?? response.cables.length), 0);
+  return {
+    source_cabinet_uid: sourceCabinetUid,
+    target_cabinet_uid: targetCabinetUid,
+    cables,
+    total_cables: totalCables,
+    offset: 0,
+    limit: cables.length,
+    has_more: responses.some(hasMoreCables),
+  };
+}
+
+function cableDetailTotal(response: CableDetailResponse): number | null {
+  return "total_cables" in response && typeof response.total_cables === "number" ? response.total_cables : null;
+}
+
+function hasMoreCables(response: CableDetailResponse): boolean {
+  return "has_more" in response && Boolean(response.has_more);
+}
+
+function mergeDeviceCableDetails(
+  sourceDeviceUid: string,
+  targetDeviceUid: string,
+  responses: CableDetailResponse[],
+): CableDetailResponse {
+  return {
+    source_device_uid: sourceDeviceUid,
+    target_device_uid: targetDeviceUid,
+    cables: uniqueCables(responses.flatMap((response) => response.cables)),
+  };
+}
+
+function uniqueCables(cables: CabinetCableDetail[]): CabinetCableDetail[] {
+  const byUid = new Map<string, CabinetCableDetail>();
+  for (const cable of cables) {
+    byUid.set(cable.uid, cable);
+  }
+  return [...byUid.values()];
 }
 
 function OperationDebugView({

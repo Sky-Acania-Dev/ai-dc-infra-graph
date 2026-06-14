@@ -67,29 +67,29 @@ Supported override areas:
 
 ## Run Backend
 
-From the repository root, start the FastAPI backend on localhost. PostgreSQL is the default storage backend:
+From the repository root, start the FastAPI backend on the Tailscale IP. PostgreSQL is the default storage backend:
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 100.121.214.15 --port 8000
 ```
 
 Backend URL:
 
 ```text
-http://127.0.0.1:8000
+http://100.121.214.15:8000
 ```
 
 Health check:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod http://100.121.214.15:8000/health
 ```
 
 To force the legacy JSON backend for debugging or rollback:
 
 ```powershell
 $env:TOPOLOGY_STORAGE_BACKEND = "json"
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 100.121.214.15 --port 8000
 ```
 
 ## Legacy JSON Runtime
@@ -132,7 +132,7 @@ npm run dev
 Frontend dev URL:
 
 ```text
-http://127.0.0.1:5173
+http://100.121.214.15:5173
 ```
 
 Production build:
@@ -141,19 +141,19 @@ Production build:
 npm run build
 ```
 
-To serve the built frontend locally with the same localhost URL, run this from the repository root after `npm run build`:
+To serve the built frontend locally with the same Tailscale URL, run this from the repository root after `npm run build`:
 
 ```powershell
-.\.venv\Scripts\python.exe -m http.server 5173 --bind 127.0.0.1 --directory frontend\web\dist
+.\.venv\Scripts\python.exe -m http.server 5173 --bind 100.121.214.15 --directory frontend\web\dist
 ```
 
 Built frontend URL:
 
 ```text
-http://127.0.0.1:5173
+http://100.121.214.15:5173
 ```
 
-The frontend expects the backend API at `http://127.0.0.1:8000` unless `VITE_API_BASE_URL` is set.
+The frontend expects the backend API at `http://100.121.214.15:8000` unless `VITE_API_BASE_URL` is set.
 
 ## Fixture Data
 

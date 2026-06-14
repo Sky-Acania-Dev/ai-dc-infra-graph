@@ -113,6 +113,7 @@ class TopologyApiTests(unittest.TestCase):
 
         self.assertEqual(device_detail.source_device_uid, "DH1:001:10")
         self.assertEqual(device_detail.connected_devices[0].target_device_uid, "DH1:002:20")
+        self.assertEqual(device_detail.connected_devices[0].target_device_model, "Patch Panel")
         self.assertEqual(device_detail.connected_cabinet_uids, ["DH1:002"])
         self.assertEqual(device_detail.connected_devices[0].status_summary.completed, 1)
         self.assertEqual(device_detail.connected_devices[0].status_summary.total, 2)
@@ -172,6 +173,7 @@ class TopologyApiTests(unittest.TestCase):
         device_cable_detail = device_connection_cables("DH1:001:10", "DH1:001:20", database_path=str(runtime_path))
 
         self.assertEqual(device_detail.connected_devices[0].target_device_uid, "DH1:001:20")
+        self.assertEqual(device_detail.connected_devices[0].target_device_model, "Patch Panel")
         self.assertEqual(device_detail.connected_cabinet_uids, ["DH1:001"])
         self.assertEqual(len(device_cable_detail.cables), 1)
         self.assertEqual(device_cable_detail.cables[0].z_port_uid, "DH1:001:20:swp2")

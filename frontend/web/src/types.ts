@@ -196,6 +196,7 @@ export type CableDetailResponse = CabinetCableDetailResponse | DeviceCableDetail
 
 export type DeviceConnection = {
   target_device_uid: string;
+  target_device_model: string;
   target_cabinet_uid: string;
   target_rack_unit: number;
   total_cables: number;
@@ -272,11 +273,20 @@ export type Operation = {
   timestamp: string;
   userUid?: string | null;
   userRole?: string | null;
+  operationGroupUid?: string | null;
+  sourceType?: string | null;
+  sourceUid?: string | null;
 };
 
 export type OperationResponse = {
   ok: boolean;
   operation: Operation;
+  version: number;
+};
+
+export type BulkOperationResponse = {
+  ok: boolean;
+  operations: Operation[];
   version: number;
 };
 

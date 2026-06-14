@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from backend.persistence.postgresql import models as db
@@ -78,6 +78,7 @@ class CabinetGraphEdge(BaseModel):
 
 class DeviceConnection(BaseModel):
     target_device_uid: str
+    target_device_model: str = ""
     target_cabinet_uid: str
     target_rack_unit: int
     total_cables: int
@@ -319,26 +320,47 @@ def cabinet_graph_edges(session: Session, *, project_uid: str) -> list[CabinetGr
 def device_connections(session: Session, *, source_device_uid: str) -> DeviceConnectionSummary:
     source_device_uid = source_device_uid.upper()
     source_device = session.get(db.Device, source_device_uid)
-    if source_device is None:
+    if source_device is None or source_device.deleted_at is not None:
         raise ValueError(f"Device '{source_device_uid}' was not found.")
 
-    rows = _cables_for_device(session, source_device_uid)
-    by_device: dict[str, list] = defaultdict(list)
+    rows = _device_connection_counts(session, source_device_uid=source_device_uid, project_uid=source_device.project_uid)
+    by_device: dict[str, dict[str, object]] = {}
     for row in rows:
-        other_device_uid = row.z_device_uid if row.a_device_uid == source_device_uid else row.a_device_uid
-        if other_device_uid and other_device_uid != source_device_uid:
-            by_device[other_device_uid].append(row)
+        target = by_device.setdefault(
+            row.target_device_uid,
+            {
+                "target_cabinet_uid": row.target_cabinet_uid,
+                "target_device_model": row.target_device_model,
+                "target_rack_unit": row.target_rack_unit,
+                "total_cables": 0,
+                "cable_type_counts": {},
+                "status_counts": {},
+            },
+        )
+        count = int(row.total_cables)
+        target["total_cables"] = int(target["total_cables"]) + count
+        cable_type_counts = target["cable_type_counts"]
+        status_counts = target["status_counts"]
+        assert isinstance(cable_type_counts, dict)
+        assert isinstance(status_counts, dict)
+        cable_type_counts[row.cable_type or "Unknown"] = cable_type_counts.get(row.cable_type or "Unknown", 0) + count
+        status_counts[row.import_status or "Unknown"] = status_counts.get(row.import_status or "Unknown", 0) + count
 
     connections = [
         DeviceConnection(
             target_device_uid=target_device_uid,
-            target_cabinet_uid=target_rows[0].z_cabinet_uid if target_rows[0].z_device_uid == target_device_uid else target_rows[0].a_cabinet_uid,
-            target_rack_unit=int(target_device_uid.split(":")[2]),
-            total_cables=len(target_rows),
-            cable_type_counts=_count_by(target_rows, "cable_type"),
-            status_summary=_status_summary(target_rows),
+            target_device_model=str(target["target_device_model"] or ""),
+            target_cabinet_uid=str(target["target_cabinet_uid"]),
+            target_rack_unit=int(target["target_rack_unit"]),
+            total_cables=int(target["total_cables"]),
+            cable_type_counts=dict(sorted(target["cable_type_counts"].items())),
+            status_summary=StatusSummary(
+                completed=sum(count for status, count in target["status_counts"].items() if _is_completed_status(str(status))),
+                total=int(target["total_cables"]),
+                status_counts=dict(sorted(target["status_counts"].items())),
+            ),
         )
-        for target_device_uid, target_rows in by_device.items()
+        for target_device_uid, target in by_device.items()
     ]
     connected_cabinets = sorted({connection.target_cabinet_uid for connection in connections})
     return DeviceConnectionSummary(
@@ -348,6 +370,82 @@ def device_connections(session: Session, *, source_device_uid: str) -> DeviceCon
         connected_cabinet_uids=connected_cabinets,
         connected_devices=sorted(connections, key=lambda item: (-item.total_cables, item.target_device_uid)),
     )
+
+
+def _device_connection_counts(session: Session, *, source_device_uid: str, project_uid: str):
+    a_port = aliased(db.Port)
+    z_port = aliased(db.Port)
+    target_device = aliased(db.Device)
+    source_on_a = (
+        select(
+            z_port.device_uid.label("target_device_uid"),
+            z_port.cabinet_uid.label("target_cabinet_uid"),
+            target_device.device_model_name.label("target_device_model"),
+            target_device.rack_unit.label("target_rack_unit"),
+            db.Cable.cable_type.label("cable_type"),
+            db.Cable.import_status.label("import_status"),
+            func.count().label("total_cables"),
+        )
+        .join(a_port, db.Cable.a_port_uid == a_port.uid)
+        .join(z_port, db.Cable.z_port_uid == z_port.uid)
+        .join(target_device, z_port.device_uid == target_device.uid)
+        .where(
+            db.Cable.project_uid == project_uid,
+            db.Cable.deleted_at.is_(None),
+            a_port.deleted_at.is_(None),
+            z_port.deleted_at.is_(None),
+            target_device.deleted_at.is_(None),
+            a_port.device_uid == source_device_uid,
+            z_port.device_uid.is_not(None),
+            z_port.device_uid != source_device_uid,
+        )
+        .group_by(
+            z_port.device_uid,
+            z_port.cabinet_uid,
+            target_device.device_model_name,
+            target_device.rack_unit,
+            db.Cable.cable_type,
+            db.Cable.import_status,
+        )
+    )
+
+    a_port_other = aliased(db.Port)
+    z_port_source = aliased(db.Port)
+    target_device_other = aliased(db.Device)
+    source_on_z = (
+        select(
+            a_port_other.device_uid.label("target_device_uid"),
+            a_port_other.cabinet_uid.label("target_cabinet_uid"),
+            target_device_other.device_model_name.label("target_device_model"),
+            target_device_other.rack_unit.label("target_rack_unit"),
+            db.Cable.cable_type.label("cable_type"),
+            db.Cable.import_status.label("import_status"),
+            func.count().label("total_cables"),
+        )
+        .join(a_port_other, db.Cable.a_port_uid == a_port_other.uid)
+        .join(z_port_source, db.Cable.z_port_uid == z_port_source.uid)
+        .join(target_device_other, a_port_other.device_uid == target_device_other.uid)
+        .where(
+            db.Cable.project_uid == project_uid,
+            db.Cable.deleted_at.is_(None),
+            a_port_other.deleted_at.is_(None),
+            z_port_source.deleted_at.is_(None),
+            target_device_other.deleted_at.is_(None),
+            z_port_source.device_uid == source_device_uid,
+            a_port_other.device_uid.is_not(None),
+            a_port_other.device_uid != source_device_uid,
+        )
+        .group_by(
+            a_port_other.device_uid,
+            a_port_other.cabinet_uid,
+            target_device_other.device_model_name,
+            target_device_other.rack_unit,
+            db.Cable.cable_type,
+            db.Cable.import_status,
+        )
+    )
+
+    return session.execute(source_on_a.union_all(source_on_z)).all()
 
 
 def _cables_for_cabinet(session: Session, cabinet_uid: str):

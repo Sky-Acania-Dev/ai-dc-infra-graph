@@ -412,6 +412,23 @@ button {
   stroke-width: 1.4;
 }
 
+.cabinet-connection-count {
+  pointer-events: none;
+}
+
+.cabinet-connection-count circle {
+  fill: #0f172a;
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
+.cabinet-connection-count text {
+  fill: #ffffff;
+  font-weight: 800;
+  paint-order: stroke;
+  stroke: transparent;
+}
+
 .map-cabinet.is-dimmed {
   opacity: 0.22;
 }
@@ -489,6 +506,15 @@ button {
 
 .aggregate-rows {
   margin-top: 10px;
+}
+
+.bulk-status-editor {
+  display: grid;
+  gap: 6px;
+}
+
+.bulk-status-editor .inline-select {
+  width: 100%;
 }
 
 .compact-facts {
@@ -866,6 +892,7 @@ button {
 }
 
 .detail-button,
+.expand-button,
 .icon-button,
 .mini-detail-button,
 .mini-button {
@@ -883,6 +910,19 @@ button {
   height: 30px;
   margin: 0;
   width: 30px;
+}
+
+.expand-button {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  width: 100%;
+}
+
+.expand-button.is-collapsed {
+  background: #111827;
+  border-color: #111827;
+  color: #ffffff;
 }
 
 .mini-button {
@@ -1594,5 +1634,262 @@ button {
   .side-pane,
   .map-pane {
     min-height: 420px;
+  }
+}
+
+@media (max-width: 1100px) and (min-width: 760px) and (orientation: landscape) {
+  .app-shell {
+    min-height: 100dvh;
+    padding: 8px;
+  }
+
+  .topbar {
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .topbar h1 {
+    font-size: 16px;
+    white-space: nowrap;
+  }
+
+  .topbar-controls {
+    flex: 1 1 auto;
+    gap: 6px;
+    justify-content: flex-end;
+    min-width: 0;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .segmented-control button {
+    min-width: 46px;
+    padding: 5px 8px;
+    white-space: nowrap;
+  }
+
+  .selection-mode-control button {
+    min-width: 46px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .role-pill,
+  .settings-control {
+    min-height: 30px;
+    white-space: nowrap;
+  }
+
+  .workspace {
+    gap: 8px;
+    grid-template-columns: minmax(176px, 22vw) minmax(360px, 1fr) minmax(190px, 24vw);
+    height: calc(100dvh - 58px);
+    min-height: 0;
+  }
+
+  .side-pane,
+  .map-pane {
+    min-height: 0;
+  }
+
+  .side-pane {
+    padding: 10px;
+  }
+
+  .workspace > .side-pane:first-child {
+    padding: 8px;
+  }
+
+  .workspace > .side-pane:first-child > .eyebrow {
+    margin-bottom: 1px;
+  }
+
+  .workspace > .side-pane:first-child h1 {
+    font-size: 15px;
+    margin-bottom: 5px;
+  }
+
+  .workspace > .side-pane:first-child h2 {
+    font-size: 14px;
+  }
+
+  .workspace > .side-pane:first-child > .facts {
+    display: none;
+  }
+
+  .workspace > .side-pane:first-child > .single-cabinet-facts {
+    display: grid;
+    gap: 5px;
+    margin-bottom: 6px;
+  }
+
+  .workspace > .side-pane:first-child > .single-cabinet-facts > div {
+    padding-bottom: 4px;
+  }
+
+  .workspace > .side-pane:first-child > .single-cabinet-facts > div:nth-child(n + 3) {
+    display: none;
+  }
+
+  .workspace > .side-pane:first-child > .single-cabinet-facts dt {
+    font-size: 9px;
+  }
+
+  .workspace > .side-pane:first-child > .single-cabinet-facts dd {
+    font-size: 11px;
+    margin-top: 1px;
+  }
+
+  .workspace > .side-pane:first-child .aggregate-section {
+    display: none;
+  }
+
+  .workspace > .side-pane:first-child .bulk-status-summary,
+  .workspace > .side-pane:first-child .bulk-status-editor {
+    display: block;
+  }
+
+  .workspace > .side-pane:first-child .bulk-status-editor {
+    display: grid;
+  }
+
+  .device-layout .section-title {
+    font-size: 10px;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+  }
+
+  .rack-grid {
+    gap: 1px;
+    grid-template-columns: 24px minmax(0, 1fr);
+    padding-bottom: 4px;
+  }
+
+  .rack-unit {
+    font-size: 8px;
+    min-height: 16px;
+    padding-top: 3px;
+  }
+
+  .rack-slot,
+  .rack-device-span {
+    min-height: 16px;
+  }
+
+  .device-chip {
+    gap: 1px;
+    padding: 2px 4px;
+  }
+
+  .device-chip span {
+    font-size: 10px;
+  }
+
+  .device-chip em,
+  .device-chip small {
+    font-size: 9px;
+  }
+
+  .device-status-select {
+    font-size: 9px;
+    min-height: 19px;
+  }
+
+  .device-layout-button {
+    height: 14px;
+    right: 3px;
+    top: 3px;
+    width: 14px;
+  }
+
+  .device-layout-button svg {
+    height: 9px;
+    width: 9px;
+  }
+
+  .map-pane .pane-header {
+    height: 42px;
+    padding: 6px 8px;
+  }
+
+  .map-pane .eyebrow {
+    font-size: 8px;
+    margin-bottom: 1px;
+  }
+
+  .map-pane h2 {
+    font-size: 13px;
+  }
+
+  .connections-pane {
+    padding: 8px;
+  }
+
+  .connections-pane h2 {
+    font-size: 14px;
+  }
+
+  .connections-pane .connection-list {
+    gap: 6px;
+    padding-top: 7px;
+  }
+
+  .connections-pane .connection-item {
+    padding: 7px;
+  }
+
+  .connections-pane .connection-heading {
+    gap: 6px;
+  }
+
+  .connections-pane .connection-heading strong {
+    font-size: 11px;
+  }
+
+  .connections-pane .connection-heading span,
+  .connections-pane .connection-meta,
+  .connections-pane .cable-types li,
+  .connections-pane .status-completion span,
+  .connections-pane .status-completion b {
+    font-size: 10px;
+  }
+
+  .connections-pane .status-completion {
+    gap: 4px;
+    margin-top: 5px;
+  }
+
+  .connections-pane .status-completion meter {
+    height: 6px;
+  }
+
+  .connections-pane .cable-types {
+    gap: 3px;
+    margin-top: 6px;
+  }
+
+  .connections-pane .cable-types-with-actions li {
+    gap: 5px;
+  }
+
+  .connections-pane .detail-button,
+  .connections-pane .expand-button,
+  .connections-pane .mini-detail-button {
+    font-size: 9px;
+    margin-top: 6px;
+    padding: 4px 6px;
+  }
+
+  .connections-pane .mini-detail-button {
+    margin-left: 4px;
+  }
+
+  .pane-header {
+    height: 48px;
+    padding: 8px 10px;
+  }
+
+  .map-scroll {
+    padding: 8px;
   }
 }

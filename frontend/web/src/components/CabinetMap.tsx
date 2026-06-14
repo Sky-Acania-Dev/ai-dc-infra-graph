@@ -1,5 +1,6 @@
 import { categoryColor, labelColors } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useI18n } from "../i18n";
 import type { CabinetLayoutItem } from "../types";
 import type { SelectionGesture } from "../App";
@@ -19,6 +20,7 @@ type CabinetMapProps = {
   selectedCabinetUids: Set<string>;
   selectedDeviceCabinetUid: string | null;
   connectedCabinetUids: Set<string>;
+  connectedCabinetCounts: Map<string, number>;
   isDeviceMode: boolean;
   mapSize: MapSize;
   progressDisplay: MapProgressDisplay;
@@ -76,6 +78,38 @@ const MAP_SIZE_SETTINGS: Record<
     cabinetTypeFontSize: 10,
   },
 };
+const LANDSCAPE_MAP_SIZE_SETTINGS: Record<MapSize, (typeof MAP_SIZE_SETTINGS)[MapSize]> = {
+  compact: {
+    labelKey: "map.size.compact",
+    cellWidth: 18,
+    cellHeight: 12,
+    blockGap: 24,
+    hotAisleGap: 4,
+    coldAisleGap: 12,
+    cabinetIdFontSize: 5.8,
+    cabinetTypeFontSize: 3.8,
+  },
+  normal: {
+    labelKey: "map.size.normal",
+    cellWidth: 28,
+    cellHeight: 18,
+    blockGap: 38,
+    hotAisleGap: 6,
+    coldAisleGap: 18,
+    cabinetIdFontSize: 7.4,
+    cabinetTypeFontSize: 5,
+  },
+  large: {
+    labelKey: "map.size.large",
+    cellWidth: 36,
+    cellHeight: 24,
+    blockGap: 48,
+    hotAisleGap: 8,
+    coldAisleGap: 24,
+    cabinetIdFontSize: 9.4,
+    cabinetTypeFontSize: 6.4,
+  },
+};
 const PADDING = 24;
 
 export function CabinetMap({
@@ -87,6 +121,7 @@ export function CabinetMap({
   selectedCabinetUids,
   selectedDeviceCabinetUid,
   connectedCabinetUids,
+  connectedCabinetCounts,
   isDeviceMode,
   mapSize,
   progressDisplay,
@@ -97,7 +132,8 @@ export function CabinetMap({
   onProgressDisplayChange,
 }: CabinetMapProps) {
   const { t } = useI18n();
-  const settings = MAP_SIZE_SETTINGS[mapSize];
+  const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (min-width: 760px) and (orientation: landscape)");
+  const settings = isPhoneLandscape ? LANDSCAPE_MAP_SIZE_SETTINGS[mapSize] : MAP_SIZE_SETTINGS[mapSize];
   const positioned = normalizeCabinets(cabinets);
   const maxBlock = Math.max(...positioned.map((cabinet) => cabinet.block), 0);
   const maxRow = Math.max(...positioned.map((cabinet) => cabinet.row), 0);
@@ -166,6 +202,8 @@ export function CabinetMap({
             const isPrimarySelected = cabinet.cabinet_uid === selectedCabinetUid;
             const isDeviceSource = isDeviceMode && cabinet.cabinet_uid === selectedDeviceCabinetUid;
             const isConnected = connectedCabinetUids.has(cabinet.cabinet_uid);
+            const connectedSourceCount = connectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
+            const showConnectionCount = connectedSourceCount > 1;
             const isDimmed = hasSelection && !isSelected && !isConnected;
             const cabinetTypeLabel = progressDisplay === "text" ? cabinet.category : "";
             const cabinetTypeFit = fitSvgText(
@@ -227,6 +265,15 @@ export function CabinetMap({
                     fontSize={settings.cabinetTypeFontSize}
                   />
                 ) : null}
+                {showConnectionCount ? (
+                  <ConnectionCountBadge
+                    count={connectedSourceCount}
+                    x={x + settings.cellWidth - 2}
+                    y={y}
+                    cellHeight={settings.cellHeight}
+                    fontSize={settings.cabinetTypeFontSize}
+                  />
+                ) : null}
               </g>
             );
           })}
@@ -281,6 +328,38 @@ function estimateSvgTextWidth(text: string, fontSize: number): number {
   const wideChars = text.match(/[MW@#%&]/g)?.length ?? 0;
   const normalChars = Math.max(0, text.length - narrowChars - wideChars);
   return fontSize * (normalChars * 0.58 + narrowChars * 0.32 + wideChars * 0.78);
+}
+
+function ConnectionCountBadge({
+  count,
+  x,
+  y,
+  cellHeight,
+  fontSize,
+}: {
+  count: number;
+  x: number;
+  y: number;
+  cellHeight: number;
+  fontSize: number;
+}) {
+  const label = String(count);
+  const radius = Math.max(5, Math.min(9, cellHeight * 0.28));
+  const badgeFontSize = Math.max(6, Math.min(fontSize + 1, radius * 1.18));
+  return (
+    <g className="cabinet-connection-count" aria-label={`${label} selected cabinets connected`}>
+      <circle cx={x - radius * 0.35} cy={y + radius * 0.35} r={radius} />
+      <text
+        dominantBaseline="central"
+        textAnchor="middle"
+        x={x - radius * 0.35}
+        y={y + radius * 0.35}
+        style={{ fontSize: badgeFontSize }}
+      >
+        {label}
+      </text>
+    </g>
+  );
 }
 
 function ProgressBar({

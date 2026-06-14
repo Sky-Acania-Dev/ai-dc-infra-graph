@@ -33,6 +33,7 @@ from backend.graph import build_cabinet_graph
 from backend.models import Cabinet, Cable, CableProgressPhase, CableProgressTask, ConnectorType, Device, DevicePortLayoutEntry, PortConnector
 from backend.persistence import DEFAULT_RUNTIME_DATABASE_PATH, TopologyDatabase, load_topology_database, save_topology_database
 from backend.persistence.postgresql import models as db
+from backend.persistence.postgresql import queries as pg_queries
 from backend.persistence.postgresql.mutations import MutationUser, PersistedOperation, RowLockedConflict, StaleWriteConflict
 from backend.persistence.postgresql.repository import PostgresTopologyRepository
 from backend.persistence.postgresql.session import session_factory
@@ -150,6 +151,7 @@ class DeviceCableDetailResponse(BaseModel):
 
 class DeviceConnection(BaseModel):
     target_device_uid: str
+    target_device_model: str = ""
     target_cabinet_uid: str
     target_rack_unit: int
     total_cables: int
@@ -725,14 +727,22 @@ def device_connections(
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
 ) -> DeviceConnectionResponse:
     cabinet_uid = cabinet_uid.upper()
+    source_device_uid = _device_uid(cabinet_uid, rack_unit)
+    if use_postgresql_topology_storage():
+        return _postgres_device_connections(source_device_uid)
+
     database = _load_cached_database(database_path)
     if _find_cabinet(database, cabinet_uid) is None:
         raise HTTPException(status_code=404, detail=f"Cabinet '{cabinet_uid}' was not found.")
 
-    source_device_uid = _device_uid(cabinet_uid, rack_unit)
     source_prefix = f"{source_device_uid}:"
     connections_by_device: dict[str, list[Cable]] = {}
     connected_cabinets: set[str] = set()
+    device_by_uid = {
+        _normalize_device_uid(f"{device.cabinet_id}:{device.rack_unit}"): device
+        for cabinet in database.cabinets
+        for device in cabinet.devices
+    }
 
     for cable in database.cables:
         other_port_uid = ""
@@ -754,6 +764,7 @@ def device_connections(
     connections = [
         DeviceConnection(
             target_device_uid=target_device_uid,
+            target_device_model=device_by_uid.get(target_device_uid).device_model if device_by_uid.get(target_device_uid) else "",
             target_cabinet_uid=_cabinet_uid_from_device_uid(target_device_uid),
             target_rack_unit=int(target_device_uid.split(":")[2]),
             total_cables=len(cables),
@@ -1394,6 +1405,36 @@ def _postgres_device_connection_cables(source_device_uid: str, target_device_uid
         source_device_uid=source_device_uid,
         target_device_uid=target_device_uid,
         cables=sorted((_postgres_cable_detail(row) for row in rows), key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid)),
+    )
+
+
+def _postgres_device_connections(source_device_uid: str) -> DeviceConnectionResponse:
+    with session_factory()() as session:
+        try:
+            summary = pg_queries.device_connections(session, source_device_uid=source_device_uid)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return DeviceConnectionResponse(
+        source_device_uid=summary.source_device_uid,
+        source_cabinet_uid=summary.source_cabinet_uid,
+        source_rack_unit=summary.source_rack_unit,
+        connected_cabinet_uids=summary.connected_cabinet_uids,
+        connected_devices=[
+            DeviceConnection(
+                target_device_uid=connection.target_device_uid,
+                target_device_model=connection.target_device_model,
+                target_cabinet_uid=connection.target_cabinet_uid,
+                target_rack_unit=connection.target_rack_unit,
+                total_cables=connection.total_cables,
+                cable_type_counts=connection.cable_type_counts,
+                status_summary=CableStatusSummary(
+                    completed=connection.status_summary.completed,
+                    total=connection.status_summary.total,
+                    status_counts=connection.status_summary.status_counts,
+                ),
+            )
+            for connection in summary.connected_devices
+        ],
     )
 
 

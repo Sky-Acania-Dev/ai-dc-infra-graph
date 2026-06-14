@@ -1,9 +1,9 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import type { CabinetDetailResponse, CabinetLayoutItem, Device, OperationResponse } from "../types";
+import type { BulkOperationResponse, CabinetDetailResponse, CabinetLayoutItem, Device, OperationResponse } from "../types";
 import { CabinetDeviceLayout } from "./CabinetDeviceLayout";
 import { ProgressCircle } from "./ProgressCircle";
 import { useI18n } from "../i18n";
-import { updateCabinetStatus, updateDeviceStatus } from "../api";
+import { bulkUpdateLifecycleStatus, updateCabinetStatus, updateDeviceStatus } from "../api";
 import { categoryColor } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
 import type { SelectionGesture } from "../App";
@@ -33,6 +33,14 @@ type CabinetDetailsPanelProps = {
       recordUndo?: boolean;
     },
   ) => void;
+  onBulkStatusChanged: (
+    operation: Promise<BulkOperationResponse>,
+    options?: {
+      onError?: () => void;
+      onSuccess?: (response: BulkOperationResponse) => void;
+      recordUndo?: boolean;
+    },
+  ) => void;
 };
 
 export function CabinetDetailsPanel({
@@ -53,12 +61,14 @@ export function CabinetDetailsPanel({
   expectedVersion,
   lifecycleStatuses,
   onStatusChanged,
+  onBulkStatusChanged,
 }: CabinetDetailsPanelProps) {
   const { formatConstructionPhase, formatLifecycleStatus, formatNumber, t } = useI18n();
   const categorySummaryPan = useDragPan<HTMLElement>();
   const [categorySummaryHasScrollbar, setCategorySummaryHasScrollbar] = useState(false);
   const [writeFeedback, setWriteFeedback] = useState<Record<string, "success" | "error">>({});
   const [cabinetStatusDraft, setCabinetStatusDraft] = useState("");
+  const [bulkStatusDraft, setBulkStatusDraft] = useState("");
   const [deviceStatusDrafts, setDeviceStatusDrafts] = useState<Record<string, string>>({});
   const selectedCabinets = selectedCabinetUids.length > 1
     ? cabinets.filter((cabinet) => selectedCabinetUids.includes(cabinet.cabinet_uid))
@@ -72,8 +82,13 @@ export function CabinetDetailsPanel({
 
   useEffect(() => {
     setCabinetStatusDraft(detail?.cabinet.lifecycle_status ?? "");
+    setBulkStatusDraft("");
     setDeviceStatusDrafts({});
   }, [detail?.cabinet.cabinet_uid, detail?.cabinet.lifecycle_status]);
+
+  useEffect(() => {
+    setBulkStatusDraft("");
+  }, [selectedCabinetUids.join("|"), selectedDeviceUids.join("|")]);
 
   useEffect(() => {
     if (detail) return;
@@ -126,7 +141,7 @@ export function CabinetDetailsPanel({
             </div>
           ))}
         </section>
-        <section className="category-summary aggregate-section">
+        <section className="category-summary aggregate-section bulk-status-summary">
           <div className="section-title">{t("cabinet.status")}</div>
           {statuses.map(([status, count]) => (
             <div className="category-row" key={status}>
@@ -135,6 +150,18 @@ export function CabinetDetailsPanel({
             </div>
           ))}
         </section>
+        <BulkLifecycleStatusEditor
+          canEdit={canEdit}
+          entityType="cabinet"
+          entityUids={selectedCabinets.map((cabinet) => cabinet.cabinet_uid)}
+          expectedVersion={expectedVersion}
+          feedback={writeFeedback.bulkStatus}
+          lifecycleStatuses={lifecycleStatuses}
+          statusDraft={bulkStatusDraft}
+          onBulkStatusChanged={onBulkStatusChanged}
+          onDraftChanged={setBulkStatusDraft}
+          onWriteFeedback={(feedback) => flashWriteFeedback(setWriteFeedback, "bulkStatus", feedback)}
+        />
       </aside>
     );
   }
@@ -174,7 +201,22 @@ export function CabinetDetailsPanel({
   return (
     <aside className="side-pane" onClick={onClearDeviceSelection}>
       <span className="eyebrow">{t("cabinet.details")}</span>
-      {selectedDevice ? (
+      {selectedDevices.length > 1 ? (
+        <DeviceSelectionSummary
+          canEdit={canEdit}
+          devices={selectedDevices}
+          expectedVersion={expectedVersion}
+          formatConstructionPhase={formatConstructionPhase}
+          formatLifecycleStatus={formatLifecycleStatus}
+          formatNumber={formatNumber}
+          lifecycleStatuses={lifecycleStatuses}
+          onBulkStatusChanged={onBulkStatusChanged}
+          setBulkStatusDraft={setBulkStatusDraft}
+          setWriteFeedback={setWriteFeedback}
+          statusDraft={bulkStatusDraft}
+          writeFeedback={writeFeedback}
+        />
+      ) : selectedDevice ? (
         <DeviceDetailSummary
           canEdit={canEdit}
           device={selectedDevice}
@@ -192,14 +234,10 @@ export function CabinetDetailsPanel({
       ) : (
         <>
           <h1>{detail.cabinet.cabinet_uid}</h1>
-          <dl className="facts">
+          <dl className="facts single-cabinet-facts">
             <div>
               <dt>{t("cabinet.category")}</dt>
               <dd>{detail.cabinet.category}</dd>
-            </div>
-            <div>
-              <dt>{t("cabinet.group")}</dt>
-              <dd>{detail.cabinet.cabinet_group || t("cabinet.unassigned")}</dd>
             </div>
             <div>
               <dt>{t("cabinet.status")}</dt>
@@ -231,6 +269,10 @@ export function CabinetDetailsPanel({
                   formatLifecycleStatus(detail.cabinet.lifecycle_status)
                 )}
               </dd>
+            </div>
+            <div>
+              <dt>{t("cabinet.group")}</dt>
+              <dd>{detail.cabinet.cabinet_group || t("cabinet.unassigned")}</dd>
             </div>
             <div>
               <dt>{t("cabinet.constructionPhase")}</dt>
@@ -269,14 +311,6 @@ export function CabinetDetailsPanel({
           </dl>
         </>
       )}
-      {selectedDevices.length > 1 ? (
-        <DeviceSelectionSummary
-          devices={selectedDevices}
-          formatConstructionPhase={formatConstructionPhase}
-          formatLifecycleStatus={formatLifecycleStatus}
-          formatNumber={formatNumber}
-        />
-      ) : null}
       <CabinetDeviceLayout
         devices={detail.devices}
         maxRackUnit={detail.cabinet.max_rack_unit}
@@ -432,16 +466,91 @@ function categoryCounts(cabinets: CabinetLayoutItem[]): [string, number][] {
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
 
+function BulkLifecycleStatusEditor({
+  canEdit,
+  entityType,
+  entityUids,
+  expectedVersion,
+  feedback,
+  lifecycleStatuses,
+  statusDraft,
+  onBulkStatusChanged,
+  onDraftChanged,
+  onWriteFeedback,
+}: {
+  canEdit: boolean;
+  entityType: "cabinet" | "device";
+  entityUids: string[];
+  expectedVersion: number | null;
+  feedback?: "success" | "error";
+  lifecycleStatuses: string[];
+  statusDraft: string;
+  onBulkStatusChanged: CabinetDetailsPanelProps["onBulkStatusChanged"];
+  onDraftChanged: (status: string) => void;
+  onWriteFeedback: (feedback: "success" | "error") => void;
+}) {
+  const { formatLifecycleStatus, t } = useI18n();
+  if (!canEdit) return null;
+
+  return (
+    <section className="aggregate-section bulk-status-editor" onClick={(event) => event.stopPropagation()}>
+      <div className="section-title">{t("bulkStatus.setStatus")}</div>
+      <select
+        className={`inline-select ${feedbackClass(feedback)}`}
+        value={statusDraft}
+        onChange={(event) => {
+          const nextStatus = event.target.value;
+          if (!nextStatus) return;
+          onDraftChanged(nextStatus);
+          onBulkStatusChanged(bulkUpdateLifecycleStatus(entityType, entityUids, nextStatus, expectedVersion), {
+            onError: () => {
+              onDraftChanged("");
+              onWriteFeedback("error");
+            },
+            onSuccess: () => {
+              onDraftChanged("");
+              onWriteFeedback("success");
+            },
+          });
+        }}
+      >
+        <option value="">{t("bulkStatus.chooseStatus", { count: entityUids.length })}</option>
+        {lifecycleStatuses.map((status) => (
+          <option key={status} value={status}>
+            {formatLifecycleStatus(status)}
+          </option>
+        ))}
+      </select>
+    </section>
+  );
+}
+
 function DeviceSelectionSummary({
+  canEdit,
   devices,
+  expectedVersion,
   formatConstructionPhase,
   formatLifecycleStatus,
   formatNumber,
+  lifecycleStatuses,
+  onBulkStatusChanged,
+  setBulkStatusDraft,
+  setWriteFeedback,
+  statusDraft,
+  writeFeedback,
 }: {
+  canEdit: boolean;
   devices: Device[];
+  expectedVersion: number | null;
   formatConstructionPhase: (value: string) => string;
   formatLifecycleStatus: (value: string) => string;
   formatNumber: (value: number) => string;
+  lifecycleStatuses: string[];
+  onBulkStatusChanged: CabinetDetailsPanelProps["onBulkStatusChanged"];
+  setBulkStatusDraft: Dispatch<SetStateAction<string>>;
+  setWriteFeedback: Dispatch<SetStateAction<Record<string, "success" | "error">>>;
+  statusDraft: string;
+  writeFeedback: Record<string, "success" | "error">;
 }) {
   const statusCounts = countBy(devices, (device) => device.lifecycle_status);
   const phaseCounts = countBy(devices, (device) => device.construction_phase);
@@ -452,7 +561,7 @@ function DeviceSelectionSummary({
   );
 
   return (
-    <section className="aggregate-section">
+    <section className="aggregate-section bulk-status-summary">
       <div className="section-title">Selected devices</div>
       <dl className="facts compact-facts">
         <div>
@@ -469,6 +578,18 @@ function DeviceSelectionSummary({
         </div>
       </dl>
       <AggregateRows title="Status" rows={statusCounts} formatValue={formatLifecycleStatus} formatNumber={formatNumber} />
+      <BulkLifecycleStatusEditor
+        canEdit={canEdit}
+        entityType="device"
+        entityUids={devices.map((device) => `${device.cabinet_id}:${device.rack_unit}`)}
+        expectedVersion={expectedVersion}
+        feedback={writeFeedback.bulkStatus}
+        lifecycleStatuses={lifecycleStatuses}
+        statusDraft={statusDraft}
+        onBulkStatusChanged={onBulkStatusChanged}
+        onDraftChanged={setBulkStatusDraft}
+        onWriteFeedback={(feedback) => flashWriteFeedback(setWriteFeedback, "bulkStatus", feedback)}
+      />
       <AggregateRows title="Phase" rows={phaseCounts} formatValue={formatConstructionPhase} formatNumber={formatNumber} />
     </section>
   );

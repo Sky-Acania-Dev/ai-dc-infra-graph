@@ -1,6 +1,7 @@
 import { useRef, type MouseEvent, type PointerEvent } from "react";
 
-const HOLD_THRESHOLD_MS = 250;
+const POINTER_HOLD_THRESHOLD_MS = 250;
+const TOUCH_HOLD_THRESHOLD_MS = 150;
 const MOVE_THRESHOLD_PX = 14;
 
 type PanState = {
@@ -10,6 +11,7 @@ type PanState = {
   scrollLeft: number;
   scrollTop: number;
   startedAt: number;
+  holdThresholdMs: number;
   didDrag: boolean;
 };
 
@@ -44,6 +46,7 @@ export function useDragPan<T extends HTMLElement>() {
         scrollLeft: element.scrollLeft,
         scrollTop: element.scrollTop,
         startedAt: window.performance.now(),
+        holdThresholdMs: event.pointerType === "mouse" ? POINTER_HOLD_THRESHOLD_MS : TOUCH_HOLD_THRESHOLD_MS,
         didDrag: false,
       };
     },
@@ -55,7 +58,7 @@ export function useDragPan<T extends HTMLElement>() {
       const dx = event.clientX - state.startX;
       const dy = event.clientY - state.startY;
       const distance = Math.hypot(dx, dy);
-      const heldLongEnough = window.performance.now() - state.startedAt >= HOLD_THRESHOLD_MS;
+      const heldLongEnough = window.performance.now() - state.startedAt >= state.holdThresholdMs;
       if (!state.didDrag && !heldLongEnough && distance < MOVE_THRESHOLD_PX) return;
 
       state.didDrag = true;

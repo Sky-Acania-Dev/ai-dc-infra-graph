@@ -3,6 +3,7 @@ import type {
   CabinetDetailResponse,
   CabinetLayoutItem,
   AuthUser,
+  BulkOperationResponse,
   CabinetCableDetail,
   DataHallCableSummaryResponse,
   Device,
@@ -13,7 +14,7 @@ import type {
   ValidationResponse,
 } from "./types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://100.121.214.15:8000";
 
 export async function fetchCurrentUser(): Promise<AuthUser> {
   const response = await fetch(`${API_BASE_URL}/auth/me`);
@@ -154,6 +155,29 @@ export async function updateDeviceStatus(
   return operationResponseFromJson(await response.json(), "update device status");
 }
 
+export async function bulkUpdateLifecycleStatus(
+  entityType: "cabinet" | "device",
+  entityUids: string[],
+  lifecycleStatus: string,
+  expectedVersion?: number | null,
+): Promise<BulkOperationResponse> {
+  const response = await fetch(`${API_BASE_URL}/topology/bulk/status`, {
+    body: JSON.stringify({
+      entity_type: entityType,
+      entity_uids: entityUids,
+      lifecycle_status: lifecycleStatus,
+      expected_version: expectedVersion ?? undefined,
+      source_type: "manual_bulk",
+    }),
+    headers: { "Content-Type": "application/json" },
+    method: "PATCH",
+  });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, `Failed to bulk update ${entityType} status`));
+  }
+  return bulkOperationResponseFromJson(await response.json(), `bulk update ${entityType} status`);
+}
+
 export type UpdateCablePayload = {
   status?: string;
   progress?: Record<string, string>;
@@ -219,6 +243,21 @@ function operationResponseFromJson(payload: unknown, action: string): OperationR
   }
   throw new Error(
     `Failed to ${action}: backend returned the old response shape. Restart the backend so operation-log endpoints are active.`,
+  );
+}
+
+function bulkOperationResponseFromJson(payload: unknown, action: string): BulkOperationResponse {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "operations" in payload &&
+    Array.isArray((payload as BulkOperationResponse).operations) &&
+    "version" in payload
+  ) {
+    return payload as BulkOperationResponse;
+  }
+  throw new Error(
+    `Failed to ${action}: backend returned the old response shape. Restart the backend so bulk operation endpoints are active.`,
   );
 }
 
