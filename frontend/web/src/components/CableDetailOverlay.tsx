@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { updateCable, type UpdateCablePayload } from "../api";
 import type { CabinetCableDetail, CableDetailResponse, CableProgressPhase, CableProgressPhaseDefinition, OperationResponse, TopologyEnums } from "../types";
 import { useI18n } from "../i18n";
 import type { SelectionGesture, SelectionMode } from "../App";
+import { ViewerScaleSlider } from "./ViewerScaleSlider";
 
 type CableDetailOverlayProps = {
   cableDetail: CableDetailResponse | null;
@@ -41,6 +42,16 @@ type CableColumn = {
 type NumericRange = { min: number; max: number };
 type RangeFilter = NumericRange;
 const PAGE_SIZE_OPTIONS = [100, 250, 500, 1000] as const;
+type CableTableScale = "xs" | "s" | "m" | "l" | "xl" | "xxl" | "xxxl";
+const CABLE_TABLE_SCALE_STEPS: Array<{ value: CableTableScale; label: string; fontSize: number }> = [
+  { value: "xs", label: "10", fontSize: 10 },
+  { value: "s", label: "11", fontSize: 11 },
+  { value: "m", label: "12", fontSize: 12 },
+  { value: "l", label: "13", fontSize: 13 },
+  { value: "xl", label: "14", fontSize: 14 },
+  { value: "xxl", label: "15", fontSize: 15 },
+  { value: "xxxl", label: "16", fontSize: 16 },
+];
 
 const COLUMNS: Array<CableColumn & { labelKey: string }> = [
   { key: "uid", label: "Cable ID", labelKey: "cable.column.uid" },
@@ -88,6 +99,7 @@ export function CableDetailOverlay({
   const [openFilterColumn, setOpenFilterColumn] = useState<CableColumnKey | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(250);
+  const [tableScale, setTableScale] = useState<CableTableScale>("m");
   const debouncedFilterText = useDebouncedValue(filterText, 500);
   const serverTotalRows =
     cableDetail && "total_cables" in cableDetail && typeof cableDetail.total_cables === "number" ? cableDetail.total_cables : null;
@@ -179,6 +191,8 @@ export function CableDetailOverlay({
   }, [isServerPaged, page, pageCount]);
 
   if (!cableDetail && !isLoading) return null;
+  const tableFontSize = CABLE_TABLE_SCALE_STEPS.find((step) => step.value === tableScale)?.fontSize ?? 12;
+  const overlayStyle = { "--cable-table-font-size": `${tableFontSize}px` } as CSSProperties;
   const sourceLabel =
     routeLabel?.source ?? (cableDetail ? ("source_device_uid" in cableDetail ? cableDetail.source_device_uid : cableDetail.source_cabinet_uid) : "");
   const targetLabel =
@@ -226,7 +240,7 @@ export function CableDetailOverlay({
   }
 
   return (
-    <div className={`cable-overlay selection-mode-${selectionMode}`} onClick={() => setOpenFilterColumn(null)}>
+    <div className={`cable-overlay selection-mode-${selectionMode}`} onClick={() => setOpenFilterColumn(null)} style={overlayStyle}>
       <div className="overlay-header">
         <div>
           <span className="eyebrow">{t("cable.details")}</span>
@@ -246,9 +260,17 @@ export function CableDetailOverlay({
             <CableSelectionSummary cables={selectedCables} formatNumber={formatNumber} />
           ) : null}
         </div>
-        <button className="icon-button" onClick={onClose} aria-label={t("cable.closeDetails")}>
-          X
-        </button>
+        <div className="overlay-actions">
+          <ViewerScaleSlider
+            label={t("viewer.tableScale")}
+            onChange={setTableScale}
+            steps={CABLE_TABLE_SCALE_STEPS.map((step) => ({ value: step.value, label: step.label }))}
+            value={tableScale}
+          />
+          <button className="icon-button" onClick={onClose} aria-label={t("cable.closeDetails")}>
+            X
+          </button>
+        </div>
       </div>
       {isLoading && !cableDetail ? (
         <div className="table-loading-state">

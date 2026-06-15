@@ -4,6 +4,7 @@ import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useI18n } from "../i18n";
 import type { CabinetLayoutItem } from "../types";
 import type { SelectionGesture } from "../App";
+import { ViewerScaleSlider } from "./ViewerScaleSlider";
 
 type PositionedCabinet = CabinetLayoutItem & {
   block: number;
@@ -31,7 +32,7 @@ type CabinetMapProps = {
   onProgressDisplayChange: (progressDisplay: MapProgressDisplay) => void;
 };
 
-export type MapSize = "compact" | "normal" | "large";
+export type MapSize = "xsmall" | "small" | "medium" | "large" | "xlarge";
 export type MapProgressDisplay = "text" | "termination" | "dress";
 
 const MAP_SIZE_SETTINGS: Record<
@@ -47,8 +48,8 @@ const MAP_SIZE_SETTINGS: Record<
     cabinetTypeFontSize: number;
   }
 > = {
-  compact: {
-    labelKey: "map.size.compact",
+  xsmall: {
+    labelKey: "map.size.xsmall",
     cellWidth: 34,
     cellHeight: 22,
     blockGap: 48,
@@ -57,8 +58,18 @@ const MAP_SIZE_SETTINGS: Record<
     cabinetIdFontSize: 9,
     cabinetTypeFontSize: 6.2,
   },
-  normal: {
-    labelKey: "map.size.normal",
+  small: {
+    labelKey: "map.size.small",
+    cellWidth: 40,
+    cellHeight: 26,
+    blockGap: 54,
+    hotAisleGap: 9,
+    coldAisleGap: 28,
+    cabinetIdFontSize: 10.5,
+    cabinetTypeFontSize: 7.2,
+  },
+  medium: {
+    labelKey: "map.size.medium",
     cellWidth: 46,
     cellHeight: 30,
     blockGap: 62,
@@ -77,10 +88,20 @@ const MAP_SIZE_SETTINGS: Record<
     cabinetIdFontSize: 15,
     cabinetTypeFontSize: 10,
   },
+  xlarge: {
+    labelKey: "map.size.xlarge",
+    cellWidth: 70,
+    cellHeight: 46,
+    blockGap: 94,
+    hotAisleGap: 14,
+    coldAisleGap: 48,
+    cabinetIdFontSize: 18,
+    cabinetTypeFontSize: 12,
+  },
 };
 const LANDSCAPE_MAP_SIZE_SETTINGS: Record<MapSize, (typeof MAP_SIZE_SETTINGS)[MapSize]> = {
-  compact: {
-    labelKey: "map.size.compact",
+  xsmall: {
+    labelKey: "map.size.xsmall",
     cellWidth: 18,
     cellHeight: 12,
     blockGap: 24,
@@ -89,8 +110,18 @@ const LANDSCAPE_MAP_SIZE_SETTINGS: Record<MapSize, (typeof MAP_SIZE_SETTINGS)[Ma
     cabinetIdFontSize: 5.8,
     cabinetTypeFontSize: 3.8,
   },
-  normal: {
-    labelKey: "map.size.normal",
+  small: {
+    labelKey: "map.size.small",
+    cellWidth: 23,
+    cellHeight: 15,
+    blockGap: 31,
+    hotAisleGap: 5,
+    coldAisleGap: 15,
+    cabinetIdFontSize: 6.6,
+    cabinetTypeFontSize: 4.4,
+  },
+  medium: {
+    labelKey: "map.size.medium",
     cellWidth: 28,
     cellHeight: 18,
     blockGap: 38,
@@ -109,8 +140,25 @@ const LANDSCAPE_MAP_SIZE_SETTINGS: Record<MapSize, (typeof MAP_SIZE_SETTINGS)[Ma
     cabinetIdFontSize: 9.4,
     cabinetTypeFontSize: 6.4,
   },
+  xlarge: {
+    labelKey: "map.size.xlarge",
+    cellWidth: 44,
+    cellHeight: 30,
+    blockGap: 58,
+    hotAisleGap: 10,
+    coldAisleGap: 30,
+    cabinetIdFontSize: 11.2,
+    cabinetTypeFontSize: 7.4,
+  },
 };
 const PADDING = 24;
+const MAP_SIZE_STEPS: Array<{ value: MapSize; labelKey: string }> = [
+  { value: "xsmall", labelKey: "map.size.xsmall" },
+  { value: "small", labelKey: "map.size.small" },
+  { value: "medium", labelKey: "map.size.medium" },
+  { value: "large", labelKey: "map.size.large" },
+  { value: "xlarge", labelKey: "map.size.xlarge" },
+];
 
 export function CabinetMap({
   cabinets,
@@ -172,13 +220,12 @@ export function CabinetMap({
               </button>
             ))}
           </div>
-          <div className="map-size-control" aria-label={t("map.size")}>
-            {(Object.keys(MAP_SIZE_SETTINGS) as MapSize[]).map((size) => (
-              <button className={size === mapSize ? "is-active" : ""} key={size} onClick={() => onMapSizeChange(size)}>
-                {t(MAP_SIZE_SETTINGS[size].labelKey)}
-              </button>
-            ))}
-          </div>
+          <ViewerScaleSlider
+            label={t("viewer.scale")}
+            onChange={onMapSizeChange}
+            steps={MAP_SIZE_STEPS.map((step) => ({ value: step.value, label: t(step.labelKey) }))}
+            value={mapSize}
+          />
         </div>
       </div>
       <div className="map-scroll drag-pan-surface" {...mapPan}>

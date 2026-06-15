@@ -166,6 +166,15 @@ class Cable(TimestampColumns, Base):
     __table_args__ = (
         Index("ix_cables_a_port", "a_port_uid"),
         Index("ix_cables_z_port", "z_port_uid"),
+        Index("ix_cables_project_type", "project_uid", "cable_type"),
+        Index(
+            "ix_cables_project_type_a_z_ports",
+            "project_uid",
+            "cable_type",
+            "a_port_uid",
+            "z_port_uid",
+            postgresql_ops={"a_port_uid": "text_pattern_ops", "z_port_uid": "text_pattern_ops"},
+        ),
         Index("ix_cables_project_phase", "project_uid", "construction_phase"),
         Index("ix_cables_building_import_status", "building_uid", "import_status"),
     )

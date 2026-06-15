@@ -75,7 +75,7 @@ export function App() {
   const [selectedDeviceDetails, setSelectedDeviceDetails] = useState<DeviceConnectionResponse[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [mapSize, setMapSize] = useState<MapSize>("normal");
+  const [mapSize, setMapSize] = useState<MapSize>("medium");
   const [mapProgressDisplay, setMapProgressDisplay] = useState<MapProgressDisplay>("text");
   const [centerViewMode, setCenterViewMode] = useState<CenterViewMode>("cabinet_map");
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("single");

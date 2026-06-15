@@ -1324,33 +1324,70 @@ def _postgres_data_hall_cables(
     offset: int,
 ) -> CabinetCableDetailResponse:
     room_uid = _postgres_room_uid(data_hall_id)
-    normalized_target_room_uid = _postgres_room_uid(target_data_hall.upper()) if target_data_hall else None
+    source_port_prefix = f"{data_hall_id}:"
+    normalized_target_data_hall = target_data_hall.upper() if target_data_hall else None
+    target_port_prefix = f"{normalized_target_data_hall}:" if normalized_target_data_hall else None
     with session_factory()() as session:
         if session.get(db.Room, room_uid) is None:
             raise HTTPException(status_code=404, detail=f"Data hall '{data_hall_id}' was not found.")
-        room_ports = _postgres_port_uid_scope(room_uid=room_uid)
         clauses: list[Any] = [
             db.Cable.project_uid == DEFAULT_PROJECT_UID,
             db.Cable.deleted_at.is_(None),
         ]
         if scope == "internal":
-            clauses.append(db.Cable.a_port_uid.in_(room_ports))
-            clauses.append(db.Cable.z_port_uid.in_(room_ports))
+            clauses.extend([
+                db.Cable.a_port_uid.like(f"{source_port_prefix}%"),
+                db.Cable.z_port_uid.like(f"{source_port_prefix}%"),
+            ])
             target_label = data_hall_id
         elif scope == "external":
-            clauses.append(or_(db.Cable.a_port_uid.in_(room_ports), db.Cable.z_port_uid.in_(room_ports)))
-            if normalized_target_room_uid is not None:
-                target_ports = _postgres_port_uid_scope(room_uid=normalized_target_room_uid)
-                clauses.append(or_(db.Cable.a_port_uid.in_(target_ports), db.Cable.z_port_uid.in_(target_ports)))
+            if target_port_prefix is not None:
+                clauses.append(
+                    or_(
+                        and_(
+                            db.Cable.a_port_uid.like(f"{source_port_prefix}%"),
+                            db.Cable.z_port_uid.like(f"{target_port_prefix}%"),
+                        ),
+                        and_(
+                            db.Cable.a_port_uid.like(f"{target_port_prefix}%"),
+                            db.Cable.z_port_uid.like(f"{source_port_prefix}%"),
+                        ),
+                    )
+                )
             else:
-                clauses.append(or_(db.Cable.a_port_uid.not_in(room_ports), db.Cable.z_port_uid.not_in(room_ports)))
-            target_label = target_data_hall.upper() if target_data_hall else "EXTERNAL"
+                clauses.append(
+                    or_(
+                        and_(
+                            db.Cable.a_port_uid.like(f"{source_port_prefix}%"),
+                            ~db.Cable.z_port_uid.like(f"{source_port_prefix}%"),
+                        ),
+                        and_(
+                            db.Cable.z_port_uid.like(f"{source_port_prefix}%"),
+                            ~db.Cable.a_port_uid.like(f"{source_port_prefix}%"),
+                        ),
+                    )
+                )
+            target_label = normalized_target_data_hall if normalized_target_data_hall else "EXTERNAL"
         else:
             raise HTTPException(status_code=422, detail="scope must be 'internal' or 'external'.")
         if cable_type:
             clauses.append(db.Cable.cable_type == cable_type)
         total_cables = session.scalar(select(func.count()).select_from(db.Cable).where(*clauses)) or 0
-        rows = _postgres_cable_detail_models(session, clauses=clauses, limit=limit, offset=offset)
+        filtered_cable_uids = (
+            select(db.Cable.uid)
+            .where(*clauses)
+            .cte("filtered_data_hall_cables")
+            .prefix_with("MATERIALIZED")
+        )
+        rows = list(
+            session.execute(
+                select(db.Cable)
+                .join(filtered_cable_uids, db.Cable.uid == filtered_cable_uids.c.uid)
+                .order_by(db.Cable.cable_type, db.Cable.a_port_uid, db.Cable.z_port_uid, db.Cable.uid)
+                .offset(offset)
+                .limit(limit)
+            ).scalars()
+        )
     return CabinetCableDetailResponse(
         source_cabinet_uid=data_hall_id,
         target_cabinet_uid=target_label,

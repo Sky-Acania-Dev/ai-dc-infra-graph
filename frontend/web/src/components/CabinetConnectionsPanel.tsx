@@ -71,28 +71,20 @@ export function CabinetConnectionsPanel({
             title={t("connections.selectedDevices", { count: formatNumber(selectedDeviceDetails.length) })}
             subtitle={t("connections.intraDeviceSelection")}
           />
-          <ConnectionSummaryCard
+          <ExternalDeviceConnections
+            connections={externalConnections}
             isExpanded={isDeviceExternalExpanded}
-            onToggleExpanded={
-              externalConnections.length > 0 ? () => setIsDeviceExternalExpanded((current) => !current) : undefined
+            onToggleExpanded={() => setIsDeviceExternalExpanded((current) => !current)}
+            onViewDeviceCables={(connection, targetDeviceUid) =>
+              onViewDeviceCables(
+                "source_device_uids" in connection
+                  ? connection.source_device_uids.map((sourceDeviceUid) => ({ sourceDeviceUid, targetDeviceUid }))
+                  : [{ sourceDeviceUid: connection.target_device_uid, targetDeviceUid }],
+              )
             }
-            headingMetric={t("connections.deviceCount", { count: formatNumber(externalConnections.length) })}
-            peerCount={externalConnections.length}
-            summary={aggregateConnectionSummaries(externalConnections)}
-            title={t("connections.totalExternal")}
             subtitle={t("connections.totalExternalDeviceSelectionSubtitle")}
+            title={t("connections.totalExternal")}
           />
-          {isDeviceExternalExpanded
-            ? externalConnections.map((connection) => (
-                <DeviceConnectionCard
-                  connection={connection}
-                  key={connection.target_device_uid}
-                  onViewDeviceCables={(targetDeviceUid) =>
-                    onViewDeviceCables(connection.source_device_uids.map((sourceDeviceUid) => ({ sourceDeviceUid, targetDeviceUid })))
-                  }
-                />
-              ))
-            : null}
         </div>
       </aside>
     );
@@ -117,28 +109,16 @@ export function CabinetConnectionsPanel({
             title={t("connections.insideCabinet", { cabinetUid: deviceDetail.source_cabinet_uid })}
             subtitle={t("connections.intraDevice")}
           />
-          <ConnectionSummaryCard
+          <ExternalDeviceConnections
+            connections={externalConnections}
             isExpanded={isDeviceExternalExpanded}
-            onToggleExpanded={
-              externalConnections.length > 0 ? () => setIsDeviceExternalExpanded((current) => !current) : undefined
+            onToggleExpanded={() => setIsDeviceExternalExpanded((current) => !current)}
+            onViewDeviceCables={(_, targetDeviceUid) =>
+              onViewDeviceCables([{ sourceDeviceUid: deviceDetail.source_device_uid, targetDeviceUid }])
             }
-            headingMetric={t("connections.deviceCount", { count: formatNumber(externalConnections.length) })}
-            peerCount={externalConnections.length}
-            summary={aggregateConnectionSummaries(externalConnections)}
-            title={t("connections.totalExternal")}
             subtitle={t("connections.totalExternalDeviceSubtitle")}
+            title={t("connections.totalExternal")}
           />
-          {isDeviceExternalExpanded
-            ? externalConnections.map((connection) => (
-                <DeviceConnectionCard
-                  connection={connection}
-                  key={connection.target_device_uid}
-                  onViewDeviceCables={(targetDeviceUid) =>
-                    onViewDeviceCables([{ sourceDeviceUid: deviceDetail.source_device_uid, targetDeviceUid }])
-                  }
-                />
-              ))
-            : null}
         </div>
       </aside>
     );
@@ -157,29 +137,42 @@ export function CabinetConnectionsPanel({
               subtitle={t("connections.intraDataHall")}
               onViewDataHallCables={onViewDataHallCables}
             />
-            <DataHallCableBucketCard
-              bucket={aggregateExternalBuckets(dataHallCableSummary.external)}
-              isExpanded={isDataHallExternalExpanded}
-              onToggleExpanded={
-                dataHallCableSummary.external.length > 0
-                  ? () => setIsDataHallExternalExpanded((current) => !current)
-                  : undefined
-              }
-              peerCount={dataHallCableSummary.external.length}
-              title={t("connections.totalExternal")}
-              subtitle={t("connections.totalExternalSubtitle")}
-            />
-            {isDataHallExternalExpanded
-              ? dataHallCableSummary.external.map((bucket) => (
-                  <DataHallCableBucketCard
-                    bucket={bucket}
-                    key={bucket.target_data_hall ?? "external"}
-                    title={t("connections.toDataHall", { dataHall: bucket.target_data_hall ?? t("dataHall.fallback") })}
-                    subtitle={t("connections.crossDataHall")}
-                    onViewDataHallCables={onViewDataHallCables}
-                  />
-                ))
-              : null}
+            {dataHallCableSummary.external.length === 1 ? (
+              <DataHallCableBucketCard
+                bucket={dataHallCableSummary.external[0]}
+                title={t("connections.toDataHall", {
+                  dataHall: dataHallCableSummary.external[0].target_data_hall ?? t("dataHall.fallback"),
+                })}
+                subtitle={t("connections.crossDataHall")}
+                onViewDataHallCables={onViewDataHallCables}
+              />
+            ) : (
+              <>
+                <DataHallCableBucketCard
+                  bucket={aggregateExternalBuckets(dataHallCableSummary.external)}
+                  isExpanded={isDataHallExternalExpanded}
+                  onToggleExpanded={
+                    dataHallCableSummary.external.length > 0
+                      ? () => setIsDataHallExternalExpanded((current) => !current)
+                      : undefined
+                  }
+                  peerCount={dataHallCableSummary.external.length}
+                  title={t("connections.totalExternal")}
+                  subtitle={t("connections.totalExternalSubtitle")}
+                />
+                {isDataHallExternalExpanded
+                  ? dataHallCableSummary.external.map((bucket) => (
+                      <DataHallCableBucketCard
+                        bucket={bucket}
+                        key={bucket.target_data_hall ?? "external"}
+                        title={t("connections.toDataHall", { dataHall: bucket.target_data_hall ?? t("dataHall.fallback") })}
+                        subtitle={t("connections.crossDataHall")}
+                        onViewDataHallCables={onViewDataHallCables}
+                      />
+                    ))
+                  : null}
+              </>
+            )}
           </div>
         ) : (
           <p className="empty-state">{t("common.loading", { target: t("connections.dataHallCables") })}</p>
@@ -229,37 +222,26 @@ export function CabinetConnectionsPanel({
               subtitle={t("connections.selectedCabinetPeerSubtitle")}
             />
           ) : null}
-          <ConnectionSummaryCard
+          <ExternalCabinetConnections
+            connections={externalConnections}
             isExpanded={isCabinetExternalExpanded}
-            onToggleExpanded={
-              externalConnections.length > 0 ? () => setIsCabinetExternalExpanded((current) => !current) : undefined
+            onToggleExpanded={() => setIsCabinetExternalExpanded((current) => !current)}
+            onViewCables={(connection, targetCabinetUid) =>
+              onViewCables(
+                "source_cabinet_uids" in connection
+                  ? connection.source_cabinet_uids.map((sourceCabinetUid) => ({ sourceCabinetUid, targetCabinetUid }))
+                  : [{ sourceCabinetUid: connection.target_cabinet_uid, targetCabinetUid }],
+              )
             }
-            peerCount={externalConnections.length}
-            summary={aggregateConnectionSummaries(externalConnections)}
-            title={t("connections.totalExternal")}
             subtitle={t("connections.totalExternalCabinetSelectionSubtitle")}
+            title={t("connections.totalExternal")}
           />
-          {isCabinetExternalExpanded
-            ? externalConnections.map((connection) => (
-                <CabinetConnectionCard
-                  connection={connection}
-                  key={connection.target_cabinet_uid}
-                  onViewCables={(targetCabinetUid) =>
-                    onViewCables(
-                      connection.source_cabinet_uids.map((sourceCabinetUid) => ({ sourceCabinetUid, targetCabinetUid })),
-                    )
-                  }
-                />
-              ))
-            : null}
         </div>
       </aside>
     );
   }
 
   const intraCabinetSummary = detail.intra_cabinet_connection ?? emptyConnectionSummary();
-  const externalCabinetSummary = aggregateConnectionSummaries(detail.connections);
-
   return (
     <aside className="side-pane connections-pane">
       <span className="eyebrow">{t("connections.connectedCabinets")}</span>
@@ -279,27 +261,16 @@ export function CabinetConnectionsPanel({
           title={t("connections.insideCabinet", { cabinetUid: detail.cabinet.cabinet_uid })}
           subtitle={t("connections.intraCabinet")}
         />
-        <ConnectionSummaryCard
+        <ExternalCabinetConnections
+          connections={detail.connections}
           isExpanded={isCabinetExternalExpanded}
-          onToggleExpanded={
-            detail.connections.length > 0 ? () => setIsCabinetExternalExpanded((current) => !current) : undefined
+          onToggleExpanded={() => setIsCabinetExternalExpanded((current) => !current)}
+          onViewCables={(_, targetCabinetUid) =>
+            onViewCables([{ sourceCabinetUid: detail.cabinet.cabinet_uid, targetCabinetUid }])
           }
-          peerCount={detail.connections.length}
-          summary={externalCabinetSummary}
-          title={t("connections.totalExternal")}
           subtitle={t("connections.totalExternalCabinetSubtitle")}
+          title={t("connections.totalExternal")}
         />
-        {isCabinetExternalExpanded
-          ? detail.connections.map((connection) => (
-              <CabinetConnectionCard
-                connection={connection}
-                key={connection.target_cabinet_uid}
-                onViewCables={(targetCabinetUid) =>
-                  onViewCables([{ sourceCabinetUid: detail.cabinet.cabinet_uid, targetCabinetUid }])
-                }
-              />
-            ))
-          : null}
       </div>
     </aside>
   );
@@ -318,6 +289,104 @@ type AggregatedCabinetConnection = CabinetConnection & {
 type AggregatedDeviceConnection = DeviceConnection & {
   source_device_uids: string[];
 };
+
+function ExternalCabinetConnections({
+  connections,
+  isExpanded,
+  onToggleExpanded,
+  onViewCables,
+  subtitle,
+  title,
+}: {
+  connections: AggregatedCabinetConnection[] | CabinetConnection[];
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
+  onViewCables: (connection: AggregatedCabinetConnection | CabinetConnection, targetCabinetUid: string) => void;
+  subtitle: string;
+  title: string;
+}) {
+  if (connections.length === 1) {
+    const connection = connections[0];
+    return (
+      <CabinetConnectionCard
+        connection={connection}
+        onViewCables={(targetCabinetUid) => onViewCables(connection, targetCabinetUid)}
+      />
+    );
+  }
+
+  return (
+    <>
+      <ConnectionSummaryCard
+        isExpanded={isExpanded}
+        onToggleExpanded={connections.length > 0 ? onToggleExpanded : undefined}
+        peerCount={connections.length}
+        summary={aggregateConnectionSummaries(connections)}
+        title={title}
+        subtitle={subtitle}
+      />
+      {isExpanded
+        ? connections.map((connection) => (
+            <CabinetConnectionCard
+              connection={connection}
+              key={connection.target_cabinet_uid}
+              onViewCables={(targetCabinetUid) => onViewCables(connection, targetCabinetUid)}
+            />
+          ))
+        : null}
+    </>
+  );
+}
+
+function ExternalDeviceConnections({
+  connections,
+  isExpanded,
+  onToggleExpanded,
+  onViewDeviceCables,
+  subtitle,
+  title,
+}: {
+  connections: AggregatedDeviceConnection[] | DeviceConnection[];
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
+  onViewDeviceCables: (connection: AggregatedDeviceConnection | DeviceConnection, targetDeviceUid: string) => void;
+  subtitle: string;
+  title: string;
+}) {
+  const { formatNumber, t } = useI18n();
+  if (connections.length === 1) {
+    const connection = connections[0];
+    return (
+      <DeviceConnectionCard
+        connection={connection}
+        onViewDeviceCables={(targetDeviceUid) => onViewDeviceCables(connection, targetDeviceUid)}
+      />
+    );
+  }
+
+  return (
+    <>
+      <ConnectionSummaryCard
+        isExpanded={isExpanded}
+        onToggleExpanded={connections.length > 0 ? onToggleExpanded : undefined}
+        headingMetric={t("connections.deviceCount", { count: formatNumber(connections.length) })}
+        peerCount={connections.length}
+        summary={aggregateConnectionSummaries(connections)}
+        title={title}
+        subtitle={subtitle}
+      />
+      {isExpanded
+        ? connections.map((connection) => (
+            <DeviceConnectionCard
+              connection={connection}
+              key={connection.target_device_uid}
+              onViewDeviceCables={(targetDeviceUid) => onViewDeviceCables(connection, targetDeviceUid)}
+            />
+          ))
+        : null}
+    </>
+  );
+}
 
 function emptyConnectionSummary(): ConnectionSummary {
   return {

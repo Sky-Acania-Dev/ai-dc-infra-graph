@@ -6,6 +6,8 @@ from backend.api.topology import (
     cabinet_connection_cables,
     cabinet_detail,
     cabinet_layout,
+    data_hall_cable_summary,
+    data_hall_cables,
     device_connection_cables,
     device_connections,
     list_operations,
@@ -127,6 +129,101 @@ class TopologyApiTests(unittest.TestCase):
         self.assertEqual(validation.summary.port_collision_findings, 0)
         self.assertEqual(validation.summary.device_model_mismatches, 0)
         self.assertEqual(validation.summary.device_model_format_issues, 0)
+
+    def test_data_hall_external_cables_filter_to_target_hall(self) -> None:
+        _, runtime_path = _test_paths()
+        database = build_topology_database_from_results(
+            cutsheet_result=ingest_cutsheet_rows(
+                [
+                    {
+                        "STATUS": "Cable Is Ran: Complete",
+                        "A-LOC:CAB:RU": "dh1:001:10",
+                        "A-PORT": "swp1",
+                        "A_MODEL": "Switch",
+                        "Z-LOC:CAB:RU": "dh1:002:20",
+                        "Z-PORT": "swp2",
+                        "Z_MODEL": "Patch Panel",
+                        "CABLE": "LC",
+                    },
+                    {
+                        "STATUS": "Cable Not Run",
+                        "A-LOC:CAB:RU": "dh1:001:10",
+                        "A-PORT": "swp3",
+                        "A_MODEL": "Switch",
+                        "Z-LOC:CAB:RU": "dh2:003:20",
+                        "Z-PORT": "swp4",
+                        "Z_MODEL": "Patch Panel",
+                        "CABLE": "MPO12",
+                    },
+                    {
+                        "STATUS": "Cable Not Run",
+                        "A-LOC:CAB:RU": "dh2:003:20",
+                        "A-PORT": "swp5",
+                        "A_MODEL": "Patch Panel",
+                        "Z-LOC:CAB:RU": "dh2:004:20",
+                        "Z-PORT": "swp6",
+                        "Z_MODEL": "Patch Panel",
+                        "CABLE": "MPO12",
+                    },
+                ]
+            ),
+            overhead_result=OverheadIngestionResult(
+                summary=OverheadIngestionSummary(cabinets=4, data_halls=2, unknown_category_cabinets=0),
+                cabinets=[
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:001",
+                        data_hall_id="DH1",
+                        cabinet_id="001",
+                        category="DPR-H1",
+                        cabinet_group="Core",
+                        source_row=1,
+                        source_col=1,
+                    ),
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:002",
+                        data_hall_id="DH1",
+                        cabinet_id="002",
+                        category="DPR-H2",
+                        cabinet_group="Core",
+                        source_row=1,
+                        source_col=2,
+                    ),
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH2:003",
+                        data_hall_id="DH2",
+                        cabinet_id="003",
+                        category="DPR-H1",
+                        cabinet_group="Core",
+                        source_row=1,
+                        source_col=3,
+                    ),
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH2:004",
+                        data_hall_id="DH2",
+                        cabinet_id="004",
+                        category="DPR-H2",
+                        cabinet_group="Core",
+                        source_row=1,
+                        source_col=4,
+                    ),
+                ],
+            ),
+        )
+        save_topology_database(database, runtime_path)
+
+        summary = data_hall_cable_summary("DH1", database_path=str(runtime_path))
+        external_detail = data_hall_cables(
+            "DH1",
+            scope="external",
+            target_data_hall="DH2",
+            cable_type="MPO12",
+            database_path=str(runtime_path),
+        )
+
+        self.assertEqual([bucket.target_data_hall for bucket in summary.external], ["DH2"])
+        self.assertEqual(summary.external[0].total_cables, 1)
+        self.assertEqual(external_detail.target_cabinet_uid, "DH2")
+        self.assertEqual([cable.uid for cable in external_detail.cables], ["CBL-000002"])
 
     def test_cabinet_detail_includes_intra_cabinet_cables(self) -> None:
         _, runtime_path = _test_paths()

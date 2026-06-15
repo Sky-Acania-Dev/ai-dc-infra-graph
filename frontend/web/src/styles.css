@@ -303,6 +303,58 @@ button {
 .map-controls {
   display: flex;
   gap: 8px;
+  min-width: 0;
+}
+
+.viewer-scale-slider {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: auto minmax(112px, 150px);
+  min-width: 180px;
+  padding: 5px 8px;
+}
+
+.viewer-scale-slider > span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.viewer-scale-slider input[type="range"] {
+  accent-color: #111827;
+  cursor: pointer;
+  grid-column: 2;
+  margin: 0;
+  width: 100%;
+}
+
+.viewer-scale-ticks {
+  display: grid;
+  gap: 2px;
+  grid-column: 2;
+}
+
+.viewer-scale-ticks button {
+  background: transparent;
+  border: 0;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 900;
+  height: 14px;
+  line-height: 1;
+  min-width: 0;
+  padding: 0;
+  text-align: center;
+}
+
+.viewer-scale-ticks button.is-active {
+  color: #111827;
 }
 
 .map-size-control {
@@ -1022,17 +1074,21 @@ button {
 }
 
 .cable-overlay {
+  --cable-table-font-size: 12px;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid #94a3b8;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
   left: 18px;
-  max-height: 58%;
+  max-height: none;
   min-height: 330px;
   overflow: hidden;
-  position: absolute;
-  right: 18px;
-  top: 72px;
-  z-index: 5;
+  position: fixed;
+  right: 412px;
+  top: 86px;
+  z-index: 30;
 }
 
 .validation-view {
@@ -1163,6 +1219,7 @@ button {
   align-items: center;
   border-bottom: 1px solid #dbe3ef;
   display: flex;
+  gap: 14px;
   justify-content: space-between;
   padding: 12px 14px;
 }
@@ -1177,6 +1234,13 @@ button {
   font-size: 12px;
   font-weight: 700;
   margin-top: 3px;
+}
+
+.overlay-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
 }
 
 .selection-summary {
@@ -1254,15 +1318,16 @@ button {
 }
 
 .table-scroll {
-  max-height: 360px;
+  flex: 1 1 auto;
+  max-height: none;
   min-height: 214px;
   overflow-x: auto;
-  overflow-y: visible;
+  overflow-y: auto;
 }
 
 .table-scroll table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--cable-table-font-size);
   width: 100%;
 }
 
@@ -1277,7 +1342,7 @@ button {
 .table-scroll th {
   background: #f8fafc;
   color: #475569;
-  font-size: 11px;
+  font-size: max(10px, calc(var(--cable-table-font-size) - 1px));
   position: sticky;
   top: 0;
   z-index: 2;
@@ -1302,7 +1367,7 @@ button {
 
 .filter-row th {
   box-shadow: 0 -2px 0 #f8fafc;
-  top: 30px;
+  top: calc(var(--cable-table-font-size) + 21px);
   z-index: 2;
 }
 
@@ -1323,7 +1388,7 @@ button {
   color: #334155;
   cursor: pointer;
   display: flex;
-  font-size: 11px;
+  font-size: max(10px, calc(var(--cable-table-font-size) - 1px));
   font-weight: 800;
   gap: 6px;
   justify-content: space-between;
@@ -1339,7 +1404,7 @@ button {
 .filter-row input {
   border: 1px solid #cbd5e1;
   color: #111827;
-  font-size: 11px;
+  font-size: max(10px, calc(var(--cable-table-font-size) - 1px));
   min-width: 96px;
   padding: 4px 5px;
   width: 100%;
@@ -1354,7 +1419,7 @@ button {
   border: 1px solid #cbd5e1;
   color: #334155;
   cursor: pointer;
-  font-size: 11px;
+  font-size: max(10px, calc(var(--cable-table-font-size) - 1px));
   list-style: none;
   padding: 4px 6px;
 }
@@ -1631,6 +1696,18 @@ button {
     min-height: calc(100vh - 88px);
   }
 
+  .cable-overlay {
+    bottom: 18px;
+    left: 18px;
+    right: 18px;
+    top: 74px;
+  }
+
+  .overlay-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
   .side-pane,
   .map-pane {
     min-height: 420px;
@@ -1810,6 +1887,36 @@ button {
   .map-pane .pane-header {
     height: 42px;
     padding: 6px 8px;
+  }
+
+  .map-controls {
+    gap: 4px;
+  }
+
+  .viewer-scale-slider {
+    grid-template-columns: auto minmax(82px, 100px);
+    min-width: 132px;
+    padding: 3px 5px;
+  }
+
+  .viewer-scale-slider > span {
+    font-size: 8px;
+  }
+
+  .viewer-scale-ticks button {
+    font-size: 8px;
+    height: 11px;
+  }
+
+  .cable-overlay {
+    bottom: 8px;
+    left: 8px;
+    right: 202px;
+    top: 58px;
+  }
+
+  .cable-overlay .viewer-scale-slider {
+    grid-template-columns: auto minmax(96px, 118px);
   }
 
   .map-pane .eyebrow {
