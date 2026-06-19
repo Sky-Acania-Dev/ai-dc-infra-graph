@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import aliased
 
-from backend.api.auth import AuthUser, current_user, require_editor
+from backend.api.auth import AuthUser, current_user, require_editor, require_manager
 from backend.core.config import DEFAULT_BUILDING_ID, DEFAULT_PROJECT_UID, use_postgresql_topology_storage
 from backend.core.enums import (
     CableProgressPhaseType,
@@ -37,7 +37,8 @@ from backend.persistence.postgresql import queries as pg_queries
 from backend.persistence.postgresql.mutations import MutationUser, PersistedOperation, RowLockedConflict, StaleWriteConflict
 from backend.persistence.postgresql.repository import PostgresTopologyRepository
 from backend.persistence.postgresql.session import session_factory
-from backend.validation.device_models import DeviceModelFinding
+from backend.validation import detect_port_collisions
+from backend.validation.device_models import DeviceModelFinding, detect_device_model_findings
 from backend.validation.port_collisions import PortConnectionFinding
 
 
@@ -753,26 +754,25 @@ def list_operations(
 def validation_report(
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
 ) -> ValidationResponse:
-    database = _postgres_repository().load() if use_postgresql_topology_storage() else _load_cached_database(database_path)
-    return ValidationResponse(
-        summary=ValidationSummary(
-            port_collision_findings=len(database.port_collision_findings),
-            device_model_mismatches=len(database.device_model_mismatches),
-            device_model_format_issues=len(database.device_model_format_issues),
-        ),
-        port_collision_findings=[
-            ValidationPortConnectionFinding(
-                port_uid=finding.port_uid,
-                count=finding.count,
-                message=finding.message,
-                examples=_port_collision_examples(database, finding.port_uid),
-            )
-            for finding in database.port_collision_findings
-        ],
-        device_model_mismatches=database.device_model_mismatches,
-        device_model_format_issues=database.device_model_format_issues,
-    )
+    if use_postgresql_topology_storage():
+        return _validation_response_from_findings(*_postgres_repository().validation_findings())
+    database = _load_cached_database(database_path)
+    return _validation_response_from_database(database)
 
+
+@router.post("/validation/revalidate", response_model=ValidationResponse)
+def revalidate_report(
+    database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
+    user: AuthUser = Depends(current_user),
+) -> ValidationResponse:
+    require_manager(user)
+    if use_postgresql_topology_storage():
+        return _validation_response_from_findings(*_postgres_repository().revalidate())
+    database = _load_cached_database(database_path)
+    database.port_collision_findings = detect_port_collisions(database.rows)
+    database.device_model_mismatches, database.device_model_format_issues = detect_device_model_findings(database.rows)
+    save_topology_database(database, database_path)
+    return _validation_response_from_database(database)
 
 @router.get(
     "/cabinets/{cabinet_uid}/devices/{rack_unit}/connections",
@@ -2083,6 +2083,42 @@ def _cable_detail(cable: Cable) -> CabinetCableDetail:
     )
 
 
+def _validation_response_from_database(database: TopologyDatabase) -> ValidationResponse:
+    return _validation_response_from_findings(
+        database.port_collision_findings,
+        database.device_model_mismatches,
+        database.device_model_format_issues,
+        database=database,
+    )
+
+
+def _validation_response_from_findings(
+    port_collision_findings: list[PortConnectionFinding],
+    device_model_mismatches: list[DeviceModelFinding],
+    device_model_format_issues: list[DeviceModelFinding],
+    *,
+    database: TopologyDatabase | None = None,
+) -> ValidationResponse:
+    return ValidationResponse(
+        summary=ValidationSummary(
+            port_collision_findings=len(port_collision_findings),
+            device_model_mismatches=len(device_model_mismatches),
+            device_model_format_issues=len(device_model_format_issues),
+        ),
+        port_collision_findings=[
+            ValidationPortConnectionFinding(
+                port_uid=finding.port_uid,
+                count=finding.count,
+                message=finding.message,
+                examples=_port_collision_examples(database, finding.port_uid) if database is not None else [],
+            )
+            for finding in port_collision_findings
+        ],
+        device_model_mismatches=device_model_mismatches,
+        device_model_format_issues=device_model_format_issues,
+    )
+
+
 def _port_collision_examples(database: TopologyDatabase, port_uid: str) -> list[ValidationCableRowExample]:
     examples = []
     for row in database.rows:
@@ -2455,3 +2491,6 @@ def _cabinet_sort_key(cabinet: Cabinet) -> tuple[str, int, int, str]:
         cabinet.source_col or 0,
         cabinet.cabinet_id,
     )
+
+
+

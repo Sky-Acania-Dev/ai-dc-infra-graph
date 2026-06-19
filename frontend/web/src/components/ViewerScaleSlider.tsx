@@ -21,18 +21,20 @@ export function ViewerScaleSlider<T extends string>({ label, steps, value, onCha
         type="range"
         value={currentIndex}
       />
-      <div className="viewer-scale-ticks" style={{ gridTemplateColumns: `repeat(${steps.length}, 1fr)` }}>
-        {steps.map((step, index) => (
-          <button
-            aria-label={step.label}
-            title={step.label}
-            className={index === currentIndex ? "is-active" : ""}
-            key={step.value}
-            onClick={() => onChange(step.value)}
-            type="button"
-          />
-        ))}
+      <div className="viewer-scale-ticks" aria-hidden="true">
+        {steps.map((step, index) => {
+          const left = steps.length <= 1 ? 0 : (index / (steps.length - 1)) * 100;
+          return (
+            <span
+              className={index === currentIndex ? "is-active" : ""}
+              key={step.value}
+              style={{ left: `${left}%` }}
+              title={step.label}
+            />
+          );
+        })}
       </div>
     </div>
   );
 }
+

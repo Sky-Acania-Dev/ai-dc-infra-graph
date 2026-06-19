@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from backend.core.enums import CableProgressState, CableProgressStep, ConnectorType, ConstructionPhase, LifecycleStatus
@@ -19,7 +19,8 @@ from backend.persistence.postgresql.mutations import list_operations as list_pos
 from backend.persistence.postgresql.mutations import update_cabinet_status, update_cable, update_device_status
 from backend.persistence.postgresql.session import session_factory
 from backend.persistence.repository import TopologyRepository
-from backend.validation.device_models import DeviceModelFinding
+from backend.validation import detect_port_collisions
+from backend.validation.device_models import DeviceModelFinding, detect_device_model_findings
 from backend.validation.port_collisions import PortConnectionFinding
 
 
@@ -157,6 +158,25 @@ class PostgresTopologyRepository(TopologyRepository):
                 end_time=end_time,
             )
 
+
+    def validation_findings(self) -> tuple[list[PortConnectionFinding], list[DeviceModelFinding], list[DeviceModelFinding]]:
+        with self._session_factory() as session:
+            return _validation_findings(session, self.project_uid)
+
+    def revalidate(self) -> tuple[list[PortConnectionFinding], list[DeviceModelFinding], list[DeviceModelFinding]]:
+        with self._session_factory() as session:
+            with session.begin():
+                rows = _source_rows(session, self.project_uid)
+                port_collisions = detect_port_collisions(rows)
+                device_model_mismatches, device_model_format_issues = detect_device_model_findings(rows)
+                _replace_validation_findings(
+                    session,
+                    project_uid=self.project_uid,
+                    port_collisions=port_collisions,
+                    device_model_mismatches=device_model_mismatches,
+                    device_model_format_issues=device_model_format_issues,
+                )
+                return port_collisions, device_model_mismatches, device_model_format_issues
 
 def load_project_topology(
     session: Session,
@@ -373,6 +393,59 @@ def _validation_findings(
     return port_collisions, device_model_mismatches, device_model_format_issues
 
 
+def _replace_validation_findings(
+    session: Session,
+    *,
+    project_uid: str,
+    port_collisions: list[PortConnectionFinding],
+    device_model_mismatches: list[DeviceModelFinding],
+    device_model_format_issues: list[DeviceModelFinding],
+) -> None:
+    session.execute(delete(db.ValidationFinding).where(db.ValidationFinding.project_uid == project_uid))
+    for index, finding in enumerate(port_collisions, start=1):
+        session.add(
+            db.ValidationFinding(
+                uid=f"{project_uid}:port-collision:{index}",
+                project_uid=project_uid,
+                finding_type="port_collision",
+                severity="error",
+                entity_type="port",
+                entity_uid=finding.port_uid,
+                payload=_payload(finding),
+            )
+        )
+    for index, finding in enumerate(device_model_mismatches, start=1):
+        session.add(
+            db.ValidationFinding(
+                uid=f"{project_uid}:device-model-mismatch:{index}",
+                project_uid=project_uid,
+                finding_type="device_model_mismatch",
+                severity="warning",
+                entity_type="device",
+                entity_uid=finding.device_uid,
+                payload=_payload(finding),
+            )
+        )
+    for index, finding in enumerate(device_model_format_issues, start=1):
+        session.add(
+            db.ValidationFinding(
+                uid=f"{project_uid}:device-model-format-issue:{index}",
+                project_uid=project_uid,
+                finding_type="device_model_format_issue",
+                severity="warning",
+                entity_type="device",
+                entity_uid=finding.device_uid,
+                payload=_payload(finding),
+            )
+        )
+
+
+def _payload(model: BaseModel) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(mode="json")
+    return model.dict()
+
+
 def _summary(
     *,
     rows: list[CutsheetCableRow],
@@ -402,3 +475,7 @@ def _model_from_payload(model_type: type[BaseModel], payload: dict[str, Any]):
     if hasattr(model_type, "model_validate"):
         return model_type.model_validate(payload)
     return model_type.parse_obj(payload)
+
+
+
+

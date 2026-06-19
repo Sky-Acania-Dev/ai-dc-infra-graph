@@ -32,7 +32,7 @@ button {
 .topbar-controls {
   align-items: center;
   display: flex;
-  gap: 10px;
+  gap: 6px;
 }
 
 .settings-control {
@@ -41,9 +41,9 @@ button {
   border: 1px solid #cbd5e1;
   color: #475569;
   display: inline-flex;
-  gap: 8px;
-  min-height: 34px;
-  padding: 4px 8px;
+  gap: 5px;
+  min-height: 28px;
+  padding: 3px 6px;
 }
 
 .settings-control span {
@@ -57,9 +57,9 @@ button {
   border: 1px solid #cbd5e1;
   color: #111827;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  min-height: 24px;
+  min-height: 22px;
 }
 
 .role-pill {
@@ -68,8 +68,8 @@ button {
   color: #166534;
   font-size: 11px;
   font-weight: 800;
-  min-height: 34px;
-  padding: 9px 10px;
+  min-height: 28px;
+  padding: 6px 8px;
   text-transform: uppercase;
 }
 
@@ -152,8 +152,8 @@ button {
   background: #e5e7eb;
   border: 1px solid #cbd5e1;
   display: inline-flex;
-  gap: 2px;
-  padding: 3px;
+  gap: 1px;
+  padding: 2px;
 }
 
 .segmented-control button {
@@ -161,8 +161,9 @@ button {
   border: 0;
   color: #334155;
   cursor: pointer;
-  min-width: 56px;
-  padding: 7px 12px;
+  font-size: 11px;
+  min-width: 42px;
+  padding: 4px 7px;
 }
 
 .segmented-control button.is-active {
@@ -181,9 +182,8 @@ button {
 }
 
 .selection-mode-control button {
-  min-width: 54px;
-  padding-left: 9px;
-  padding-right: 9px;
+  min-width: 24px;
+  padding: 2px 2px;
 }
 
 .selection-mode-multi .map-cabinet,
@@ -295,9 +295,30 @@ button {
   border-bottom: 1px solid #e2e8f0;
   flex: 0 0 auto;
   display: flex;
-  height: 58px;
+  height: 40px;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: 1ch 2ch;
+}
+
+.map-title-line {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.map-title-line h2 {
+  color: #111827;
+  font-size: 20px;
+  font-weight: 900;
+  margin: 0;
+}
+
+.map-title-line span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .map-controls {
@@ -310,18 +331,20 @@ button {
   align-items: center;
   background: #f8fafc;
   border: 1px solid #cbd5e1;
+  box-sizing: border-box;
   color: #475569;
   display: grid;
-  gap: 7px;
-  grid-template-columns: 2.6ch minmax(112px, 150px);
+  gap: 2px;
+  grid-template-columns: 2.6ch minmax(82px, 150px);
   height: 32px;
-  min-width: 168px;
-  padding: 3px 8px;
+  min-width: 128px;
+  padding: 1px 2px;
 }
 
 .viewer-scale-slider > span {
   font-size: 10px;
   font-weight: 900;
+  justify-self: center;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -331,43 +354,37 @@ button {
   cursor: pointer;
   grid-column: 2;
   grid-row: 1;
+  height: 20px;
   margin: 0;
+  position: relative;
   width: 100%;
+  z-index: 2;
 }
 
 .viewer-scale-ticks {
-  display: grid;
-  gap: 2px;
   grid-column: 2;
   grid-row: 1;
-  pointer-events: none;
-}
-
-.viewer-scale-ticks button {
-  background: transparent;
-  border: 0;
-  cursor: pointer;
   height: 20px;
-  line-height: 1;
-  min-width: 0;
-  padding: 0;
-  pointer-events: auto;
-  transform: translateY(2px);
+  margin-inline: 8px;
+  pointer-events: none;
+  position: relative;
+  z-index: 1;
 }
 
-.viewer-scale-ticks button::after {
+.viewer-scale-ticks span {
   background: #94a3b8;
-  content: "";
   display: block;
   height: 7px;
-  margin: 6px auto 0;
+  position: absolute;
+  top: 10px;
+  transform: translateX(-50%);
   width: 2px;
 }
 
-.viewer-scale-ticks button.is-active::after {
+.viewer-scale-ticks span.is-active {
   background: #111827;
   height: 10px;
-  margin-top: 4px;
+  top: 8px;
 }
 
 .map-size-control {
@@ -383,10 +400,11 @@ button {
   border: 0;
   color: #475569;
   cursor: pointer;
-  font-size: 11px;
+  align-self: center;
+  font-size: 10px;
   font-weight: 800;
-  height: 26px;
-  min-width: 28px;
+  height: 24px;
+  min-width: 20px;
 }
 
 .map-size-control button.is-active {
@@ -412,6 +430,23 @@ button {
   right: 14px;
   top: 12px;
   z-index: 8;
+}
+
+.view-toggle-button {
+  background: #111827;
+  border: 1px solid #111827;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  min-height: 26px;
+  min-width: 86px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.view-toggle-button:hover {
+  background: #1f2937;
 }
 
 .map-scroll {
@@ -983,10 +1018,10 @@ button {
   border: 0;
   color: #ffffff;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   margin-top: 10px;
-  padding: 7px 10px;
+  padding: 6px 10px;
 }
 
 .icon-button {
@@ -1145,6 +1180,29 @@ button {
   margin: 0;
 }
 
+.validation-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.validation-run-button {
+  background: #111827;
+  border: 1px solid #111827;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  min-height: 28px;
+  padding: 4px 7px;
+}
+
+.validation-run-button:disabled {
+  background: #94a3b8;
+  border-color: #94a3b8;
+  cursor: wait;
+}
+
 .validation-summary {
   display: flex;
   gap: 10px;
@@ -1272,10 +1330,10 @@ button {
   background: #ffffff;
   border: 1px solid #cbd5e1;
   color: #334155;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
-  min-height: 30px;
-  padding: 5px 8px;
+  min-height: 26px;
+  padding: 4px 7px;
 }
 
 .operation-time-filter {
@@ -1358,7 +1416,7 @@ button {
   color: #334155;
   font-size: 11px;
   font-weight: 800;
-  padding: 4px 7px;
+  padding: 3px 6px;
 }
 
 .table-pagination-controls button:disabled {
@@ -1847,7 +1905,7 @@ button {
 
   .topbar-controls {
     flex: 1 1 auto;
-    gap: 6px;
+    gap: 4px;
     justify-content: flex-end;
     min-width: 0;
     overflow-x: auto;
@@ -1855,8 +1913,9 @@ button {
   }
 
   .segmented-control button {
-    min-width: 46px;
-    padding: 5px 8px;
+    font-size: 11px;
+    min-width: 40px;
+    padding: 3px 6px;
     white-space: nowrap;
   }
 
@@ -1868,9 +1927,15 @@ button {
 
   .role-pill,
   .settings-control {
-    min-height: 30px;
-    white-space: nowrap;
-  }
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  display: inline-flex;
+  gap: 5px;
+  min-height: 28px;
+  padding: 3px 6px;
+}
 
   .workspace {
     gap: 8px;
@@ -2019,8 +2084,8 @@ button {
     font-size: 8px;
   }
 
-  .viewer-scale-ticks button {
-    height: 18px;
+  .viewer-scale-ticks span {
+    top: 9px;
   }
 
   .cable-overlay {
@@ -2098,8 +2163,8 @@ button {
   .connections-pane .expand-button,
   .connections-pane .mini-detail-button {
     font-size: 9px;
-    margin-top: 6px;
-    padding: 4px 6px;
+    margin-top: 2px;
+    padding: 1px 2px;
   }
 
   .connections-pane .mini-detail-button {
@@ -2107,11 +2172,15 @@ button {
   }
 
   .pane-header {
-    height: 48px;
-    padding: 8px 10px;
+    height: 36px;
+    padding: 4px 5px;
   }
 
   .map-scroll {
-    padding: 8px;
+    padding: 4px;
   }
 }
+
+
+
+

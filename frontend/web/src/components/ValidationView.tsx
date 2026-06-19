@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type React from "react";
-import { fetchValidationReport } from "../api";
+import { fetchValidationReport, revalidateTopology } from "../api";
 import { useI18n } from "../i18n";
 import type {
   DeviceModelFinding,
@@ -14,6 +14,7 @@ import type {
 type ValidationViewProps = {
   onJumpToDevice: (deviceUid: string) => void;
   onJumpToPort: (portUid: string) => void;
+  canValidate: boolean;
 };
 
 type OverlayState =
@@ -21,17 +22,27 @@ type OverlayState =
   | { title: string; examples: ValidationCableRowExample[] }
   | null;
 
-export function ValidationView({ onJumpToDevice, onJumpToPort }: ValidationViewProps) {
+export function ValidationView({ canValidate, onJumpToDevice, onJumpToPort }: ValidationViewProps) {
   const { formatCableStatus, formatNumber, t } = useI18n();
   const [report, setReport] = useState<ValidationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [overlay, setOverlay] = useState<OverlayState>(null);
+  const [isValidating, setIsValidating] = useState(false);
 
   useEffect(() => {
     fetchValidationReport()
       .then(setReport)
       .catch((requestError: Error) => setError(requestError.message));
   }, []);
+
+  function runValidation() {
+    setIsValidating(true);
+    setError(null);
+    revalidateTopology()
+      .then(setReport)
+      .catch((requestError: Error) => setError(requestError.message))
+      .finally(() => setIsValidating(false));
+  }
 
   if (error) {
     return <div className="error-banner">{error}</div>;
@@ -48,10 +59,17 @@ export function ValidationView({ onJumpToDevice, onJumpToPort }: ValidationViewP
           <span className="eyebrow">{t("validation.qa")}</span>
           <h2>{t("validation.results")}</h2>
         </div>
-        <div className="validation-summary">
-          <ValidationCounter label={t("validation.portCollisions")} value={report.summary.port_collision_findings} />
-          <ValidationCounter label={t("validation.modelMismatches")} value={report.summary.device_model_mismatches} />
-          <ValidationCounter label={t("validation.formatIssues")} value={report.summary.device_model_format_issues} />
+        <div className="validation-actions">
+          <div className="validation-summary">
+            <ValidationCounter label={t("validation.portCollisions")} value={report.summary.port_collision_findings} />
+            <ValidationCounter label={t("validation.modelMismatches")} value={report.summary.device_model_mismatches} />
+            <ValidationCounter label={t("validation.formatIssues")} value={report.summary.device_model_format_issues} />
+          </div>
+          {canValidate ? (
+            <button className="validation-run-button" disabled={isValidating} onClick={runValidation} type="button">
+              {isValidating ? "Validating" : "Validate"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -278,3 +296,5 @@ function formatCounts(counts: ModelCount[], formatNumber: (value: number) => str
     .map(({ value, count }) => `${value}: ${formatNumber(count)}`)
     .join(", ");
 }
+
+

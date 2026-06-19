@@ -193,9 +193,9 @@ export function CabinetMap({
   return (
     <section className="map-pane">
       <div className="pane-header">
-        <div>
-          <span className="eyebrow">{t("map.display")}</span>
-          <h2>{`${cabinets[0]?.data_hall_id ?? t("dataHall.fallback")} ${t("map.cabinetMap")}`}</h2>
+        <div className="map-title-line">
+          <h2>{cabinets[0]?.data_hall_id ?? t("dataHall.fallback")}</h2>
+          <span>{t("map.cabinetMap")}</span>
         </div>
         <div className="map-controls">
           <div className="map-size-control" role="tablist" aria-label={t("dataHall.selector")}>
@@ -458,3 +458,4 @@ function progressColor(percent: number): string {
   if (percent < 75) return "#eab308";
   return "#22c55e";
 }
+

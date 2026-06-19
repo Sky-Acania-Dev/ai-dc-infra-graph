@@ -123,6 +123,14 @@ export async function fetchValidationReport(): Promise<ValidationResponse> {
   return response.json();
 }
 
+export async function revalidateTopology(): Promise<ValidationResponse> {
+  const response = await fetch(`${API_BASE_URL}/topology/validation/revalidate`, { method: "POST" });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, "Failed to revalidate topology"));
+  }
+  return response.json();
+}
+
 export async function updateCabinetStatus(
   cabinetUid: string,
   lifecycleStatus: string,

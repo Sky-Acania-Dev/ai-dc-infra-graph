@@ -888,7 +888,7 @@ export function App() {
       {error ? <div className="error-banner">{error}</div> : null}
 
       {mode === "validation" ? (
-        <ValidationView onJumpToDevice={jumpToDevice} onJumpToPort={jumpToPort} />
+        <ValidationView canValidate={currentUser?.role === "manager"} onJumpToDevice={jumpToDevice} onJumpToPort={jumpToPort} />
       ) : mode === "operations" ? (
         <OperationDebugView initialOperationList={operationList} />
       ) : (
@@ -918,22 +918,13 @@ export function App() {
           ) : (
             <div className={`map-stack ${selectedDevice ? "has-center-toggle" : ""}`}>
               {selectedDevice ? (
-                <div className="center-view-toggle map-size-control" aria-label={t("portLayout.mode")}>
-                  <button
-                    className={centerViewMode === "cabinet_map" ? "is-active" : ""}
-                    onClick={() => setCenterViewMode("cabinet_map")}
-                    type="button"
-                  >
-                    {t("map.cabinetMap")}
-                  </button>
-                  <button
-                    className={centerViewMode === "port_layout" ? "is-active" : ""}
-                    onClick={() => setCenterViewMode("port_layout")}
-                    type="button"
-                  >
-                    {t("portLayout.title")}
-                  </button>
-                </div>
+                <button
+                  className="center-view-toggle view-toggle-button"
+                  onClick={() => setCenterViewMode(centerViewMode === "port_layout" ? "cabinet_map" : "port_layout")}
+                  type="button"
+                >
+                  {centerViewMode === "port_layout" ? t("map.cabinetMap") : t("portLayout.title")}
+                </button>
               ) : null}
               {centerViewMode === "port_layout" ? (
                 <DevicePortLayout
@@ -1064,7 +1055,7 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
   const rangeStart = total === 0 ? 0 : offset + 1;
   const rangeEnd = Math.min(offset + pageSize, total);
   const canPageBack = offset > 0;
-  const canPageForward = Boolean(operationList?.has_more);
+  const canPageForward = offset + pageSize < total;
 
   useEffect(() => {
     let cancelled = false;
@@ -1184,7 +1175,7 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
             <option value="">All</option>
             {(operationList?.operation_types ?? []).map((type) => (
               <option key={type} value={type}>
-                {type}
+                {operationTypeLabel(type)}
               </option>
             ))}
           </select>
@@ -1238,6 +1229,8 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
               <th>opId</th>
               <th>Type</th>
               <th>Entity</th>
+              <th>Source</th>
+              <th>Operator</th>
               <th>Timestamp</th>
               <th>User</th>
               <th>Before</th>
@@ -1248,8 +1241,10 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
             {operations.map((operation) => (
               <tr key={operation.opId}>
                 <td>{operation.opId}</td>
-                <td>{operation.type}</td>
+                <td>{operationTypeLabel(operation.type)}</td>
                 <td>{`${operation.entityType}:${operation.entityId}`}</td>
+                <td>{operation.sourceType ?? ""}</td>
+                <td>{operation.sourceOperator ?? ""}</td>
                 <td>{operation.timestamp}</td>
                 <td>{operation.userUid ? `${operation.userUid}${operation.userRole ? ` (${operation.userRole})` : ""}` : ""}</td>
                 <td>
@@ -1290,6 +1285,11 @@ function rangeActiveStyle(range: { min: number; max: number }, sourceMin: number
     right: `${100 - ((range.max - sourceMin) / span) * 100}%`,
   };
 }
+
+function operationTypeLabel(type: string): string {
+  return type === "source_update" ? "Change Order" : type;
+}
+
 
 function parseDeviceUid(value: string) {
   const parts = value.toUpperCase().split(":");
@@ -1359,3 +1359,5 @@ function isMultiGesture(gesture: SelectionGesture, selectionMode: SelectionMode)
 function isRemoveGesture(gesture: SelectionGesture, selectionMode: SelectionMode): boolean {
   return selectionMode === "remove" || gesture.ctrlKey || gesture.metaKey;
 }
+
+
