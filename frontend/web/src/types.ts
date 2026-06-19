@@ -70,6 +70,7 @@ export type Device = {
   port_layout: DevicePortLayoutEntry[];
   port_layout_overrides: DevicePortLayoutEntry[];
   ports_by_type: Partial<Record<ConnectorType, PortConnector[]>>;
+  change_operations: Operation[];
   note: string;
 };
 
@@ -156,6 +157,7 @@ export type CabinetDetailResponse = {
   devices: Device[];
   intra_cabinet_connection: CabinetConnection | null;
   connections: CabinetConnection[];
+  change_operations: Operation[];
 };
 
 export type CabinetCableDetail = {
@@ -174,6 +176,7 @@ export type CabinetCableDetail = {
   z_port_uid: string;
   a_optic: string;
   z_optic: string;
+  change_status: "green" | "yellow" | "red";
 };
 
 export type CabinetCableDetailResponse = {
@@ -276,6 +279,7 @@ export type Operation = {
   operationGroupUid?: string | null;
   sourceType?: string | null;
   sourceUid?: string | null;
+  sourceOperator?: string | null;
 };
 
 export type OperationResponse = {
@@ -293,4 +297,12 @@ export type BulkOperationResponse = {
 export type OperationListResponse = {
   operations: Operation[];
   version: number;
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+  operation_types: string[];
+  user_uids: string[];
+  min_timestamp?: string | null;
+  max_timestamp?: string | null;
 };

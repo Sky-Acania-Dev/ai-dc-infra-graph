@@ -320,7 +320,8 @@ def _cables_with_construction_phase(cutsheet_inputs: list[tuple[CutsheetIngestio
     for result, construction_phase in cutsheet_inputs:
         for cable in result.cables:
             copied_cable = _copy_cable_with_construction_phase(cable, construction_phase)
-            copied_cable.uid = f"CBL-{len(cables) + 1:06d}"
+            if not copied_cable.uid:
+                copied_cable.uid = f"CBL-{len(cables) + 1:06d}"
             cables.append(copied_cable)
     return cables
 

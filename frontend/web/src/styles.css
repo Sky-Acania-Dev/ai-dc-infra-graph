@@ -312,10 +312,11 @@ button {
   border: 1px solid #cbd5e1;
   color: #475569;
   display: grid;
-  gap: 5px;
-  grid-template-columns: auto minmax(112px, 150px);
-  min-width: 180px;
-  padding: 5px 8px;
+  gap: 7px;
+  grid-template-columns: 2.6ch minmax(112px, 150px);
+  height: 32px;
+  min-width: 168px;
+  padding: 3px 8px;
 }
 
 .viewer-scale-slider > span {
@@ -329,6 +330,7 @@ button {
   accent-color: #111827;
   cursor: pointer;
   grid-column: 2;
+  grid-row: 1;
   margin: 0;
   width: 100%;
 }
@@ -337,24 +339,35 @@ button {
   display: grid;
   gap: 2px;
   grid-column: 2;
+  grid-row: 1;
+  pointer-events: none;
 }
 
 .viewer-scale-ticks button {
   background: transparent;
   border: 0;
-  color: #64748b;
   cursor: pointer;
-  font-size: 9px;
-  font-weight: 900;
-  height: 14px;
+  height: 20px;
   line-height: 1;
   min-width: 0;
   padding: 0;
-  text-align: center;
+  pointer-events: auto;
+  transform: translateY(2px);
 }
 
-.viewer-scale-ticks button.is-active {
-  color: #111827;
+.viewer-scale-ticks button::after {
+  background: #94a3b8;
+  content: "";
+  display: block;
+  height: 7px;
+  margin: 6px auto 0;
+  width: 2px;
+}
+
+.viewer-scale-ticks button.is-active::after {
+  background: #111827;
+  height: 10px;
+  margin-top: 4px;
 }
 
 .map-size-control {
@@ -558,6 +571,24 @@ button {
 
 .aggregate-rows {
   margin-top: 10px;
+}
+
+.change-operation-summary {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  margin: 8px 0 12px;
+  padding: 8px 10px;
+}
+
+.change-operation-row {
+  align-items: center;
+  color: #92400e;
+  display: flex;
+  font-size: 11px;
+  font-weight: 800;
+  justify-content: space-between;
+  padding-top: 5px;
+  text-transform: uppercase;
 }
 
 .bulk-status-editor {
@@ -1204,7 +1235,7 @@ button {
 }
 
 .operations-table-scroll {
-  max-height: calc(100vh - 170px);
+  max-height: calc(100vh - 268px);
 }
 
 .operations-table code {
@@ -1213,6 +1244,48 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.operation-log-filters {
+  align-items: end;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(280px, 1fr) minmax(130px, auto) minmax(150px, auto) auto;
+  padding: 10px 0;
+}
+
+.operation-log-filters label {
+  display: grid;
+  gap: 4px;
+}
+
+.operation-log-filters label span {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.operation-log-filters select,
+.operation-log-filters button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  min-height: 30px;
+  padding: 5px 8px;
+}
+
+.operation-time-filter {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.operation-pagination {
+  margin: 0 -14px;
 }
 
 .overlay-header {
@@ -1297,6 +1370,48 @@ button {
   align-items: center;
   display: flex;
   gap: 5px;
+}
+
+.change-status-filter {
+  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  gap: 14px;
+  padding: 7px 14px;
+}
+
+.change-status-filter label,
+.cable-change-cell {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.change-status-filter label {
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.change-dot {
+  border-radius: 999px;
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 9px;
+  width: 9px;
+}
+
+.change-dot-green {
+  background: #16a34a;
+}
+
+.change-dot-yellow {
+  background: #eab308;
+}
+
+.change-dot-red {
+  background: #dc2626;
 }
 
 .table-pagination-controls span,
@@ -1894,7 +2009,8 @@ button {
   }
 
   .viewer-scale-slider {
-    grid-template-columns: auto minmax(82px, 100px);
+    grid-template-columns: 2.6ch minmax(82px, 100px);
+    height: 28px;
     min-width: 132px;
     padding: 3px 5px;
   }
@@ -1904,8 +2020,7 @@ button {
   }
 
   .viewer-scale-ticks button {
-    font-size: 8px;
-    height: 11px;
+    height: 18px;
   }
 
   .cable-overlay {
@@ -1916,7 +2031,7 @@ button {
   }
 
   .cable-overlay .viewer-scale-slider {
-    grid-template-columns: auto minmax(96px, 118px);
+    grid-template-columns: 2.6ch minmax(96px, 118px);
   }
 
   .map-pane .eyebrow {

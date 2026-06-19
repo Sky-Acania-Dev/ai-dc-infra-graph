@@ -22,6 +22,7 @@ type CableDetailOverlayProps = {
 };
 
 type SortDirection = "asc" | "desc";
+type ChangeStatus = "green" | "yellow" | "red";
 type CableColumnKey =
   | "uid"
   | "cable_type"
@@ -100,6 +101,7 @@ export function CableDetailOverlay({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(250);
   const [tableScale, setTableScale] = useState<CableTableScale>("m");
+  const [changeFilters, setChangeFilters] = useState<Record<ChangeStatus, boolean>>({ green: true, yellow: true, red: false });
   const debouncedFilterText = useDebouncedValue(filterText, 500);
   const serverTotalRows =
     cableDetail && "total_cables" in cableDetail && typeof cableDetail.total_cables === "number" ? cableDetail.total_cables : null;
@@ -145,6 +147,7 @@ export function CableDetailOverlay({
   const visibleCables = useMemo(() => {
     if (!cableDetail) return [];
     return cableDetail.cables
+      .filter((cable) => changeFilters[cable.change_status ?? "green"])
       .filter((cable) =>
         COLUMNS.every((column) => {
           const selectedValues = filters[column.key];
@@ -168,7 +171,7 @@ export function CableDetailOverlay({
         const result = leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: "base" });
         return sortDirection === "asc" ? result : -result;
       });
-  }, [cableDetail, filters, rangeFilters, sortDirection, sortKey]);
+  }, [cableDetail, changeFilters, filters, rangeFilters, sortDirection, sortKey]);
   const effectivePageSize = isServerPaged ? serverLimit ?? pageSize : pageSize;
   const totalRows = isServerPaged ? serverTotalRows ?? visibleCables.length : visibleCables.length;
   const pageCount = Math.max(1, Math.ceil(totalRows / effectivePageSize));
@@ -295,6 +298,10 @@ export function CableDetailOverlay({
         pageSize={effectivePageSize}
         startIndex={pageStartIndex}
         totalRows={totalRows}
+      />
+      <ChangeStatusFilter
+        filters={changeFilters}
+        onChange={(status, checked) => setChangeFilters((current) => ({ ...current, [status]: checked }))}
       />
       <div className="table-scroll" onClick={() => setOpenFilterColumn(null)}>
         <table>
@@ -497,6 +504,26 @@ function PaginationBar({
   );
 }
 
+function ChangeStatusFilter({
+  filters,
+  onChange,
+}: {
+  filters: Record<ChangeStatus, boolean>;
+  onChange: (status: ChangeStatus, checked: boolean) => void;
+}) {
+  return (
+    <div className="change-status-filter">
+      {(["green", "yellow", "red"] as ChangeStatus[]).map((status) => (
+        <label key={status}>
+          <input checked={filters[status]} onChange={(event) => onChange(status, event.target.checked)} type="checkbox" />
+          <ChangeDot status={status} />
+          <span>{changeStatusLabel(status)}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function columnValue(cable: CabinetCableDetail, columnKey: CableColumnKey): string {
   if (columnKey === "progress") return phaseSummary(cable.current_phase) || progressSummary(cable.progress);
   if (columnKey === "length_meters") return cable.length_used_meters > 0 ? String(cable.length_used_meters) : "";
@@ -585,6 +612,14 @@ function renderCableCell({
   expectedVersion: number | null;
   topologyEnums: TopologyEnums | null;
 }) {
+  if (columnKey === "uid") {
+    return (
+      <span className="cable-change-cell">
+        <ChangeDot status={cable.change_status ?? "green"} />
+        <span>{cable.uid}</span>
+      </span>
+    );
+  }
   if (columnKey === "status") {
     if (!canEdit) return formatCableStatus(cable.status);
     return (
@@ -630,6 +665,16 @@ function renderCableCell({
   }
 
   return columnValue(cable, columnKey);
+}
+
+function ChangeDot({ status }: { status: ChangeStatus }) {
+  return <span aria-label={changeStatusLabel(status)} className={`change-dot change-dot-${status}`} title={changeStatusLabel(status)} />;
+}
+
+function changeStatusLabel(status: ChangeStatus): string {
+  if (status === "red") return "Removed";
+  if (status === "yellow") return "Changed";
+  return "No change";
 }
 
 function renderPhaseEditor({

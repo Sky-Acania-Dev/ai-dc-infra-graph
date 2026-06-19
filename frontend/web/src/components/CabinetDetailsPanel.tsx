@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import type { BulkOperationResponse, CabinetDetailResponse, CabinetLayoutItem, Device, OperationResponse } from "../types";
+import type { BulkOperationResponse, CabinetDetailResponse, CabinetLayoutItem, Device, Operation, OperationResponse } from "../types";
 import { CabinetDeviceLayout } from "./CabinetDeviceLayout";
 import { ProgressCircle } from "./ProgressCircle";
 import { useI18n } from "../i18n";
@@ -234,6 +234,7 @@ export function CabinetDetailsPanel({
       ) : (
         <>
           <h1>{detail.cabinet.cabinet_uid}</h1>
+          <ChangeOperationSummary operations={detail.change_operations ?? []} title="Cabinet changes" />
           <dl className="facts single-cabinet-facts">
             <div>
               <dt>{t("cabinet.category")}</dt>
@@ -376,6 +377,7 @@ function DeviceDetailSummary({
   return (
     <>
       <h1>{deviceUid}</h1>
+      <ChangeOperationSummary operations={device.change_operations ?? []} title="Device changes" />
       <dl className="facts">
         <div>
           <dt>Model</dt>
@@ -434,6 +436,21 @@ function DeviceDetailSummary({
         </div>
       </dl>
     </>
+  );
+}
+
+function ChangeOperationSummary({ operations, title }: { operations: Operation[]; title: string }) {
+  if (!operations.length) return null;
+  return (
+    <section className="change-operation-summary" onClick={(event) => event.stopPropagation()}>
+      <div className="section-title">{title}</div>
+      {operations.slice(0, 5).map((operation) => (
+        <div className="change-operation-row" key={operation.opId}>
+          <span>{String(operation.after?.change_type ?? operation.type)}</span>
+          <b>{operation.sourceOperator ?? operation.sourceType ?? "source"}</b>
+        </div>
+      ))}
+    </section>
   );
 }
 

@@ -68,6 +68,7 @@ class Device(BaseModel):
     port_layout: list[DevicePortLayoutEntry] = Field(default_factory=list)
     port_layout_overrides: list[DevicePortLayoutEntry] = Field(default_factory=list)
     ports_by_type: dict[ConnectorType, list[PortConnector]] = Field(default_factory=dict)
+    change_operations: list[dict] = Field(default_factory=list)
     note: str = ""
 
 

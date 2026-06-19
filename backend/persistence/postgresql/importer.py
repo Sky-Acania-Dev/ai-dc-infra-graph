@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from datetime import date
 from typing import Any
 
 from pydantic import BaseModel
@@ -14,7 +16,14 @@ from backend.persistence import TopologyDatabase
 from backend.persistence.postgresql import models as db
 
 
-def replace_project_topology(session: Session, database: TopologyDatabase) -> None:
+def replace_project_topology(
+    session: Session,
+    database: TopologyDatabase,
+    *,
+    version_name: str | None = None,
+    version_date: date | None = None,
+    source_operator: str | None = None,
+) -> None:
     """Replace one project's imported topology rows in PostgreSQL.
 
     This is the first PostgreSQL persistence path for normalized cutsheet output.
@@ -23,6 +32,12 @@ def replace_project_topology(session: Session, database: TopologyDatabase) -> No
     """
     project_uid = database.project_uid
     building_uid = _building_uid(project_uid, database.building_id)
+    version_name = version_name or f"import-{date.today().isoformat()}"
+    version_date = version_date or date.today()
+    source_operator = _normalize_source_operator(source_operator)
+    topology_version_uid = _topology_version_uid(project_uid, version_name)
+    source_import_uid = f"{topology_version_uid}:source-import"
+    existing_entities = _current_entity_keys(session, project_uid)
 
     _delete_project_topology(session, project_uid)
 
@@ -39,6 +54,36 @@ def replace_project_topology(session: Session, database: TopologyDatabase) -> No
         project.full_name = project.full_name or project_uid
         project.metadata_json = {**project.metadata_json, "source": "cutsheet_import"}
     session.flush()
+    source_import = session.get(db.SourceImport, source_import_uid)
+    if source_import is None:
+        source_import = db.SourceImport(
+            uid=source_import_uid,
+            project_uid=project_uid,
+            source_type="topology_database",
+        )
+        session.add(source_import)
+    source_import.source_path = ""
+    source_import.version_name = version_name
+    source_import.version_date = version_date
+    source_import.source_operator = source_operator
+    source_import.summary = _payload(database.summary)
+    session.flush()
+
+    topology_version = session.get(db.TopologyVersion, topology_version_uid)
+    if topology_version is None:
+        topology_version = db.TopologyVersion(
+            uid=topology_version_uid,
+            project_uid=project_uid,
+            version_name=version_name,
+        )
+        session.add(topology_version)
+    topology_version.version_date = version_date
+    topology_version.source_operator = source_operator
+    topology_version.source_import_uid = source_import_uid
+    topology_version.operation_group_uid = topology_version_uid
+    topology_version.summary = _payload(database.summary)
+    session.flush()
+
     session.add(
         db.Building(
             uid=building_uid,
@@ -96,17 +141,6 @@ def replace_project_topology(session: Session, database: TopologyDatabase) -> No
         session.add(_cable_record(database, building_uid, cable))
     session.flush()
 
-    source_import_uid = f"{project_uid}:topology-import"
-    session.add(
-        db.SourceImport(
-            uid=source_import_uid,
-            project_uid=project_uid,
-            source_type="topology_database",
-            summary=_payload(database.summary),
-        )
-    )
-    session.flush()
-
     for index, row in enumerate(database.rows, start=1):
         cable_uid = database.cables[index - 1].uid if index <= len(database.cables) else None
         session.add(
@@ -153,6 +187,13 @@ def replace_project_topology(session: Session, database: TopologyDatabase) -> No
                 payload=_payload(finding),
             )
         )
+    _sync_entity_history(
+        session,
+        project_uid=project_uid,
+        topology_version_uid=topology_version_uid,
+        existing_entities=existing_entities,
+        current_entities=_database_entity_keys(database),
+    )
 
 
 def _delete_project_topology(session: Session, project_uid: str) -> None:
@@ -170,15 +211,89 @@ def _delete_project_topology(session: Session, project_uid: str) -> None:
         db.Cabinet,
         db.Room,
         db.ValidationFinding,
-        db.SourceImport,
-        db.OperationLog,
-        db.PendingChange,
         db.DeviceVariant,
         db.Building,
     ):
         if "project_uid" in table_model.__table__.columns:
             session.execute(delete(table_model).where(table_model.__table__.c.project_uid == project_uid))
     session.execute(delete(db.DeviceModel))
+
+
+def _sync_entity_history(
+    session: Session,
+    *,
+    project_uid: str,
+    topology_version_uid: str,
+    existing_entities: set[tuple[str, str]],
+    current_entities: set[tuple[str, str]],
+) -> None:
+    for entity_type, entity_uid in sorted(current_entities):
+        history_uid = _entity_history_uid(project_uid, entity_type, entity_uid)
+        history = session.get(db.EntityHistory, history_uid)
+        if history is None:
+            session.add(
+                db.EntityHistory(
+                    uid=history_uid,
+                    project_uid=project_uid,
+                    entity_type=entity_type,
+                    entity_uid=entity_uid,
+                    first_version_uid=topology_version_uid,
+                )
+            )
+            continue
+        if history.last_version_uid is not None:
+            history.last_version_uid = None
+            history.last_operation_id = None
+
+    for entity_type, entity_uid in sorted(existing_entities - current_entities):
+        history_uid = _entity_history_uid(project_uid, entity_type, entity_uid)
+        history = session.get(db.EntityHistory, history_uid)
+        if history is not None and history.last_version_uid is None:
+            history.last_version_uid = topology_version_uid
+
+
+def _current_entity_keys(session: Session, project_uid: str) -> set[tuple[str, str]]:
+    keys: set[tuple[str, str]] = set()
+    for entity_type, model_type in (
+        ("building", db.Building),
+        ("room", db.Room),
+        ("cabinet", db.Cabinet),
+        ("device", db.Device),
+        ("port", db.Port),
+        ("cable", db.Cable),
+        ("cable_bundle", db.CableBundle),
+        ("ladder_rack_junction", db.LadderRackJunction),
+        ("ladder_rack_segment", db.LadderRackSegment),
+    ):
+        keys.update(
+            (entity_type, uid)
+            for uid in session.execute(select(model_type.uid).where(model_type.project_uid == project_uid)).scalars()
+        )
+    return keys
+
+
+def _database_entity_keys(database: TopologyDatabase) -> set[tuple[str, str]]:
+    keys: set[tuple[str, str]] = {("building", _building_uid(database.project_uid, database.building_id))}
+    keys.update(("room", _room_uid(database.project_uid, database.building_id, room.room_id)) for room in database.data_halls)
+    keys.update(("cabinet", _cabinet_uid(cabinet)) for cabinet in database.cabinets)
+    for cabinet in database.cabinets:
+        keys.update(("device", _device_uid(_cabinet_uid(cabinet), device.rack_unit)) for device in cabinet.devices)
+    keys.update(("port", port.uid) for port in _ports_by_uid(database).values())
+    keys.update(("cable", cable.uid) for cable in database.cables)
+    return keys
+
+
+def _entity_history_uid(project_uid: str, entity_type: str, entity_uid: str) -> str:
+    return f"{project_uid}:{entity_type}:{entity_uid}".upper()
+
+
+def _topology_version_uid(project_uid: str, version_name: str) -> str:
+    slug = re.sub(r"[^A-Z0-9]+", "-", version_name.upper()).strip("-")
+    return f"{project_uid}:VERSION:{slug or 'IMPORT'}"
+
+
+def _normalize_source_operator(source_operator: str | None) -> str:
+    return (source_operator or "CUSTOMER").strip().upper()
 
 
 def _cabinet_record(database: TopologyDatabase, building_uid: str, cabinet: DomainCabinet) -> db.Cabinet:

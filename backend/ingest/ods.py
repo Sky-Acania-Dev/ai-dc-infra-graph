@@ -29,15 +29,19 @@ def read_ods_sheet_rows(path: str | Path, sheet_name: str | None = None) -> list
     rows: list[list[str]] = []
     for row in sheet.findall("table:table-row", NAMESPACES):
         row_repeat = int(row.attrib.get(ROW_REPEAT, "1"))
-        values: list[str] = []
+        cell_values: dict[int, str] = {}
+        col_index = 0
         for cell in row:
             if cell.tag not in {TABLE_CELL, COVERED_TABLE_CELL}:
                 continue
             cell_repeat = int(cell.attrib.get(CELL_REPEAT, "1"))
             value = "" if cell.tag == COVERED_TABLE_CELL else _cell_text(cell)
-            values.extend([value] * cell_repeat)
+            if value:
+                for offset in range(cell_repeat):
+                    cell_values[col_index + offset] = value
+            col_index += cell_repeat
 
-        trimmed_values = _trim_trailing_empty(values)
+        trimmed_values = _dense_values(cell_values)
         if trimmed_values:
             rows.extend([trimmed_values] * row_repeat)
 
@@ -67,3 +71,10 @@ def _trim_trailing_empty(values: list[str]) -> list[str]:
     while values and values[-1] == "":
         values.pop()
     return values
+
+
+def _dense_values(cell_values: dict[int, str]) -> list[str]:
+    if not cell_values:
+        return []
+    values = [cell_values.get(index, "") for index in range(max(cell_values) + 1)]
+    return _trim_trailing_empty(values)

@@ -221,9 +221,28 @@ export async function redoOperation(): Promise<OperationResponse> {
   return operationResponseFromJson(await response.json(), "redo operation");
 }
 
-export async function fetchOperations(limit = 100, after?: number | null): Promise<OperationListResponse> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (after != null) params.set("after", String(after));
+export type FetchOperationsParams = {
+  limit?: number;
+  after?: number | null;
+  offset?: number;
+  operationType?: string;
+  userUid?: string;
+  startTime?: string | null;
+  endTime?: string | null;
+};
+
+export async function fetchOperations(
+  limitOrParams: number | FetchOperationsParams = 100,
+  after?: number | null,
+): Promise<OperationListResponse> {
+  const options = typeof limitOrParams === "number" ? { limit: limitOrParams, after } : limitOrParams;
+  const params = new URLSearchParams({ limit: String(options.limit ?? 100) });
+  if (options.after != null) params.set("after", String(options.after));
+  if (options.offset != null) params.set("offset", String(options.offset));
+  if (options.operationType) params.set("operation_type", options.operationType);
+  if (options.userUid) params.set("user_uid", options.userUid);
+  if (options.startTime) params.set("start_time", options.startTime);
+  if (options.endTime) params.set("end_time", options.endTime);
   const response = await fetch(`${API_BASE_URL}/topology/operations?${params.toString()}`);
   if (!response.ok) {
     throw new Error(`Failed to load operations: ${response.status}. Restart the backend so /topology/operations is registered.`);

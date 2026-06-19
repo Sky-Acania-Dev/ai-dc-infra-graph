@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -526,6 +526,7 @@ class OperationLog(Base):
     operation_group_uid: Mapped[str | None] = mapped_column(Text)
     source_type: Mapped[str | None] = mapped_column(Text)
     source_uid: Mapped[str | None] = mapped_column(Text)
+    source_operator: Mapped[str | None] = mapped_column(Text)
     before: Mapped[dict[str, Any]] = jsonb_dict()
     after: Mapped[dict[str, Any]] = jsonb_dict()
     user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
@@ -540,8 +541,53 @@ class SourceImport(Base):
     project_uid: Mapped[str | None] = mapped_column(ForeignKey("projects.uid"))
     source_type: Mapped[str] = mapped_column(Text, nullable=False)
     source_path: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    version_name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    version_date: Mapped[date | None] = mapped_column(Date)
+    source_operator: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     summary: Mapped[dict[str, Any]] = jsonb_dict()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class TopologyVersion(Base):
+    __tablename__ = "topology_versions"
+    __table_args__ = (
+        UniqueConstraint("project_uid", "version_name", name="uq_topology_versions_project_name"),
+        Index("ix_topology_versions_project_date", "project_uid", "version_date"),
+        Index("ix_topology_versions_source_import", "source_import_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    version_name: Mapped[str] = mapped_column(Text, nullable=False)
+    version_date: Mapped[date | None] = mapped_column(Date)
+    source_operator: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    source_import_uid: Mapped[str | None] = mapped_column(ForeignKey("source_imports.uid"))
+    operation_group_uid: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[dict[str, Any]] = jsonb_dict()
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class EntityHistory(Base):
+    __tablename__ = "entity_history"
+    __table_args__ = (
+        UniqueConstraint("project_uid", "entity_type", "entity_uid", name="uq_entity_history_entity"),
+        Index("ix_entity_history_first_version", "first_version_uid"),
+        Index("ix_entity_history_last_version", "last_version_uid"),
+        Index("ix_entity_history_entity", "entity_type", "entity_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_uid: Mapped[str] = mapped_column(Text, nullable=False)
+    first_version_uid: Mapped[str | None] = mapped_column(ForeignKey("topology_versions.uid"))
+    first_operation_id: Mapped[int | None] = mapped_column(ForeignKey("operation_log.id"))
+    last_version_uid: Mapped[str | None] = mapped_column(ForeignKey("topology_versions.uid"))
+    last_operation_id: Mapped[int | None] = mapped_column(ForeignKey("operation_log.id"))
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class SourceCableRow(Base):

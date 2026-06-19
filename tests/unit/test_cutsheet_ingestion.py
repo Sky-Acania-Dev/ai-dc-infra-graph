@@ -54,6 +54,23 @@ class CutsheetIngestionTests(unittest.TestCase):
         self.assertEqual(result.rows[1].group, "Backbone")
         self.assertEqual(result.cables[0].a_optic.model, "SFP-BASE-10G-LR")
 
+    def test_preserves_a_side_patch_panel_location(self) -> None:
+        result = ingest_cutsheet_rows(
+            [
+                {
+                    "STATUS": "Cable Not Run",
+                    "A-LOC:CAB:RU": "dh1:001:10",
+                    "A-PORT": "swp1",
+                    "A-PATCH-PANEL LOC:CAB:RU:PORT": "dh1:101:1:01",
+                    "Z-LOC:CAB:RU": "dh1:002:20",
+                    "Z-PORT": "swp2",
+                    "CABLE": "LC",
+                },
+            ]
+        )
+
+        self.assertEqual(result.rows[0].a_patch_panel_loc_cab_ru_port, "dh1:101:1:01")
+
     def test_breakout_allows_two_connections_from_same_port(self) -> None:
         result = ingest_cutsheet_rows(
             [

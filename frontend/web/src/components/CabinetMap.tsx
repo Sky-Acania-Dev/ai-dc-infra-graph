@@ -194,8 +194,8 @@ export function CabinetMap({
     <section className="map-pane">
       <div className="pane-header">
         <div>
-          <span className="eyebrow">{t("map.cabinetMap")}</span>
-          <h2>{cabinets[0]?.data_hall_id ?? t("dataHall.fallback")}</h2>
+          <span className="eyebrow">{t("map.display")}</span>
+          <h2>{`${cabinets[0]?.data_hall_id ?? t("dataHall.fallback")} ${t("map.cabinetMap")}`}</h2>
         </div>
         <div className="map-controls">
           <div className="map-size-control" role="tablist" aria-label={t("dataHall.selector")}>

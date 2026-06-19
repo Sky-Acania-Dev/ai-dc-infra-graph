@@ -113,6 +113,7 @@ class CabinetDetailResponse(BaseModel):
     devices: list[Device]
     intra_cabinet_connection: CabinetConnection | None = None
     connections: list[CabinetConnection]
+    change_operations: list[Operation] = Field(default_factory=list)
 
 
 class CabinetCableDetail(BaseModel):
@@ -131,6 +132,7 @@ class CabinetCableDetail(BaseModel):
     z_port_uid: str
     a_optic: str = ""
     z_optic: str = ""
+    change_status: str = "green"
 
 
 class CabinetCableDetailResponse(BaseModel):
@@ -263,6 +265,7 @@ class Operation(BaseModel):
     operationGroupUid: str | None = None
     sourceType: str | None = None
     sourceUid: str | None = None
+    sourceOperator: str | None = None
 
 
 class OperationResponse(BaseModel):
@@ -280,6 +283,14 @@ class BulkOperationResponse(BaseModel):
 class OperationListResponse(BaseModel):
     operations: list[Operation]
     version: int
+    total: int = 0
+    offset: int = 0
+    limit: int = 100
+    has_more: bool = False
+    operation_types: list[str] = Field(default_factory=list)
+    user_uids: list[str] = Field(default_factory=list)
+    min_timestamp: str | None = None
+    max_timestamp: str | None = None
 
 
 @router.get("/layout/cabinets", response_model=list[CabinetLayoutItem])
@@ -674,21 +685,67 @@ def redo_operation(
 def list_operations(
     limit: int = 100,
     after: int | None = None,
+    offset: int = 0,
+    operation_type: str | None = None,
+    user_uid: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
 ) -> OperationListResponse:
     normalized_limit = min(500, max(1, limit))
+    normalized_offset = max(0, offset)
+    start_time = _normalize_operation_filter_time(start_time)
+    end_time = _normalize_operation_filter_time(end_time)
     if use_postgresql_topology_storage():
-        operations = _postgres_repository().list_operations(limit=normalized_limit, after=after)
-        return OperationListResponse(
-            operations=[_operation_from_postgres(operation) for operation in operations],
-            version=operations[-1].version if operations else (after or 0),
+        page = _postgres_repository().list_operation_page(
+            limit=normalized_limit,
+            after=after,
+            offset=normalized_offset,
+            operation_type=operation_type,
+            user_uid=user_uid,
+            start_time=start_time,
+            end_time=end_time,
         )
-    operations = _load_operations(_operations_path(database_path))
+        return OperationListResponse(
+            operations=[_operation_from_postgres(operation) for operation in page.operations],
+            version=page.version,
+            total=page.total,
+            offset=page.offset,
+            limit=page.limit,
+            has_more=page.has_more,
+            operation_types=page.operation_types,
+            user_uids=page.user_uids,
+            min_timestamp=page.min_timestamp.isoformat() if page.min_timestamp else None,
+            max_timestamp=page.max_timestamp.isoformat() if page.max_timestamp else None,
+        )
+    all_operations = _load_operations(_operations_path(database_path))
+    operation_types = sorted({operation.type for operation in all_operations if operation.type})
+    user_uids = sorted({operation.userUid for operation in all_operations if operation.userUid})
+    timestamps = [operation.timestamp for operation in all_operations if operation.timestamp]
+    operations = all_operations
     if after is not None:
         operations = [operation for operation in operations if operation.opId > after]
+    if operation_type:
+        operations = [operation for operation in operations if operation.type == operation_type]
+    if user_uid:
+        operations = [operation for operation in operations if operation.userUid == user_uid]
+    if start_time is not None:
+        operations = [operation for operation in operations if _parse_operation_timestamp(operation.timestamp) >= start_time]
+    if end_time is not None:
+        operations = [operation for operation in operations if _parse_operation_timestamp(operation.timestamp) <= end_time]
+    total = len(operations)
+    page_operations = operations[-(normalized_offset + normalized_limit):len(operations) - normalized_offset if normalized_offset else None]
     return OperationListResponse(
-        operations=operations[-normalized_limit:],
-        version=operations[-1].opId if operations else (after or 0),
+        operations=page_operations,
+        version=all_operations[-1].opId if all_operations else (after or 0),
+        total=total,
+        offset=normalized_offset,
+        limit=normalized_limit,
+        has_more=normalized_offset + normalized_limit < total,
+        operation_types=operation_types,
+        user_uids=user_uids,
+        min_timestamp=min(timestamps) if timestamps else None,
+        max_timestamp=max(timestamps) if timestamps else None,
     )
 
 
@@ -696,7 +753,7 @@ def list_operations(
 def validation_report(
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
 ) -> ValidationResponse:
-    database = _load_cached_database(database_path)
+    database = _postgres_repository().load() if use_postgresql_topology_storage() else _load_cached_database(database_path)
     return ValidationResponse(
         summary=ValidationSummary(
             port_collision_findings=len(database.port_collision_findings),
@@ -986,6 +1043,24 @@ def _load_operations(path: Path) -> list[Operation]:
     return operations
 
 
+def _parse_operation_timestamp(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _normalize_operation_filter_time(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 def _replay_operations(database: TopologyDatabase, database_path: str) -> TopologyDatabase:
     for operation in _load_operations(_operations_path(database_path)):
         if operation.opId <= database.version:
@@ -1084,7 +1159,50 @@ def _operation_from_postgres(operation: PersistedOperation) -> Operation:
         operationGroupUid=operation.operation_group_uid,
         sourceType=operation.source_type,
         sourceUid=operation.source_uid,
+        sourceOperator=operation.source_operator,
     )
+
+
+def _operation_from_db_operation(operation: db.OperationLog) -> Operation:
+    return Operation(
+        opId=operation.id,
+        type=operation.operation_type,
+        entityType=operation.entity_type,
+        entityId=operation.entity_uid,
+        before=operation.before,
+        after=operation.after,
+        timestamp=operation.created_at.isoformat() if operation.created_at else "",
+        userUid=operation.user_uid,
+        userRole=operation.user_role,
+        operationGroupUid=operation.operation_group_uid,
+        sourceType=operation.source_type,
+        sourceUid=operation.source_uid,
+        sourceOperator=operation.source_operator,
+    )
+
+
+def _postgres_entity_source_update_operations(
+    session,
+    *,
+    entity_type: str,
+    entity_uids: list[str],
+) -> dict[str, list[db.OperationLog]]:
+    if not entity_uids:
+        return {}
+    operations = session.execute(
+        select(db.OperationLog)
+        .where(
+            db.OperationLog.project_uid == DEFAULT_PROJECT_UID,
+            db.OperationLog.entity_type == entity_type,
+            db.OperationLog.entity_uid.in_(entity_uids),
+            db.OperationLog.operation_type == "source_update",
+        )
+        .order_by(db.OperationLog.entity_uid, db.OperationLog.id.desc())
+    ).scalars()
+    by_entity: dict[str, list[db.OperationLog]] = {}
+    for operation in operations:
+        by_entity.setdefault(operation.entity_uid, []).append(operation)
+    return by_entity
 
 
 def _postgres_http_exception(exc: ValueError) -> HTTPException:
@@ -1238,6 +1356,16 @@ def _postgres_cabinet_detail(cabinet_uid: str) -> CabinetDetailResponse:
             .where(db.Device.cabinet_uid == cabinet_uid, db.Device.deleted_at.is_(None))
             .order_by(db.Device.rack_unit, db.Device.device_model_name, db.Device.uid)
         ).scalars()
+        device_change_operations = _postgres_entity_source_update_operations(
+            session,
+            entity_type="device",
+            entity_uids=[row.uid for row in device_rows],
+        )
+        device_rows = session.execute(
+            select(db.Device)
+            .where(db.Device.cabinet_uid == cabinet_uid, db.Device.deleted_at.is_(None))
+            .order_by(db.Device.rack_unit, db.Device.device_model_name, db.Device.uid)
+        ).scalars()
         devices = [
             Device(
                 cabinet_id=row.cabinet_uid,
@@ -1257,6 +1385,10 @@ def _postgres_cabinet_detail(cabinet_uid: str) -> CabinetDetailResponse:
                         key=lambda item: item[0].value,
                     )
                 },
+                change_operations=[
+                    _operation_from_db_operation(operation)
+                    for operation in device_change_operations.get(row.uid, [])
+                ],
                 note=row.note,
             )
             for row in device_rows
@@ -1311,6 +1443,14 @@ def _postgres_cabinet_detail(cabinet_uid: str) -> CabinetDetailResponse:
             devices=devices,
             intra_cabinet_connection=intra_cabinet_connection,
             connections=sorted(connections, key=lambda connection: (-connection.total_cables, connection.target_cabinet_uid)),
+            change_operations=[
+                _operation_from_db_operation(operation)
+                for operation in _postgres_entity_source_update_operations(
+                    session,
+                    entity_type="cabinet",
+                    entity_uids=[cabinet_uid],
+                ).get(cabinet_uid, [])
+            ],
         )
 
 
@@ -1388,10 +1528,17 @@ def _postgres_data_hall_cables(
                 .limit(limit)
             ).scalars()
         )
+        change_statuses = _postgres_source_update_statuses(session, [row.uid for row in rows])
+        removed_cables = _postgres_removed_cable_details_for_data_hall_scope(
+            session,
+            data_hall_id=data_hall_id,
+            scope=scope,
+            target_data_hall=normalized_target_data_hall,
+        )
     return CabinetCableDetailResponse(
         source_cabinet_uid=data_hall_id,
         target_cabinet_uid=target_label,
-        cables=[_postgres_cable_detail(row) for row in rows],
+        cables=[_postgres_cable_detail(row, change_status=change_statuses.get(row.uid, "green")) for row in rows] + removed_cables,
         total_cables=total_cables,
         limit=limit,
         offset=offset,
@@ -1414,10 +1561,19 @@ def _postgres_cabinet_connection_cables(source_cabinet_uid: str, target_cabinet_
                 ),
             ],
         )
+        change_statuses = _postgres_source_update_statuses(session, [row.uid for row in rows])
+        removed_cables = _postgres_removed_cable_details_for_port_scopes(
+            session,
+            source_scope=_postgres_port_uid_scope(cabinet_uid=source_cabinet_uid),
+            target_scope=_postgres_port_uid_scope(cabinet_uid=target_cabinet_uid),
+        )
     return CabinetCableDetailResponse(
         source_cabinet_uid=source_cabinet_uid,
         target_cabinet_uid=target_cabinet_uid,
-        cables=sorted((_postgres_cable_detail(row) for row in rows), key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid)),
+        cables=sorted(
+            [_postgres_cable_detail(row, change_status=change_statuses.get(row.uid, "green")) for row in rows] + removed_cables,
+            key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid),
+        ),
     )
 
 
@@ -1438,10 +1594,19 @@ def _postgres_device_connection_cables(source_device_uid: str, target_device_uid
                 ),
             ],
         )
+        change_statuses = _postgres_source_update_statuses(session, [row.uid for row in rows])
+        removed_cables = _postgres_removed_cable_details_for_port_scopes(
+            session,
+            source_scope=_postgres_port_uid_scope(device_uid=source_device_uid),
+            target_scope=_postgres_port_uid_scope(device_uid=target_device_uid),
+        )
     return DeviceCableDetailResponse(
         source_device_uid=source_device_uid,
         target_device_uid=target_device_uid,
-        cables=sorted((_postgres_cable_detail(row) for row in rows), key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid)),
+        cables=sorted(
+            [_postgres_cable_detail(row, change_status=change_statuses.get(row.uid, "green")) for row in rows] + removed_cables,
+            key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid),
+        ),
     )
 
 
@@ -1560,7 +1725,7 @@ def _postgres_bidirectional_port_scope_clause(source_ports, target_ports):
     )
 
 
-def _postgres_cable_detail(row) -> CabinetCableDetail:
+def _postgres_cable_detail(row, *, change_status: str = "green") -> CabinetCableDetail:
     progress = {
         str(key): value.value if hasattr(value, "value") else str(value)
         for key, value in (row.progress or {}).items()
@@ -1582,6 +1747,140 @@ def _postgres_cable_detail(row) -> CabinetCableDetail:
         z_port_uid=row.z_port_uid,
         a_optic=_postgres_optic_model(row.a_optic),
         z_optic=_postgres_optic_model(row.z_optic),
+        change_status=change_status,
+    )
+
+
+def _postgres_source_update_statuses(session, cable_uids: list[str]) -> dict[str, str]:
+    if not cable_uids:
+        return {}
+    operations = session.execute(
+        select(db.OperationLog)
+        .where(
+            db.OperationLog.project_uid == DEFAULT_PROJECT_UID,
+            db.OperationLog.entity_type == "cable",
+            db.OperationLog.entity_uid.in_(cable_uids),
+            db.OperationLog.operation_type == "source_update",
+        )
+        .order_by(db.OperationLog.entity_uid, db.OperationLog.id.desc())
+    ).scalars()
+    statuses: dict[str, str] = {}
+    for operation in operations:
+        if operation.entity_uid in statuses:
+            continue
+        statuses[operation.entity_uid] = _change_status_from_operation(operation)
+    return statuses
+
+
+def _postgres_removed_cable_details_for_port_scopes(session, *, source_scope, target_scope) -> list[CabinetCableDetail]:
+    source_ports = set(session.execute(source_scope).scalars())
+    target_ports = set(session.execute(target_scope).scalars())
+    if not source_ports or not target_ports:
+        return []
+    operations = session.execute(
+        select(db.OperationLog)
+        .where(
+            db.OperationLog.project_uid == DEFAULT_PROJECT_UID,
+            db.OperationLog.entity_type == "cable",
+            db.OperationLog.operation_type == "source_update",
+        )
+        .order_by(db.OperationLog.id.desc())
+    ).scalars()
+    details: list[CabinetCableDetail] = []
+    seen: set[str] = set()
+    for operation in operations:
+        if _change_status_from_operation(operation) != "red" or operation.entity_uid in seen:
+            continue
+        detail = _removed_cable_detail_from_operation(operation)
+        if detail is None:
+            continue
+        if (
+            detail.a_port_uid in source_ports and detail.z_port_uid in target_ports
+        ) or (
+            detail.a_port_uid in target_ports and detail.z_port_uid in source_ports
+        ):
+            details.append(detail)
+            seen.add(operation.entity_uid)
+    return details
+
+
+def _postgres_removed_cable_details_for_data_hall_scope(
+    session,
+    *,
+    data_hall_id: str,
+    scope: str,
+    target_data_hall: str | None,
+) -> list[CabinetCableDetail]:
+    details: list[CabinetCableDetail] = []
+    seen: set[str] = set()
+    for operation in _postgres_removed_cable_operations(session):
+        if operation.entity_uid in seen:
+            continue
+        detail = _removed_cable_detail_from_operation(operation)
+        if detail is None:
+            continue
+        a_hall = detail.a_port_uid.split(":", 1)[0].upper()
+        z_hall = detail.z_port_uid.split(":", 1)[0].upper()
+        if scope == "internal" and a_hall == data_hall_id and z_hall == data_hall_id:
+            details.append(detail)
+            seen.add(operation.entity_uid)
+        elif scope == "external" and target_data_hall and {a_hall, z_hall} == {data_hall_id, target_data_hall}:
+            details.append(detail)
+            seen.add(operation.entity_uid)
+        elif scope == "external" and target_data_hall is None and (a_hall == data_hall_id) != (z_hall == data_hall_id):
+            details.append(detail)
+            seen.add(operation.entity_uid)
+    return details
+
+
+def _postgres_removed_cable_operations(session) -> list[db.OperationLog]:
+    return list(
+        session.execute(
+            select(db.OperationLog)
+            .where(
+                db.OperationLog.project_uid == DEFAULT_PROJECT_UID,
+                db.OperationLog.entity_type == "cable",
+                db.OperationLog.operation_type == "source_update",
+            )
+            .order_by(db.OperationLog.id.desc())
+        ).scalars()
+    )
+
+
+def _change_status_from_operation(operation: db.OperationLog) -> str:
+    change_type = str((operation.after or {}).get("change_type") or "").lower()
+    if change_type == "removed":
+        return "red"
+    if change_type in {"added", "changed"}:
+        return "yellow"
+    return "green"
+
+
+def _removed_cable_detail_from_operation(operation: db.OperationLog) -> CabinetCableDetail | None:
+    record = (operation.before or {}).get("old_record")
+    if not isinstance(record, dict):
+        record = operation.before or {}
+    a_port_uid = str(record.get("a_port_uid") or "")
+    z_port_uid = str(record.get("z_port_uid") or "")
+    if not a_port_uid or not z_port_uid:
+        return None
+    return CabinetCableDetail(
+        uid=str(record.get("cable_uid") or operation.entity_uid),
+        group=str(record.get("group") or ""),
+        status=str(record.get("status") or ""),
+        cable_type=str(record.get("cable_type") or ""),
+        construction_phase=str(record.get("construction_phase") or ""),
+        progress={},
+        current_phase=None,
+        designed_length_meters=None,
+        length_used_meters=0,
+        length_meters=None,
+        note=str(record.get("note") or ""),
+        a_port_uid=a_port_uid,
+        z_port_uid=z_port_uid,
+        a_optic=str(record.get("a_optic") or ""),
+        z_optic=str(record.get("z_optic") or ""),
+        change_status="red",
     )
 
 

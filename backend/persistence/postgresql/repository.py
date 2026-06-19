@@ -132,8 +132,30 @@ class PostgresTopologyRepository(TopologyRepository):
                 )
 
     def list_operations(self, limit: int = 100, after: int | None = None) -> list[PersistedOperation]:
+        return self.list_operation_page(limit=limit, after=after).operations
+
+    def list_operation_page(
+        self,
+        limit: int = 100,
+        after: int | None = None,
+        offset: int = 0,
+        operation_type: str | None = None,
+        user_uid: str | None = None,
+        start_time=None,
+        end_time=None,
+    ):
         with self._session_factory() as session:
-            return list_postgresql_operations(session, project_uid=self.project_uid, limit=limit, after=after)
+            return list_postgresql_operations(
+                session,
+                project_uid=self.project_uid,
+                limit=limit,
+                after=after,
+                offset=offset,
+                operation_type=operation_type,
+                user_uid=user_uid,
+                start_time=start_time,
+                end_time=end_time,
+            )
 
 
 def load_project_topology(

@@ -29,12 +29,26 @@ class PersistedOperation(BaseModel):
     operation_group_uid: str | None = None
     source_type: str | None = None
     source_uid: str | None = None
+    source_operator: str | None = None
     before: dict[str, Any] = Field(default_factory=dict)
     after: dict[str, Any] = Field(default_factory=dict)
     user_uid: str | None = None
     user_role: str | None = None
     created_at: datetime | None = None
     version: int
+
+
+class PersistedOperationList(BaseModel):
+    operations: list[PersistedOperation]
+    total: int
+    offset: int
+    limit: int
+    has_more: bool
+    version: int
+    operation_types: list[str] = Field(default_factory=list)
+    user_uids: list[str] = Field(default_factory=list)
+    min_timestamp: datetime | None = None
+    max_timestamp: datetime | None = None
 
 
 class StaleWriteConflict(ValueError):
@@ -66,6 +80,7 @@ def update_cabinet_status(
     operation_group_uid: str | None = None,
     source_type: str | None = None,
     source_uid: str | None = None,
+    source_operator: str | None = None,
 ) -> PersistedOperation:
     cabinet_uid = cabinet_uid.upper()
     _acquire_write_gate(session, entity_type="cabinet", entity_uid=cabinet_uid, user=user)
@@ -93,6 +108,7 @@ def update_cabinet_status(
         operation_group_uid=operation_group_uid,
         source_type=source_type,
         source_uid=source_uid,
+        source_operator=source_operator,
     )
 
 
@@ -106,6 +122,7 @@ def update_device_status(
     operation_group_uid: str | None = None,
     source_type: str | None = None,
     source_uid: str | None = None,
+    source_operator: str | None = None,
 ) -> PersistedOperation:
     device_uid = _normalize_device_uid(device_uid)
     _acquire_write_gate(session, entity_type="device", entity_uid=device_uid, user=user)
@@ -133,6 +150,7 @@ def update_device_status(
         operation_group_uid=operation_group_uid,
         source_type=source_type,
         source_uid=source_uid,
+        source_operator=source_operator,
     )
 
 
@@ -150,6 +168,7 @@ def update_cable(
     operation_group_uid: str | None = None,
     source_type: str | None = None,
     source_uid: str | None = None,
+    source_operator: str | None = None,
 ) -> PersistedOperation:
     cable_uid = cable_uid.upper()
     _acquire_write_gate(session, entity_type="cable", entity_uid=cable_uid, user=user)
@@ -211,6 +230,7 @@ def update_cable(
         operation_group_uid=operation_group_uid,
         source_type=source_type,
         source_uid=source_uid,
+        source_operator=source_operator,
     )
 
 
@@ -226,6 +246,7 @@ def bulk_update_status(
     operation_group_uid: str | None = None,
     source_type: str | None = None,
     source_uid: str | None = None,
+    source_operator: str | None = None,
 ) -> list[PersistedOperation]:
     normalized_entity_type = entity_type.strip().lower()
     normalized_uids = _normalized_bulk_uids(normalized_entity_type, entity_uids)
@@ -248,6 +269,7 @@ def bulk_update_status(
                     operation_group_uid=operation_group_uid,
                     source_type=source_type,
                     source_uid=source_uid,
+                    source_operator=source_operator,
                 )
             )
         return operations
@@ -266,6 +288,7 @@ def bulk_update_status(
                     operation_group_uid=operation_group_uid,
                     source_type=source_type,
                     source_uid=source_uid,
+                    source_operator=source_operator,
                 )
             )
         return operations
@@ -284,6 +307,7 @@ def bulk_update_status(
                     operation_group_uid=operation_group_uid,
                     source_type=source_type,
                     source_uid=source_uid,
+                    source_operator=source_operator,
                 )
             )
         return operations
@@ -297,20 +321,54 @@ def list_operations(
     project_uid: str,
     limit: int = 100,
     after: int | None = None,
-) -> list[PersistedOperation]:
+    offset: int = 0,
+    operation_type: str | None = None,
+    user_uid: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+) -> PersistedOperationList:
     clauses = [db.OperationLog.project_uid == project_uid]
     if after is not None:
         clauses.append(db.OperationLog.id > after)
+    if operation_type:
+        clauses.append(db.OperationLog.operation_type == operation_type)
+    if user_uid:
+        clauses.append(db.OperationLog.user_uid == user_uid)
+    if start_time is not None:
+        clauses.append(db.OperationLog.created_at >= start_time)
+    if end_time is not None:
+        clauses.append(db.OperationLog.created_at <= end_time)
+    normalized_limit = max(1, min(limit, 500))
+    normalized_offset = max(0, offset)
+    total = session.execute(select(func.count()).select_from(db.OperationLog).where(*clauses)).scalar_one()
+    version = session.execute(
+        select(func.max(db.OperationLog.id)).where(db.OperationLog.project_uid == project_uid)
+    ).scalar_one() or 0
     rows = session.execute(
         select(db.OperationLog)
         .where(*clauses)
         .order_by(desc(db.OperationLog.id))
-        .limit(max(1, min(limit, 500)))
+        .offset(normalized_offset)
+        .limit(normalized_limit)
     ).scalars()
-    return [
-        _operation_payload(row)
-        for row in reversed(list(rows))
-    ]
+    facet_rows = session.execute(
+        select(db.OperationLog.operation_type, db.OperationLog.user_uid, db.OperationLog.created_at)
+        .where(db.OperationLog.project_uid == project_uid)
+        .order_by(db.OperationLog.id)
+    ).all()
+    timestamps = [row.created_at for row in facet_rows if row.created_at is not None]
+    return PersistedOperationList(
+        operations=[_operation_payload(row) for row in reversed(list(rows))],
+        total=total,
+        offset=normalized_offset,
+        limit=normalized_limit,
+        has_more=normalized_offset + normalized_limit < total,
+        version=version if after is None or total else after,
+        operation_types=sorted({row.operation_type for row in facet_rows if row.operation_type}),
+        user_uids=sorted({row.user_uid for row in facet_rows if row.user_uid}),
+        min_timestamp=min(timestamps) if timestamps else None,
+        max_timestamp=max(timestamps) if timestamps else None,
+    )
 
 
 def _append_operation(
@@ -326,6 +384,7 @@ def _append_operation(
     operation_group_uid: str | None = None,
     source_type: str | None = None,
     source_uid: str | None = None,
+    source_operator: str | None = None,
 ) -> PersistedOperation:
     if user is not None:
         _ensure_user(session, user)
@@ -337,6 +396,7 @@ def _append_operation(
         operation_group_uid=operation_group_uid,
         source_type=source_type,
         source_uid=source_uid,
+        source_operator=source_operator,
         before=before,
         after=after,
         user_uid=user.uid if user else None,
@@ -429,6 +489,7 @@ def _operation_payload(operation: db.OperationLog) -> PersistedOperation:
         operation_group_uid=operation.operation_group_uid,
         source_type=operation.source_type,
         source_uid=operation.source_uid,
+        source_operator=operation.source_operator,
         before=operation.before,
         after=operation.after,
         user_uid=operation.user_uid,

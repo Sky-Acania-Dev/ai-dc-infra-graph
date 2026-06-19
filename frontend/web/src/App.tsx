@@ -579,8 +579,10 @@ export function App() {
     setOperationList((current) =>
       current
         ? {
+            ...current,
             operations: [...current.operations.filter((operation) => operation.opId !== response.operation.opId), response.operation],
             version: response.version,
+            total: Math.max(current.total, current.operations.length) + 1,
           }
         : current,
     );
@@ -634,6 +636,7 @@ export function App() {
         setOperationList((current) =>
           current
             ? {
+                ...current,
                 operations: [
                   ...current.operations.filter(
                     (operation) => !response.operations.some((nextOperation) => nextOperation.opId === operation.opId),
@@ -641,6 +644,7 @@ export function App() {
                   ...response.operations,
                 ],
                 version: response.version,
+                total: Math.max(current.total, current.operations.length) + response.operations.length,
               }
             : current,
         );
@@ -709,6 +713,7 @@ export function App() {
         setOperationList((current) =>
           current
             ? {
+                ...current,
                 operations: [
                   ...current.operations.filter(
                     (operation) => !nextOperations.operations.some((nextOperation) => nextOperation.opId === operation.opId),
@@ -716,6 +721,7 @@ export function App() {
                   ...nextOperations.operations,
                 ],
                 version: latestVersion,
+                total: Math.max(current.total, current.operations.length) + nextOperations.operations.length,
               }
             : nextOperations,
         );
@@ -884,7 +890,7 @@ export function App() {
       {mode === "validation" ? (
         <ValidationView onJumpToDevice={jumpToDevice} onJumpToPort={jumpToPort} />
       ) : mode === "operations" ? (
-        <OperationDebugView operationList={operationList} onRefresh={refreshOperations} />
+        <OperationDebugView initialOperationList={operationList} />
       ) : (
         <div className="workspace">
           <CabinetDetailsPanel
@@ -1035,28 +1041,196 @@ function uniqueCables(cables: CabinetCableDetail[]): CabinetCableDetail[] {
   return [...byUid.values()];
 }
 
-function OperationDebugView({
-  operationList,
-  onRefresh,
-}: {
-  operationList: OperationListResponse | null;
-  onRefresh: () => void;
-}) {
+const OPERATION_PAGE_SIZES = [25, 50, 100, 250];
+
+function OperationDebugView({ initialOperationList }: { initialOperationList: OperationListResponse | null }) {
+  const [operationList, setOperationList] = useState<OperationListResponse | null>(initialOperationList);
+  const [isLoading, setIsLoading] = useState(false);
+  const [pageSize, setPageSize] = useState(50);
+  const [offset, setOffset] = useState(0);
+  const [operationType, setOperationType] = useState("");
+  const [userUid, setUserUid] = useState("");
+  const [timeRange, setTimeRange] = useState<{ min: number; max: number } | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const minTimestamp = timestampMs(operationList?.min_timestamp);
+  const maxTimestamp = timestampMs(operationList?.max_timestamp);
+  const activeTimeRange =
+    minTimestamp != null && maxTimestamp != null
+      ? timeRange ?? { min: minTimestamp, max: maxTimestamp }
+      : null;
   const operations = [...(operationList?.operations ?? [])].reverse();
+  const total = operationList?.total ?? operations.length;
+  const rangeStart = total === 0 ? 0 : offset + 1;
+  const rangeEnd = Math.min(offset + pageSize, total);
+  const canPageBack = offset > 0;
+  const canPageForward = Boolean(operationList?.has_more);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setLocalError(null);
+    fetchOperations({
+      limit: pageSize,
+      offset,
+      operationType,
+      userUid,
+      startTime: activeTimeRange ? new Date(activeTimeRange.min).toISOString() : null,
+      endTime: activeTimeRange ? new Date(activeTimeRange.max).toISOString() : null,
+    })
+      .then((operations) => {
+        if (!cancelled) setOperationList(operations);
+      })
+      .catch((requestError: Error) => {
+        if (!cancelled) setLocalError(requestError.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTimeRange?.max, activeTimeRange?.min, offset, operationType, pageSize, refreshCount, userUid]);
+
+  function resetFilters() {
+    setOffset(0);
+    setOperationType("");
+    setUserUid("");
+    setTimeRange(null);
+  }
+
+  function updateOperationType(value: string) {
+    setOffset(0);
+    setOperationType(value);
+  }
+
+  function updateUserUid(value: string) {
+    setOffset(0);
+    setUserUid(value);
+  }
+
+  function updatePageSize(value: number) {
+    setOffset(0);
+    setPageSize(value);
+  }
+
+  function updateTimeMin(value: number) {
+    if (!activeTimeRange) return;
+    setOffset(0);
+    setTimeRange({ min: Math.min(value, activeTimeRange.max), max: activeTimeRange.max });
+  }
+
+  function updateTimeMax(value: number) {
+    if (!activeTimeRange) return;
+    setOffset(0);
+    setTimeRange({ min: activeTimeRange.min, max: Math.max(value, activeTimeRange.min) });
+  }
+
   return (
     <section className="operations-pane">
       <div className="pane-header">
         <div>
-          <span className="eyebrow">Debug</span>
+          <span className="eyebrow">History</span>
           <h2>Operation Log</h2>
         </div>
         <div className="table-pagination-controls">
           <span>{operationList ? `Version ${operationList.version}` : "Loading"}</span>
-          <button type="button" onClick={onRefresh}>
+          <button type="button" onClick={() => setRefreshCount((current) => current + 1)}>
             Refresh
           </button>
         </div>
       </div>
+      <div className="operation-log-filters">
+        <div className="operation-time-filter">
+          <div className="range-filter-labels">
+            <span>{activeTimeRange ? formatDateTime(activeTimeRange.min) : "Start"}</span>
+            <span>{activeTimeRange ? formatDateTime(activeTimeRange.max) : "End"}</span>
+          </div>
+          <div className="range-slider">
+            <div className="range-slider-rail">
+              <div className="range-slider-track" />
+              {activeTimeRange && minTimestamp != null && maxTimestamp != null ? (
+                <div
+                  className="range-slider-active"
+                  style={rangeActiveStyle(activeTimeRange, minTimestamp, maxTimestamp)}
+                />
+              ) : null}
+            </div>
+            <input
+              aria-label="Operation start time"
+              disabled={!activeTimeRange}
+              max={maxTimestamp ?? 0}
+              min={minTimestamp ?? 0}
+              onChange={(event) => updateTimeMin(Number(event.target.value))}
+              step={60_000}
+              type="range"
+              value={activeTimeRange?.min ?? 0}
+            />
+            <input
+              aria-label="Operation end time"
+              disabled={!activeTimeRange}
+              max={maxTimestamp ?? 0}
+              min={minTimestamp ?? 0}
+              onChange={(event) => updateTimeMax(Number(event.target.value))}
+              step={60_000}
+              type="range"
+              value={activeTimeRange?.max ?? 0}
+            />
+          </div>
+        </div>
+        <label>
+          <span>Type</span>
+          <select value={operationType} onChange={(event) => updateOperationType(event.target.value)}>
+            <option value="">All</option>
+            {(operationList?.operation_types ?? []).map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>User</span>
+          <select value={userUid} onChange={(event) => updateUserUid(event.target.value)}>
+            <option value="">All</option>
+            {(operationList?.user_uids ?? []).map((uid) => (
+              <option key={uid} value={uid}>
+                {uid}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" onClick={resetFilters}>
+          Reset
+        </button>
+      </div>
+      <div className="table-pagination operation-pagination">
+        <span className="table-pagination-range">
+          {isLoading ? "Loading" : `${rangeStart}-${rangeEnd} of ${total}`}
+        </span>
+        <div className="table-pagination-controls">
+          <button disabled={!canPageBack || isLoading} onClick={() => setOffset(0)} type="button">
+            First
+          </button>
+          <button disabled={!canPageBack || isLoading} onClick={() => setOffset(Math.max(0, offset - pageSize))} type="button">
+            Previous
+          </button>
+          <button disabled={!canPageForward || isLoading} onClick={() => setOffset(offset + pageSize)} type="button">
+            Next
+          </button>
+          <label>
+            <span>Rows</span>
+            <select value={pageSize} onChange={(event) => updatePageSize(Number(event.target.value))}>
+              {OPERATION_PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+      {localError ? <div className="error-banner">{localError}</div> : null}
       <div className="validation-table-scroll operations-table-scroll">
         <table className="validation-table operations-table">
           <thead>
@@ -1088,10 +1262,33 @@ function OperationDebugView({
             ))}
           </tbody>
         </table>
-        {!operations.length ? <div className="empty-table-space">No logged operations.</div> : null}
+        {!operations.length ? <div className="empty-table-space">{isLoading ? "Loading operations." : "No logged operations."}</div> : null}
       </div>
     </section>
   );
+}
+
+function timestampMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatDateTime(value: number): string {
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function rangeActiveStyle(range: { min: number; max: number }, sourceMin: number, sourceMax: number) {
+  const span = Math.max(sourceMax - sourceMin, 1);
+  return {
+    left: `${((range.min - sourceMin) / span) * 100}%`,
+    right: `${100 - ((range.max - sourceMin) / span) * 100}%`,
+  };
 }
 
 function parseDeviceUid(value: string) {

@@ -21,6 +21,7 @@ class LocationRackUnit(BaseModel):
 
 
 class CutsheetCableRow(BaseModel):
+    source_cable_uid: str = ""
     group: str
     status: str
     cable_type: str
@@ -34,6 +35,7 @@ class CutsheetCableRow(BaseModel):
     a_breakout_loc_cab_ru: str = ""
     a_breakout_slot_port: str = ""
     a_optic: str = ""
+    a_patch_panel_loc_cab_ru_port: str = ""
     z_data_hall_id: str
     z_cabinet_id: str
     z_rack_unit: int
@@ -132,7 +134,7 @@ def ingest_cutsheet_rows(
 
         cables.append(
             Cable(
-                uid=f"CBL-{len(cables) + 1:06d}",
+                uid=parsed_row.source_cable_uid or f"CBL-{len(cables) + 1:06d}",
                 a_side=a_port,
                 z_side=z_port,
                 cable_type=parsed_row.cable_type,
@@ -220,6 +222,7 @@ def _parse_cable_row(row: dict[str, str], group: str) -> CutsheetCableRow:
         raise ValueError("Cable row must include A-PORT and Z-PORT values.")
 
     return CutsheetCableRow(
+        source_cable_uid=_source_cable_uid(row),
         group=group,
         status=row.get("status", ""),
         cable_type=row.get("cable", ""),
@@ -233,6 +236,7 @@ def _parse_cable_row(row: dict[str, str], group: str) -> CutsheetCableRow:
         a_breakout_loc_cab_ru=row.get("a_breakout_loc_cab_ru", ""),
         a_breakout_slot_port=row.get("a_breakout_slot_port", ""),
         a_optic=row.get("a_optic", ""),
+        a_patch_panel_loc_cab_ru_port=row.get("a_patch_panel_loc_cab_ru_port", ""),
         z_data_hall_id=z_location.data_hall_id,
         z_cabinet_id=z_location.cabinet_id,
         z_rack_unit=z_location.rack_unit,
@@ -352,3 +356,11 @@ def _normalize_header(header: Any) -> str:
         .replace("-", "_")
         .replace(" ", "_")
     )
+
+
+def _source_cable_uid(row: dict[str, str]) -> str:
+    for key in ("cable_uid", "cable_id", "cableid", "uid"):
+        value = row.get(key, "").strip()
+        if value:
+            return value.upper()
+    return ""

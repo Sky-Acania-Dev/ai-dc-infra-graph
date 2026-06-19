@@ -28,6 +28,9 @@ class PostgreSQLModelTests(unittest.TestCase):
             "task_entities",
             "task_events",
             "operation_log",
+            "topology_versions",
+            "entity_history",
+            "source_imports",
             "filter_presets",
         }
 
@@ -83,6 +86,24 @@ class PostgreSQLModelTests(unittest.TestCase):
         self.assertIn("operation_group_uid", operation_log_columns)
         self.assertIn("source_type", operation_log_columns)
         self.assertIn("source_uid", operation_log_columns)
+        self.assertIn("source_operator", operation_log_columns)
+
+    def test_topology_versions_and_entity_history_capture_import_lifecycle(self) -> None:
+        version_columns = Base.metadata.tables["topology_versions"].columns
+        history_columns = Base.metadata.tables["entity_history"].columns
+        source_import_columns = Base.metadata.tables["source_imports"].columns
+
+        self.assertIn("version_name", version_columns)
+        self.assertIn("version_date", version_columns)
+        self.assertIn("source_operator", version_columns)
+        self.assertIn("source_import_uid", version_columns)
+        self.assertIn("first_version_uid", history_columns)
+        self.assertIn("first_operation_id", history_columns)
+        self.assertIn("last_version_uid", history_columns)
+        self.assertIn("last_operation_id", history_columns)
+        self.assertIn("version_name", source_import_columns)
+        self.assertIn("version_date", source_import_columns)
+        self.assertIn("source_operator", source_import_columns)
 
 
 if __name__ == "__main__":

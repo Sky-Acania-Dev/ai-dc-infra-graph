@@ -7,10 +7,11 @@ type ViewerScaleSliderProps<T extends string> = {
 
 export function ViewerScaleSlider<T extends string>({ label, steps, value, onChange }: ViewerScaleSliderProps<T>) {
   const currentIndex = Math.max(0, steps.findIndex((step) => step.value === value));
+  const currentLabel = steps[currentIndex]?.label ?? label;
 
   return (
     <div className="viewer-scale-slider" role="group" aria-label={label}>
-      <span>{label}</span>
+      <span>{currentLabel}</span>
       <input
         aria-label={label}
         max={steps.length - 1}
@@ -24,13 +25,12 @@ export function ViewerScaleSlider<T extends string>({ label, steps, value, onCha
         {steps.map((step, index) => (
           <button
             aria-label={step.label}
+            title={step.label}
             className={index === currentIndex ? "is-active" : ""}
             key={step.value}
             onClick={() => onChange(step.value)}
             type="button"
-          >
-            {step.label}
-          </button>
+          />
         ))}
       </div>
     </div>
