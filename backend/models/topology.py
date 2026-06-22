@@ -123,6 +123,8 @@ class Cable(BaseModel):
     group: str = ""
     status: str = ""
     construction_phase: ConstructionPhase = ConstructionPhase.MANAGEMENT_ETHERNET
+    a_label_text: str = ""
+    z_label_text: str = ""
     progress: dict[CableProgressStep, CableProgressState] = Field(default_factory=dict)
     current_phase: CableProgressPhase | None = None
     designed_length_meters: float | None = None

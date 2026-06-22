@@ -32,6 +32,10 @@ class PostgreSQLModelTests(unittest.TestCase):
             "entity_history",
             "source_imports",
             "filter_presets",
+            "change_orders",
+            "change_order_items",
+            "change_order_task_links",
+            "change_order_events",
         }
 
         self.assertTrue(expected_tables.issubset(Base.metadata.tables))
@@ -105,6 +109,25 @@ class PostgreSQLModelTests(unittest.TestCase):
         self.assertIn("version_date", source_import_columns)
         self.assertIn("source_operator", source_import_columns)
 
+    def test_change_order_tables_have_expected_payload_and_link_columns(self) -> None:
+        cable_columns = Base.metadata.tables["cables"].columns
+        order_columns = Base.metadata.tables["change_orders"].columns
+        item_columns = Base.metadata.tables["change_order_items"].columns
+        link_columns = Base.metadata.tables["change_order_task_links"].columns
+        event_columns = Base.metadata.tables["change_order_events"].columns
+
+        self.assertIn("a_label_text", cable_columns)
+        self.assertIn("z_label_text", cable_columns)
+        self.assertIn("change_order_number", order_columns)
+        self.assertIn("items_payload", order_columns)
+        self.assertIn("summary", order_columns)
+        self.assertIn("intent", item_columns)
+        self.assertIn("before_definition", item_columns)
+        self.assertIn("after_definition", item_columns)
+        self.assertIn("task_plan", item_columns)
+        self.assertIn("task_uid", link_columns)
+        self.assertIn("effect_type", link_columns)
+        self.assertIn("event_type", event_columns)
 
 if __name__ == "__main__":
     unittest.main()

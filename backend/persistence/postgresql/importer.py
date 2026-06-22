@@ -373,6 +373,8 @@ def _cable_record(database: TopologyDatabase, building_uid: str, cable: DomainCa
         cable_group=cable.group,
         import_status=cable.status,
         construction_phase=_enum_value(cable.construction_phase),
+        a_label_text=cable.a_label_text,
+        z_label_text=cable.z_label_text,
         progress={_enum_value(key): _enum_value(value) for key, value in cable.progress.items()},
         current_phase=_payload_or_none(cable.current_phase),
         designed_length_meters=cable.designed_length_meters,

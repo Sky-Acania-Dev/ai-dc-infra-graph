@@ -189,6 +189,8 @@ class Cable(TimestampColumns, Base):
     cable_group: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     import_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     construction_phase: Mapped[str] = mapped_column(Text, nullable=False, server_default="Management & Ethernet")
+    a_label_text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    z_label_text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     progress: Mapped[dict[str, Any]] = jsonb_dict()
     current_phase: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     designed_length_meters: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
@@ -434,11 +436,11 @@ class Task(TimestampColumns, Base):
     __tablename__ = "tasks"
     __table_args__ = (
         CheckConstraint(
-            "task_type in ('cable_pull', 'cable_dress', 'cable_termination', 'cable_test', 'cable_label', 'cable_rework', 'inspection')",
+            "task_type in ('cable_pull', 'cable_dress', 'cable_termination', 'cable_test', 'cable_label', 'cable_rework', 'cable_retirement', 'cable_removal', 'inspection')",
             name="ck_tasks_task_type",
         ),
         CheckConstraint(
-            "status in ('draft', 'assigned', 'in_progress', 'submitted', 'approved', 'denied', 'cancelled')",
+            "status in ('draft', 'assigned', 'in_progress', 'submitted', 'approved', 'denied', 'cancelled', 'abandoned', 'superseded')",
             name="ck_tasks_status",
         ),
         CheckConstraint("priority in ('low', 'normal', 'high', 'urgent')", name="ck_tasks_priority"),
@@ -492,7 +494,7 @@ class TaskEvent(Base):
     __tablename__ = "task_events"
     __table_args__ = (
         CheckConstraint(
-            "event_type in ('created', 'assigned', 'started', 'submitted', 'approved', 'denied', 'cancelled', 'applied')",
+            "event_type in ('created', 'assigned', 'started', 'submitted', 'approved', 'denied', 'cancelled', 'abandoned', 'superseded', 'applied')",
             name="ck_task_events_type",
         ),
         Index("ix_task_events_task_created", "task_uid", "created_at"),
@@ -507,6 +509,86 @@ class TaskEvent(Base):
     payload: Mapped[dict[str, Any]] = jsonb_dict()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
+
+class ChangeOrder(TimestampColumns, Base):
+    __tablename__ = "change_orders"
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('draft', 'resolved', 'review_ready', 'approved', 'executing', 'partially_complete', 'complete', 'rejected', 'cancelled', 'blocked', 'superseded')",
+            name="ck_change_orders_status",
+        ),
+        UniqueConstraint("project_uid", "change_order_number", name="uq_change_orders_project_number"),
+        Index("ix_change_orders_project_status", "project_uid", "status", "created_at"),
+        Index("ix_change_orders_source", "source_type", "source_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    change_order_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    source_uid: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    requested_by_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    reviewed_by_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    summary: Mapped[dict[str, Any]] = jsonb_dict()
+    items_payload: Mapped[list[dict[str, Any]]] = jsonb_list()
+
+
+class ChangeOrderItem(TimestampColumns, Base):
+    __tablename__ = "change_order_items"
+    __table_args__ = (
+        CheckConstraint("entity_type in ('cable')", name="ck_change_order_items_entity_type"),
+        Index("ix_change_order_items_order", "change_order_uid", "sequence"),
+        Index("ix_change_order_items_entity", "entity_type", "entity_uid"),
+        Index("ix_change_order_items_status", "change_order_uid", "status"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    change_order_uid: Mapped[str] = mapped_column(ForeignKey("change_orders.uid", ondelete="CASCADE"), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="cable")
+    entity_uid: Mapped[str] = mapped_column(Text, nullable=False)
+    intent: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    old_entity_uid: Mapped[str | None] = mapped_column(Text)
+    new_entity_uid: Mapped[str | None] = mapped_column(Text)
+    before_definition: Mapped[dict[str, Any]] = jsonb_dict()
+    after_definition: Mapped[dict[str, Any]] = jsonb_dict()
+    task_plan: Mapped[list[dict[str, Any]]] = jsonb_list()
+    result_payload: Mapped[dict[str, Any]] = jsonb_dict()
+
+
+class ChangeOrderTaskLink(Base):
+    __tablename__ = "change_order_task_links"
+    __table_args__ = (
+        Index("ix_change_order_task_links_task", "task_uid"),
+        Index("ix_change_order_task_links_order", "change_order_uid"),
+    )
+
+    change_order_uid: Mapped[str] = mapped_column(ForeignKey("change_orders.uid", ondelete="CASCADE"), primary_key=True)
+    change_order_item_uid: Mapped[str] = mapped_column(ForeignKey("change_order_items.uid", ondelete="CASCADE"), primary_key=True)
+    task_uid: Mapped[str] = mapped_column(ForeignKey("tasks.uid", ondelete="CASCADE"), primary_key=True)
+    effect_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ChangeOrderEvent(Base):
+    __tablename__ = "change_order_events"
+    __table_args__ = (
+        Index("ix_change_order_events_order", "change_order_uid", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    change_order_uid: Mapped[str] = mapped_column(ForeignKey("change_orders.uid", ondelete="CASCADE"), nullable=False)
+    change_order_item_uid: Mapped[str | None] = mapped_column(ForeignKey("change_order_items.uid", ondelete="CASCADE"))
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    payload: Mapped[dict[str, Any]] = jsonb_dict()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 class OperationLog(Base):
     __tablename__ = "operation_log"

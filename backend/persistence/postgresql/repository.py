@@ -359,6 +359,8 @@ def _cables(session: Session, project_uid: str, ports_by_uid: dict[str, PortConn
             group=row.cable_group,
             status=row.import_status,
             construction_phase=ConstructionPhase(row.construction_phase),
+            a_label_text=row.a_label_text,
+            z_label_text=row.z_label_text,
             progress={CableProgressStep(key): CableProgressState(value) for key, value in row.progress.items()},
             current_phase=_optional_model(CableProgressPhase, row.current_phase),
             designed_length_meters=float(row.designed_length_meters) if row.designed_length_meters is not None else None,

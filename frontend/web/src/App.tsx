@@ -1066,8 +1066,8 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
       offset,
       operationType,
       userUid,
-      startTime: activeTimeRange ? new Date(activeTimeRange.min).toISOString() : null,
-      endTime: activeTimeRange ? new Date(activeTimeRange.max).toISOString() : null,
+      startTime: timeRange ? new Date(timeRange.min).toISOString() : null,
+      endTime: timeRange ? new Date(timeRange.max + 999).toISOString() : null,
     })
       .then((operations) => {
         if (!cancelled) setOperationList(operations);
@@ -1081,7 +1081,7 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
     return () => {
       cancelled = true;
     };
-  }, [activeTimeRange?.max, activeTimeRange?.min, offset, operationType, pageSize, refreshCount, userUid]);
+  }, [offset, operationType, pageSize, refreshCount, timeRange?.max, timeRange?.min, userUid]);
 
   function resetFilters() {
     setOffset(0);

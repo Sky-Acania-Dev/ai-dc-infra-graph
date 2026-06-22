@@ -16,6 +16,7 @@ from backend.persistence.postgresql import models as db
 from backend.persistence.postgresql.filter_presets import FILTER_FIELD_DEFINITIONS, FilterPayload, validate_filter_payload
 from backend.persistence.postgresql.mutations import MutationUser, PersistedOperation, bulk_update_status
 from backend.persistence.postgresql.session import session_factory
+from backend.services.change_orders import apply_change_order_task_completion
 
 
 router = APIRouter(tags=["tasks"])
@@ -27,21 +28,25 @@ TASK_TYPES = {
     "cable_test",
     "cable_label",
     "cable_rework",
+    "cable_retirement",
+    "cable_removal",
     "inspection",
 }
-TASK_STATUSES = {"draft", "assigned", "in_progress", "submitted", "approved", "denied", "cancelled"}
+TASK_STATUSES = {"draft", "assigned", "in_progress", "submitted", "approved", "denied", "cancelled", "abandoned", "superseded"}
 TASK_PRIORITIES = {"low", "normal", "high", "urgent"}
 TASK_ENTITY_TYPES = {"cable", "cabinet", "device", "port", "bundle"}
 CREW_ROLES = {"lead", "member", "foreman"}
 
 TASK_TRANSITIONS: dict[str, set[str]] = {
-    "draft": {"assigned", "cancelled"},
-    "assigned": {"in_progress", "submitted", "cancelled"},
-    "in_progress": {"submitted", "cancelled"},
-    "submitted": {"approved", "denied", "cancelled"},
-    "denied": {"assigned", "in_progress", "cancelled"},
+    "draft": {"assigned", "cancelled", "abandoned", "superseded"},
+    "assigned": {"in_progress", "submitted", "cancelled", "abandoned", "superseded"},
+    "in_progress": {"submitted", "cancelled", "abandoned", "superseded"},
+    "submitted": {"approved", "denied", "cancelled", "abandoned", "superseded"},
+    "denied": {"assigned", "in_progress", "cancelled", "abandoned", "superseded"},
     "approved": set(),
     "cancelled": set(),
+    "abandoned": set(),
+    "superseded": set(),
 }
 
 
@@ -822,6 +827,7 @@ def apply_completed_task_content(
                     "crew_member_updates": [_model_payload(update) for update in crew_member_updates],
                 },
             )
+            apply_change_order_task_completion(session, task=task, actor_user_uid=user.uid)
             return AppliedTaskResult(
                 task_uid=task.uid,
                 operation_group_uid=operation_group_uid,
@@ -1240,7 +1246,7 @@ def _personnel_current_status_record(
     ]
     active_crew_uids = [crew.uid for member, crew in crew_rows if member.active]
 
-    terminal_statuses = {"approved", "cancelled"}
+    terminal_statuses = {"approved", "cancelled", "abandoned", "superseded"}
     assignment_clause = db.Task.assigned_personnel_uid == personnel.uid
     if active_crew_uids:
         assignment_clause = or_(assignment_clause, db.Task.assigned_crew_uid.in_(active_crew_uids))

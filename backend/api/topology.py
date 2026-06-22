@@ -123,6 +123,8 @@ class CabinetCableDetail(BaseModel):
     status: str
     cable_type: str
     construction_phase: str
+    a_label_text: str = ""
+    z_label_text: str = ""
     progress: dict[str, str] = Field(default_factory=dict)
     current_phase: CableProgressPhase | None = None
     designed_length_meters: float | None = None
@@ -1737,6 +1739,8 @@ def _postgres_cable_detail(row, *, change_status: str = "green") -> CabinetCable
         status=row.import_status,
         cable_type=row.cable_type,
         construction_phase=row.construction_phase,
+        a_label_text=row.a_label_text,
+        z_label_text=row.z_label_text,
         progress=progress,
         current_phase=normalize_cable_progress_phase(current_phase) if current_phase is not None else None,
         designed_length_meters=float(row.designed_length_meters) if row.designed_length_meters is not None else None,
@@ -2070,6 +2074,8 @@ def _cable_detail(cable: Cable) -> CabinetCableDetail:
         status=cable.status,
         cable_type=cable.cable_type,
         construction_phase=cable.construction_phase.value,
+        a_label_text=cable.a_label_text,
+        z_label_text=cable.z_label_text,
         progress=_progress_payload(cable),
         current_phase=normalize_cable_progress_phase(cable.current_phase or _phase_from_legacy_progress(cable)),
         designed_length_meters=cable.designed_length_meters,
