@@ -22,7 +22,7 @@ type CableDetailOverlayProps = {
 };
 
 type SortDirection = "asc" | "desc";
-type ChangeStatus = "green" | "yellow" | "red";
+type ChangeStatus = "green" | "yellow" | "red" | "cyan";
 type CableColumnKey =
   | "uid"
   | "cable_type"
@@ -101,7 +101,7 @@ export function CableDetailOverlay({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(250);
   const [tableScale, setTableScale] = useState<CableTableScale>("m");
-  const [changeFilters, setChangeFilters] = useState<Record<ChangeStatus, boolean>>({ green: true, yellow: true, red: false });
+  const [changeFilters, setChangeFilters] = useState<Record<ChangeStatus, boolean>>({ green: true, yellow: true, cyan: true, red: true });
   const debouncedFilterText = useDebouncedValue(filterText, 500);
   const serverTotalRows =
     cableDetail && "total_cables" in cableDetail && typeof cableDetail.total_cables === "number" ? cableDetail.total_cables : null;
@@ -393,7 +393,7 @@ export function CableDetailOverlay({
           <tbody>
             {pagedCables.map((cable, index) => (
               <tr
-                className={`${selectedCableUids.has(cable.uid) ? "is-selected-cable" : ""} ${selectedCableUid === cable.uid ? "is-primary-selected" : ""}`}
+                className={`${selectedCableUids.has(cable.uid) ? "is-selected-cable" : ""} ${selectedCableUid === cable.uid ? "is-primary-selected" : ""} change-row-${cable.change_status ?? "green"}`}
                 key={`${cable.uid}-${cable.a_port_uid}-${cable.z_port_uid}-${pageStartIndex + index}`}
                 onClick={(event) => onSelectCable(cable, event)}
               >
@@ -513,7 +513,7 @@ function ChangeStatusFilter({
 }) {
   return (
     <div className="change-status-filter">
-      {(["green", "yellow", "red"] as ChangeStatus[]).map((status) => (
+      {(["green", "yellow", "cyan", "red"] as ChangeStatus[]).map((status) => (
         <label key={status}>
           <input checked={filters[status]} onChange={(event) => onChange(status, event.target.checked)} type="checkbox" />
           <ChangeDot status={status} />
@@ -674,6 +674,7 @@ function ChangeDot({ status }: { status: ChangeStatus }) {
 function changeStatusLabel(status: ChangeStatus): string {
   if (status === "red") return "Removed";
   if (status === "yellow") return "Changed";
+  if (status === "cyan") return "Added";
   return "No change";
 }
 
@@ -1283,3 +1284,4 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
   }, [delayMs, value]);
   return debouncedValue;
 }
+

@@ -135,6 +135,7 @@ export type CabinetConnection = {
   total_cables: number;
   cable_type_counts: Record<string, number>;
   status_summary: CableStatusSummary;
+  change_order_stats?: Pick<ChangeOrderCabinetStats, "removed" | "changed" | "added"> | null;
 };
 
 export type DataHallCableBucket = {
@@ -176,7 +177,7 @@ export type CabinetCableDetail = {
   z_port_uid: string;
   a_optic: string;
   z_optic: string;
-  change_status: "green" | "yellow" | "red";
+  change_status: "green" | "yellow" | "red" | "cyan";
 };
 
 export type CabinetCableDetailResponse = {
@@ -306,3 +307,45 @@ export type OperationListResponse = {
   min_timestamp?: string | null;
   max_timestamp?: string | null;
 };
+export type ChangeOrderItemRecord = {
+  uid: string;
+  sequence: number;
+  entity_type: string;
+  entity_uid: string;
+  intent: string;
+  status: string;
+  old_entity_uid?: string | null;
+  new_entity_uid?: string | null;
+  before_definition: Record<string, unknown>;
+  after_definition: Record<string, unknown>;
+  task_plan: Array<Record<string, unknown>>;
+  result_payload: Record<string, unknown>;
+};
+
+export type ChangeOrderRecord = {
+  uid: string;
+  project_uid: string;
+  change_order_number: number;
+  title: string;
+  description: string;
+  status: string;
+  source_type: string;
+  source_uid: string;
+  requested_by_user_uid?: string | null;
+  reviewed_by_user_uid?: string | null;
+  approved_at?: string | null;
+  completed_at?: string | null;
+  summary: Record<string, unknown>;
+  items: ChangeOrderItemRecord[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChangeOrderCabinetStats = {
+  completed: number;
+  total: number;
+  added: number;
+  changed: number;
+  removed: number;
+};
+

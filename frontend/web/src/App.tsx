@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  fetchCabinetChangeOrderCables,
   fetchCabinetConnectionCables,
   fetchCabinetDetail,
   fetchCabinetLayout,
+  fetchChangeOrders,
   fetchCurrentUser,
   fetchDataHallCableSummary,
   fetchDataHallCables,
@@ -28,6 +30,9 @@ import type {
   CabinetCableDetail,
   CabinetCableDetailResponse,
   CabinetLayoutItem,
+  ChangeOrderCabinetStats,
+  ChangeOrderItemRecord,
+  ChangeOrderRecord,
   AuthUser,
   DataHallCableBucket,
   DataHallCableSummaryResponse,
@@ -44,6 +49,7 @@ import { useI18n, type Locale } from "./i18n";
 const DATA_HALLS = ["DH1", "DH2"];
 const OPERATION_POLL_INTERVAL_MS = 5000;
 type AppMode = "topology" | "validation" | "operations";
+type ChangeOrderCableStatus = "red" | "yellow" | "cyan";
 type CenterViewMode = "cabinet_map" | "port_layout";
 type CableDetailPageLoader = (offset: number, limit: number) => Promise<CableDetailResponse>;
 export type SelectionMode = "single" | "multi" | "remove";
@@ -83,6 +89,9 @@ export function App() {
   const [topologyEnums, setTopologyEnums] = useState<TopologyEnums | null>(null);
   const [dataHallCableSummary, setDataHallCableSummary] = useState<DataHallCableSummaryResponse | null>(null);
   const [operationList, setOperationList] = useState<OperationListResponse | null>(null);
+  const [changeOrders, setChangeOrders] = useState<ChangeOrderRecord[]>([]);
+  const [sourceUpdateOperations, setSourceUpdateOperations] = useState<Operation[]>([]);
+  const [selectedChangeOrderNumbers, setSelectedChangeOrderNumbers] = useState<number[]>([]);
   const [pendingSaveCount, setPendingSaveCount] = useState(0);
   const [lastSavedVersion, setLastSavedVersion] = useState<number | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -230,6 +239,28 @@ export function App() {
   }, [selectedDeviceUids]);
 
   useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+    fetchChangeOrders()
+      .then((orders) => {
+        if (!cancelled) setChangeOrders(orders);
+      })
+      .catch(() => {
+        if (!cancelled) setChangeOrders([]);
+      });
+    fetchAllSourceUpdateOperations()
+      .then((operations) => {
+        if (!cancelled) setSourceUpdateOperations(operations);
+      })
+      .catch(() => {
+        if (!cancelled) setSourceUpdateOperations([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser]);
+
+  useEffect(() => {
     if (mode !== "operations") return;
     refreshOperations();
   }, [mode]);
@@ -285,6 +316,15 @@ export function App() {
   const selectedCabinetUidSet = useMemo(() => new Set(selectedCabinetUids), [selectedCabinetUids]);
   const selectedDeviceUidSet = useMemo(() => new Set(selectedDeviceUids), [selectedDeviceUids]);
   const selectedCableUidSet = useMemo(() => new Set(selectedCableUids), [selectedCableUids]);
+  const selectedChangeOrderNumberSet = useMemo(() => new Set(selectedChangeOrderNumbers), [selectedChangeOrderNumbers]);
+  const changeOrderOptions = useMemo(
+    () => buildChangeOrderOptions(changeOrders, sourceUpdateOperations),
+    [changeOrders, sourceUpdateOperations],
+  );
+  const changeOrderStatsByCabinet = useMemo(
+    () => buildChangeOrderCabinetStats(changeOrders, sourceUpdateOperations, selectedChangeOrderNumbers),
+    [changeOrders, sourceUpdateOperations, selectedChangeOrderNumbers],
+  );
   const selectedDevice = useMemo(() => {
     if (!selectedDeviceUid) return null;
     return detail?.devices.find((device) => `${device.cabinet_id}:${device.rack_unit}` === selectedDeviceUid) ?? null;
@@ -343,6 +383,14 @@ export function App() {
         Promise.all(
           routes.map((route) => fetchCabinetConnectionCables(route.sourceCabinetUid, route.targetCabinetUid)),
         ).then((responses) => mergeCabinetCableDetails(sourceLabel, targetLabel, responses)),
+    );
+  }
+
+  function viewCabinetChangeOrderCables(cabinetUid: string, changeStatus: ChangeOrderCableStatus) {
+    const statusLabel = changeStatus === "red" ? "Removed" : changeStatus === "yellow" ? "Changed" : "Added";
+    openCableDetail(
+      { source: cabinetUid, target: `${statusLabel} change order cables` },
+      () => fetchCabinetChangeOrderCables(cabinetUid, changeStatus),
     );
   }
 
@@ -912,6 +960,8 @@ export function App() {
             lifecycleStatuses={topologyEnums?.lifecycle_statuses ?? []}
             onStatusChanged={submitOperation}
             onBulkStatusChanged={submitBulkOperation}
+            changeOrderStatsByCabinet={changeOrderStatsByCabinet}
+            onViewChangeOrderCables={viewCabinetChangeOrderCables}
           />
           {isLoading ? (
             <section className="map-pane loading-pane">{t("common.loading", { target: dataHall })}</section>
@@ -946,11 +996,15 @@ export function App() {
                   isDeviceMode={Boolean(selectedDeviceUid)}
                   mapSize={mapSize}
                   progressDisplay={mapProgressDisplay}
+                  changeOrderStats={changeOrderStatsByCabinet}
+                  changeOrderOptions={changeOrderOptions}
+                  selectedChangeOrderNumbers={selectedChangeOrderNumberSet}
                   onSelectCabinet={selectCabinet}
                   onClearSelection={clearSelection}
                   onDataHallChange={setDataHall}
                   onMapSizeChange={setMapSize}
                   onProgressDisplayChange={setMapProgressDisplay}
+                  onChangeOrderSelectionChange={setSelectedChangeOrderNumbers}
                 />
               )}
               <CableDetailOverlay
@@ -986,6 +1040,171 @@ export function App() {
   );
 }
 
+
+async function fetchAllSourceUpdateOperations(): Promise<Operation[]> {
+  const pageLimit = 500;
+  const operations: Operation[] = [];
+  let offset = 0;
+  for (;;) {
+    const page = await fetchOperations({ limit: pageLimit, offset, operationType: "source_update" });
+    operations.push(...page.operations);
+    if (!page.has_more || page.operations.length === 0) break;
+    offset += page.operations.length;
+  }
+  return operations;
+}
+
+
+function buildChangeOrderOptions(
+  changeOrders: ChangeOrderRecord[],
+  sourceUpdateOperations: Operation[],
+): Array<{ number: number; label: string }> {
+  if (sourceUpdateOperations.length) {
+    const groups = operationChangeOrderGroups(sourceUpdateOperations);
+    return [...groups.entries()]
+      .sort((left, right) => left[1].number - right[1].number)
+      .map(([, group]) => ({ number: group.number, label: group.label }));
+  }
+  if (changeOrders.length) {
+    return [...changeOrders]
+      .sort((left, right) => left.change_order_number - right.change_order_number)
+      .map((order) => ({
+        number: order.change_order_number,
+        label: `#${order.change_order_number}${order.title ? ` ${order.title}` : ""}`,
+      }));
+  }
+  return [];
+}
+
+function buildChangeOrderCabinetStats(
+  changeOrders: ChangeOrderRecord[],
+  sourceUpdateOperations: Operation[],
+  selectedChangeOrderNumbers: number[],
+): Map<string, ChangeOrderCabinetStats> {
+  if (sourceUpdateOperations.length) return buildChangeOrderCabinetStatsFromOperations(sourceUpdateOperations, selectedChangeOrderNumbers);
+  return buildChangeOrderCabinetStatsFromOrders(changeOrders, selectedChangeOrderNumbers);
+}
+
+function buildChangeOrderCabinetStatsFromOrders(
+  changeOrders: ChangeOrderRecord[],
+  selectedChangeOrderNumbers: number[],
+): Map<string, ChangeOrderCabinetStats> {
+  const selectedNumbers = new Set(selectedChangeOrderNumbers);
+  const statsByCabinet = new Map<string, ChangeOrderCabinetStats>();
+  const includedOrders = selectedNumbers.size
+    ? changeOrders.filter((order) => selectedNumbers.has(order.change_order_number))
+    : changeOrders;
+
+  for (const order of includedOrders) {
+    for (const item of order.items) {
+      const cabinetUids = cabinetUidsForDefinitions(item.before_definition, item.after_definition);
+      if (!cabinetUids.size) continue;
+      const bucket = changeBucketForIntent(item.intent);
+      for (const cabinetUid of cabinetUids) {
+        const stats = statsByCabinet.get(cabinetUid) ?? emptyChangeOrderStats();
+        stats.total += 1;
+        if (item.status === "complete") stats.completed += 1;
+        stats[bucket] += 1;
+        statsByCabinet.set(cabinetUid, stats);
+      }
+    }
+  }
+
+  return statsByCabinet;
+}
+
+function buildChangeOrderCabinetStatsFromOperations(
+  operations: Operation[],
+  selectedChangeOrderNumbers: number[],
+): Map<string, ChangeOrderCabinetStats> {
+  const selectedNumbers = new Set(selectedChangeOrderNumbers);
+  const groups = operationChangeOrderGroups(operations);
+  const statsByCabinet = new Map<string, ChangeOrderCabinetStats>();
+  for (const operation of operations) {
+    const group = groups.get(operationChangeOrderKey(operation));
+    if (!group || (selectedNumbers.size && !selectedNumbers.has(group.number))) continue;
+    const cabinetUids = cabinetUidsForOperation(operation);
+    if (!cabinetUids.size) continue;
+    const bucket = changeBucketForOperation(operation);
+    for (const cabinetUid of cabinetUids) {
+      const stats = statsByCabinet.get(cabinetUid) ?? emptyChangeOrderStats();
+      stats.total += 1;
+      stats.completed += 1;
+      stats[bucket] += 1;
+      statsByCabinet.set(cabinetUid, stats);
+    }
+  }
+  return statsByCabinet;
+}
+
+function operationChangeOrderGroups(operations: Operation[]): Map<string, { number: number; label: string }> {
+  const keys = [...new Set(operations.map(operationChangeOrderKey))].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  return new Map(
+    keys.map((key, index) => {
+      const parsed = numericToken(key);
+      const number = parsed ?? index + 1;
+      return [key, { number, label: parsed ? `#${parsed}` : key }];
+    }),
+  );
+}
+
+function operationChangeOrderKey(operation: Operation): string {
+  return operation.sourceUid || operation.sourceOperator || operation.operationGroupUid || "Change Order";
+}
+
+function numericToken(value: string): number | null {
+  const match = value.match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
+
+function cabinetUidsForDefinitions(...definitions: Array<Record<string, unknown>>): Set<string> {
+  const cabinetUids = new Set<string>();
+  for (const definition of definitions) {
+    for (const key of ["a_port_uid", "z_port_uid"]) {
+      const cabinetUid = cabinetUidFromPortUid(definition[key]);
+      if (cabinetUid) cabinetUids.add(cabinetUid);
+    }
+  }
+  return cabinetUids;
+}
+
+function cabinetUidsForOperation(operation: Operation): Set<string> {
+  return cabinetUidsForDefinitions(...operationRecordPayloads(operation.before), ...operationRecordPayloads(operation.after));
+}
+
+function operationRecordPayloads(payload: Record<string, unknown>): Array<Record<string, unknown>> {
+  const records: Array<Record<string, unknown>> = [];
+  const oldRecord = payload.old_record;
+  const newRecord = payload.new_record;
+  if (isRecord(oldRecord)) records.push(oldRecord);
+  if (isRecord(newRecord)) records.push(newRecord);
+  if (!records.length) records.push(payload);
+  return records;
+}
+
+function cabinetUidFromPortUid(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const parts = value.split(":");
+  if (parts.length < 2) return null;
+  return `${parts[0].toUpperCase()}:${parts[1].padStart(3, "0")}`;
+}
+
+function changeBucketForOperation(operation: Operation): "added" | "changed" | "removed" {
+  const changeType = String(operation.after.change_type ?? "").toLowerCase();
+  if (changeType === "added") return "added";
+  if (changeType === "removed") return "removed";
+  return "changed";
+}
+
+function changeBucketForIntent(intent: string): "added" | "changed" | "removed" {
+  if (intent === "add_cable") return "added";
+  if (intent === "remove_cable" || intent === "retire_cable") return "removed";
+  return "changed";
+}
+
+function emptyChangeOrderStats(): ChangeOrderCabinetStats {
+  return { completed: 0, total: 0, added: 0, changed: 0, removed: 0 };
+}
 function mergeCabinetCableDetails(
   sourceCabinetUid: string,
   targetCabinetUid: string,
@@ -1359,5 +1578,4 @@ function isMultiGesture(gesture: SelectionGesture, selectionMode: SelectionMode)
 function isRemoveGesture(gesture: SelectionGesture, selectionMode: SelectionMode): boolean {
   return selectionMode === "remove" || gesture.ctrlKey || gesture.metaKey;
 }
-
 

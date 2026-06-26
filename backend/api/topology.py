@@ -85,6 +85,12 @@ class CableStatusSummary(BaseModel):
     status_counts: dict[str, int] = Field(default_factory=dict)
 
 
+class ChangeOrderDiffStats(BaseModel):
+    removed: int = 0
+    changed: int = 0
+    added: int = 0
+
+
 class CabinetConnection(BaseModel):
     target_cabinet_uid: str
     target_category: str = ""
@@ -92,6 +98,7 @@ class CabinetConnection(BaseModel):
     total_cables: int
     cable_type_counts: dict[str, int]
     status_summary: CableStatusSummary
+    change_order_stats: ChangeOrderDiffStats | None = None
 
 
 class DataHallCableBucket(BaseModel):
@@ -909,6 +916,20 @@ def cabinet_connection_cables(
 
 
 @router.get(
+    "/cabinets/{cabinet_uid}/change-order-cables",
+    response_model=CabinetCableDetailResponse,
+)
+def cabinet_change_order_cables(
+    cabinet_uid: str,
+    change_status: str | None = None,
+) -> CabinetCableDetailResponse:
+    cabinet_uid = cabinet_uid.upper()
+    if not use_postgresql_topology_storage():
+        raise HTTPException(status_code=400, detail="Change order cable details require PostgreSQL topology storage.")
+    return _postgres_cabinet_change_order_cables(cabinet_uid, change_status)
+
+
+@router.get(
     "/devices/{source_device_uid}/connections/{target_device_uid}/cables",
     response_model=DeviceCableDetailResponse,
 )
@@ -1397,20 +1418,24 @@ def _postgres_cabinet_detail(cabinet_uid: str) -> CabinetDetailResponse:
         ]
 
         cable_rows = _postgres_cables_for_cabinet(session, cabinet_uid)
+        grouped_cables_by_target = _postgres_group_cables_by_target(cable_rows, cabinet_uid)
         connection_target_uids = {
             _postgres_other_cabinet_uid(row.a_cabinet_uid, row.z_cabinet_uid, cabinet_uid)
             for row in cable_rows
         }
+        operation_target_uids = _postgres_source_update_target_cabinet_uids(session, cabinet_uid)
+        all_connection_target_uids = connection_target_uids | operation_target_uids
         target_rows = {
             row.uid: row
             for row in session.execute(
-                select(db.Cabinet).where(db.Cabinet.uid.in_(connection_target_uids), db.Cabinet.deleted_at.is_(None))
+                select(db.Cabinet).where(db.Cabinet.uid.in_(all_connection_target_uids), db.Cabinet.deleted_at.is_(None))
             ).scalars()
-        } if connection_target_uids else {}
+        } if all_connection_target_uids else {}
 
         connections: list[CabinetConnection] = []
         intra_cabinet_connection = None
-        for target_uid, target_cables in sorted(_postgres_group_cables_by_target(cable_rows, cabinet_uid).items()):
+        for target_uid in sorted(all_connection_target_uids):
+            target_cables = grouped_cables_by_target.get(target_uid, [])
             target = target_rows.get(target_uid)
             connection = CabinetConnection(
                 target_cabinet_uid=target_uid,
@@ -1419,6 +1444,11 @@ def _postgres_cabinet_detail(cabinet_uid: str) -> CabinetDetailResponse:
                 total_cables=len(target_cables),
                 cable_type_counts=_postgres_count_by(target_cables, "cable_type"),
                 status_summary=_postgres_status_summary(target_cables),
+                change_order_stats=_postgres_source_update_counts_for_cabinet_pair(
+                    session,
+                    source_cabinet_uid=cabinet_uid,
+                    target_cabinet_uid=target_uid,
+                ),
             )
             if target_uid == cabinet_uid:
                 intra_cabinet_connection = connection
@@ -1523,7 +1553,7 @@ def _postgres_data_hall_cables(
         )
         rows = list(
             session.execute(
-                select(db.Cable)
+                select(*_postgres_cable_detail_columns())
                 .join(filtered_cable_uids, db.Cable.uid == filtered_cable_uids.c.uid)
                 .order_by(db.Cable.cable_type, db.Cable.a_port_uid, db.Cable.z_port_uid, db.Cable.uid)
                 .offset(offset)
@@ -1564,16 +1594,17 @@ def _postgres_cabinet_connection_cables(source_cabinet_uid: str, target_cabinet_
             ],
         )
         change_statuses = _postgres_source_update_statuses(session, [row.uid for row in rows])
-        removed_cables = _postgres_removed_cable_details_for_port_scopes(
+        operation_cables = _postgres_source_update_cable_details_for_cabinet_pair(
             session,
-            source_scope=_postgres_port_uid_scope(cabinet_uid=source_cabinet_uid),
-            target_scope=_postgres_port_uid_scope(cabinet_uid=target_cabinet_uid),
+            source_cabinet_uid=source_cabinet_uid,
+            target_cabinet_uid=target_cabinet_uid,
+            excluded_uids={row.uid for row in rows},
         )
     return CabinetCableDetailResponse(
         source_cabinet_uid=source_cabinet_uid,
         target_cabinet_uid=target_cabinet_uid,
         cables=sorted(
-            [_postgres_cable_detail(row, change_status=change_statuses.get(row.uid, "green")) for row in rows] + removed_cables,
+            [_postgres_cable_detail(row, change_status=change_statuses.get(row.uid, "green")) for row in rows] + operation_cables,
             key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid),
         ),
     )
@@ -1597,16 +1628,17 @@ def _postgres_device_connection_cables(source_device_uid: str, target_device_uid
             ],
         )
         change_statuses = _postgres_source_update_statuses(session, [row.uid for row in rows])
-        removed_cables = _postgres_removed_cable_details_for_port_scopes(
+        operation_cables = _postgres_source_update_cable_details_for_port_scopes(
             session,
             source_scope=_postgres_port_uid_scope(device_uid=source_device_uid),
             target_scope=_postgres_port_uid_scope(device_uid=target_device_uid),
+            excluded_uids={row.uid for row in rows},
         )
     return DeviceCableDetailResponse(
         source_device_uid=source_device_uid,
         target_device_uid=target_device_uid,
         cables=sorted(
-            [_postgres_cable_detail(row, change_status=change_statuses.get(row.uid, "green")) for row in rows] + removed_cables,
+            [_postgres_cable_detail(row, change_status=change_statuses.get(row.uid, "green")) for row in rows] + operation_cables,
             key=lambda cable: (cable.cable_type, cable.a_port_uid, cable.z_port_uid),
         ),
     )
@@ -1689,6 +1721,25 @@ def _postgres_cables_for_cabinet(session, cabinet_uid: str):
     ).all()
 
 
+def _postgres_cable_detail_columns():
+    return (
+        db.Cable.uid,
+        db.Cable.cable_group,
+        db.Cable.import_status,
+        db.Cable.cable_type,
+        db.Cable.construction_phase,
+        db.Cable.progress,
+        db.Cable.current_phase,
+        db.Cable.designed_length_meters,
+        db.Cable.length_used_meters,
+        db.Cable.note,
+        db.Cable.a_port_uid,
+        db.Cable.z_port_uid,
+        db.Cable.a_optic,
+        db.Cable.z_optic,
+    )
+
+
 def _postgres_cable_detail_models(
     session,
     *,
@@ -1696,12 +1747,12 @@ def _postgres_cable_detail_models(
     limit: int | None = None,
     offset: int | None = None,
 ):
-    statement = select(db.Cable).where(*clauses).order_by(db.Cable.cable_type, db.Cable.a_port_uid, db.Cable.z_port_uid, db.Cable.uid)
+    statement = select(*_postgres_cable_detail_columns()).where(*clauses).order_by(db.Cable.cable_type, db.Cable.a_port_uid, db.Cable.z_port_uid, db.Cable.uid)
     if offset is not None:
         statement = statement.offset(offset)
     if limit is not None:
         statement = statement.limit(limit)
-    return list(session.execute(statement).scalars())
+    return list(session.execute(statement).all())
 
 
 def _postgres_port_uid_scope(
@@ -1739,8 +1790,8 @@ def _postgres_cable_detail(row, *, change_status: str = "green") -> CabinetCable
         status=row.import_status,
         cable_type=row.cable_type,
         construction_phase=row.construction_phase,
-        a_label_text=row.a_label_text,
-        z_label_text=row.z_label_text,
+        a_label_text=getattr(row, "a_label_text", ""),
+        z_label_text=getattr(row, "z_label_text", ""),
         progress=progress,
         current_phase=normalize_cable_progress_phase(current_phase) if current_phase is not None else None,
         designed_length_meters=float(row.designed_length_meters) if row.designed_length_meters is not None else None,
@@ -1776,11 +1827,152 @@ def _postgres_source_update_statuses(session, cable_uids: list[str]) -> dict[str
     return statuses
 
 
-def _postgres_removed_cable_details_for_port_scopes(session, *, source_scope, target_scope) -> list[CabinetCableDetail]:
-    source_ports = set(session.execute(source_scope).scalars())
-    target_ports = set(session.execute(target_scope).scalars())
-    if not source_ports or not target_ports:
-        return []
+def _postgres_cabinet_change_order_cables(
+    cabinet_uid: str,
+    change_status: str | None,
+) -> CabinetCableDetailResponse:
+    allowed_statuses = {"red", "yellow", "cyan"}
+    normalized_status = change_status.lower() if change_status else None
+    if normalized_status is not None and normalized_status not in allowed_statuses:
+        raise HTTPException(status_code=400, detail="change_status must be one of red, yellow, or cyan.")
+
+    with session_factory()() as session:
+        _postgres_require_cabinet(session, cabinet_uid)
+        operations = session.execute(
+            select(db.OperationLog)
+            .where(
+                db.OperationLog.project_uid == DEFAULT_PROJECT_UID,
+                db.OperationLog.entity_type == "cable",
+                db.OperationLog.operation_type == "source_update",
+            )
+            .order_by(db.OperationLog.id.desc())
+        ).scalars()
+        details: list[CabinetCableDetail] = []
+        seen: set[str] = set()
+        for operation in operations:
+            if operation.entity_uid in seen:
+                continue
+            detail = _source_update_cable_detail_for_cabinet(operation, cabinet_uid)
+            if detail is None:
+                continue
+            if normalized_status is not None and detail.change_status != normalized_status:
+                continue
+            details.append(detail)
+            seen.add(operation.entity_uid)
+
+    status_label = normalized_status or "all"
+    return CabinetCableDetailResponse(
+        source_cabinet_uid=cabinet_uid,
+        target_cabinet_uid=f"change-order-{status_label}",
+        cables=sorted(details, key=lambda cable: (cable.change_status, cable.cable_type, cable.a_port_uid, cable.z_port_uid, cable.uid)),
+    )
+
+
+def _postgres_source_update_target_cabinet_uids(session, cabinet_uid: str) -> set[str]:
+    operations = session.execute(
+        select(db.OperationLog)
+        .where(
+            db.OperationLog.project_uid == DEFAULT_PROJECT_UID,
+            db.OperationLog.entity_type == "cable",
+            db.OperationLog.operation_type == "source_update",
+        )
+        .order_by(db.OperationLog.id.desc())
+    ).scalars()
+    target_uids: set[str] = set()
+    seen: set[str] = set()
+    for operation in operations:
+        if operation.entity_uid in seen:
+            continue
+        seen.add(operation.entity_uid)
+        change_status = _change_status_from_operation(operation)
+        records = [_source_update_display_record(operation, change_status)]
+        if change_status == "yellow":
+            records = [
+                _source_update_record(operation, "old_record", operation.before),
+                _source_update_record(operation, "new_record", operation.after),
+            ]
+        for record in records:
+            target_uid = _source_update_record_peer_cabinet_uid(record, cabinet_uid)
+            if target_uid:
+                target_uids.add(target_uid)
+    return target_uids
+
+
+def _source_update_record_peer_cabinet_uid(record: dict[str, Any], cabinet_uid: str) -> str | None:
+    a_cabinet_uid = _cabinet_uid_from_port_uid(record.get("a_port_uid"))
+    z_cabinet_uid = _cabinet_uid_from_port_uid(record.get("z_port_uid"))
+    if a_cabinet_uid == cabinet_uid and z_cabinet_uid:
+        return z_cabinet_uid
+    if z_cabinet_uid == cabinet_uid and a_cabinet_uid:
+        return a_cabinet_uid
+    return None
+
+
+def _cabinet_uid_from_port_uid(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    parts = value.split(":")
+    if len(parts) < 2:
+        return None
+    return f"{parts[0].upper()}:{parts[1].zfill(3)}"
+
+
+def _postgres_source_update_counts_for_cabinet_pair(
+    session,
+    *,
+    source_cabinet_uid: str,
+    target_cabinet_uid: str,
+) -> ChangeOrderDiffStats | None:
+    operations = session.execute(
+        select(db.OperationLog)
+        .where(
+            db.OperationLog.project_uid == DEFAULT_PROJECT_UID,
+            db.OperationLog.entity_type == "cable",
+            db.OperationLog.operation_type == "source_update",
+        )
+        .order_by(db.OperationLog.id.desc())
+    ).scalars()
+    stats = ChangeOrderDiffStats()
+    seen: set[str] = set()
+    for operation in operations:
+        if operation.entity_uid in seen:
+            continue
+        change_status = _change_status_from_operation(operation)
+        old_record = _source_update_record(operation, "old_record", operation.before)
+        new_record = _source_update_record(operation, "new_record", operation.after)
+        if change_status == "red":
+            matches = _source_update_record_matches_cabinet_pair(old_record, source_cabinet_uid, target_cabinet_uid)
+        elif change_status == "cyan":
+            matches = _source_update_record_matches_cabinet_pair(new_record, source_cabinet_uid, target_cabinet_uid)
+        elif change_status == "yellow":
+            matches = (
+                _source_update_record_matches_cabinet_pair(old_record, source_cabinet_uid, target_cabinet_uid)
+                or _source_update_record_matches_cabinet_pair(new_record, source_cabinet_uid, target_cabinet_uid)
+            )
+        else:
+            matches = False
+        if not matches:
+            continue
+        if change_status == "red":
+            stats.removed += 1
+        elif change_status == "yellow":
+            stats.changed += 1
+        elif change_status == "cyan":
+            stats.added += 1
+        seen.add(operation.entity_uid)
+    return stats if stats.removed or stats.changed or stats.added else None
+
+
+def _postgres_source_update_cable_details_for_cabinet_pair(
+    session,
+    *,
+    source_cabinet_uid: str,
+    target_cabinet_uid: str,
+    excluded_uids: set[str] | None = None,
+) -> list[CabinetCableDetail]:
+    excluded_uids = excluded_uids or set()
+    source_prefix = f"{source_cabinet_uid}:"
+    target_prefix = f"{target_cabinet_uid}:"
     operations = session.execute(
         select(db.OperationLog)
         .where(
@@ -1793,9 +1985,47 @@ def _postgres_removed_cable_details_for_port_scopes(session, *, source_scope, ta
     details: list[CabinetCableDetail] = []
     seen: set[str] = set()
     for operation in operations:
-        if _change_status_from_operation(operation) != "red" or operation.entity_uid in seen:
+        if operation.entity_uid in seen or operation.entity_uid in excluded_uids:
             continue
-        detail = _removed_cable_detail_from_operation(operation)
+        detail = _source_update_cable_detail_from_operation(operation)
+        if detail is None:
+            continue
+        if (
+            detail.a_port_uid.startswith(source_prefix) and detail.z_port_uid.startswith(target_prefix)
+        ) or (
+            detail.a_port_uid.startswith(target_prefix) and detail.z_port_uid.startswith(source_prefix)
+        ):
+            details.append(detail)
+            seen.add(operation.entity_uid)
+    return details
+
+def _postgres_source_update_cable_details_for_port_scopes(
+    session,
+    *,
+    source_scope,
+    target_scope,
+    excluded_uids: set[str] | None = None,
+) -> list[CabinetCableDetail]:
+    source_ports = set(session.execute(source_scope).scalars())
+    target_ports = set(session.execute(target_scope).scalars())
+    if not source_ports or not target_ports:
+        return []
+    excluded_uids = excluded_uids or set()
+    operations = session.execute(
+        select(db.OperationLog)
+        .where(
+            db.OperationLog.project_uid == DEFAULT_PROJECT_UID,
+            db.OperationLog.entity_type == "cable",
+            db.OperationLog.operation_type == "source_update",
+        )
+        .order_by(db.OperationLog.id.desc())
+    ).scalars()
+    details: list[CabinetCableDetail] = []
+    seen: set[str] = set()
+    for operation in operations:
+        if operation.entity_uid in seen or operation.entity_uid in excluded_uids:
+            continue
+        detail = _source_update_cable_detail_from_operation(operation)
         if detail is None:
             continue
         if (
@@ -1806,7 +2036,6 @@ def _postgres_removed_cable_details_for_port_scopes(session, *, source_scope, ta
             details.append(detail)
             seen.add(operation.entity_uid)
     return details
-
 
 def _postgres_removed_cable_details_for_data_hall_scope(
     session,
@@ -1855,38 +2084,104 @@ def _change_status_from_operation(operation: db.OperationLog) -> str:
     change_type = str((operation.after or {}).get("change_type") or "").lower()
     if change_type == "removed":
         return "red"
-    if change_type in {"added", "changed"}:
+    if change_type == "added":
+        return "cyan"
+    if change_type == "changed":
         return "yellow"
     return "green"
 
 
+def _source_update_cable_detail_from_operation(operation: db.OperationLog) -> CabinetCableDetail | None:
+    change_status = _change_status_from_operation(operation)
+    record = _source_update_display_record(operation, change_status)
+    return _cable_detail_from_source_update_record(operation, record, change_status=change_status)
+
+
+def _source_update_cable_detail_for_cabinet(operation: db.OperationLog, cabinet_uid: str) -> CabinetCableDetail | None:
+    change_status = _change_status_from_operation(operation)
+    old_record = _source_update_record(operation, "old_record", operation.before)
+    new_record = _source_update_record(operation, "new_record", operation.after)
+    match_records = [old_record, new_record] if change_status == "yellow" else [_source_update_display_record(operation, change_status)]
+    if not any(_source_update_record_matches_cabinet(record, cabinet_uid) for record in match_records):
+        return None
+    return _cable_detail_from_source_update_record(operation, _source_update_display_record(operation, change_status), change_status=change_status)
+
+
+def _source_update_display_record(operation: db.OperationLog, change_status: str) -> dict[str, Any]:
+    if change_status == "red":
+        return _source_update_record(operation, "old_record", operation.before)
+    return _source_update_record(operation, "new_record", operation.after)
+
+
+def _source_update_record(operation: db.OperationLog, key: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    record = payload.get(key)
+    return record if isinstance(record, dict) else payload
+
+
+def _source_update_record_matches_cabinet(record: dict[str, Any], cabinet_uid: str) -> bool:
+    cabinet_prefix = f"{cabinet_uid}:"
+    return str(record.get("a_port_uid") or "").startswith(cabinet_prefix) or str(record.get("z_port_uid") or "").startswith(cabinet_prefix)
+
+
+def _source_update_record_matches_cabinet_pair(record: dict[str, Any], source_cabinet_uid: str, target_cabinet_uid: str) -> bool:
+    source_prefix = f"{source_cabinet_uid}:"
+    target_prefix = f"{target_cabinet_uid}:"
+    a_port_uid = str(record.get("a_port_uid") or "")
+    z_port_uid = str(record.get("z_port_uid") or "")
+    return (
+        a_port_uid.startswith(source_prefix) and z_port_uid.startswith(target_prefix)
+    ) or (
+        a_port_uid.startswith(target_prefix) and z_port_uid.startswith(source_prefix)
+    )
+
+
 def _removed_cable_detail_from_operation(operation: db.OperationLog) -> CabinetCableDetail | None:
-    record = (operation.before or {}).get("old_record")
+    payload = operation.before or {}
+    record = payload.get("old_record") if isinstance(payload, dict) else None
     if not isinstance(record, dict):
-        record = operation.before or {}
+        record = payload if isinstance(payload, dict) else {}
+    return _cable_detail_from_source_update_record(operation, record, change_status="red")
+
+
+def _cable_detail_from_source_update_record(
+    operation: db.OperationLog,
+    record: dict[str, Any],
+    *,
+    change_status: str,
+) -> CabinetCableDetail | None:
     a_port_uid = str(record.get("a_port_uid") or "")
     z_port_uid = str(record.get("z_port_uid") or "")
     if not a_port_uid or not z_port_uid:
         return None
     return CabinetCableDetail(
-        uid=str(record.get("cable_uid") or operation.entity_uid),
-        group=str(record.get("group") or ""),
-        status=str(record.get("status") or ""),
+        uid=str(record.get("cable_uid") or record.get("uid") or operation.entity_uid),
+        group=str(record.get("cable_group") or record.get("group") or ""),
+        status=str(record.get("status") or record.get("import_status") or ""),
         cable_type=str(record.get("cable_type") or ""),
         construction_phase=str(record.get("construction_phase") or ""),
         progress={},
         current_phase=None,
-        designed_length_meters=None,
-        length_used_meters=0,
-        length_meters=None,
+        designed_length_meters=_float_or_none(record.get("designed_length_meters")),
+        length_used_meters=float(record.get("length_used_meters") or 0),
+        length_meters=float(record.get("length_used_meters") or 0) if record.get("length_used_meters") else None,
         note=str(record.get("note") or ""),
         a_port_uid=a_port_uid,
         z_port_uid=z_port_uid,
-        a_optic=str(record.get("a_optic") or ""),
-        z_optic=str(record.get("z_optic") or ""),
-        change_status="red",
+        a_optic=_postgres_optic_model(record.get("a_optic") if isinstance(record.get("a_optic"), dict) else None),
+        z_optic=_postgres_optic_model(record.get("z_optic") if isinstance(record.get("z_optic"), dict) else None),
+        change_status=change_status,
     )
 
+
+def _float_or_none(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 def _postgres_optic_model(payload: dict[str, Any] | None) -> str:
     if not payload:
@@ -2497,6 +2792,4 @@ def _cabinet_sort_key(cabinet: Cabinet) -> tuple[str, int, int, str]:
         cabinet.source_col or 0,
         cabinet.cabinet_id,
     )
-
-
 

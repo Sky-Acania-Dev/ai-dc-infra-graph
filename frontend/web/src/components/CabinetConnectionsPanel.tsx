@@ -276,10 +276,13 @@ export function CabinetConnectionsPanel({
   );
 }
 
+type ChangeOrderDiffStats = NonNullable<CabinetConnection["change_order_stats"]>;
+
 type ConnectionSummary = {
   total_cables: number;
   cable_type_counts: Record<string, number>;
   status_summary: CableStatusSummary;
+  change_order_stats?: ChangeOrderDiffStats | null;
 };
 
 type AggregatedCabinetConnection = CabinetConnection & {
@@ -397,6 +400,7 @@ function emptyConnectionSummary(): ConnectionSummary {
       total: 0,
       status_counts: {},
     },
+    change_order_stats: null,
   };
 }
 
@@ -406,6 +410,7 @@ function aggregateConnectionSummaries(connections: Array<CabinetConnection | Dev
   let totalCables = 0;
   let completed = 0;
   let total = 0;
+  let changeOrderStats: ChangeOrderDiffStats | null = null;
 
   for (const connection of connections) {
     totalCables += connection.total_cables;
@@ -417,6 +422,7 @@ function aggregateConnectionSummaries(connections: Array<CabinetConnection | Dev
     for (const [status, count] of Object.entries(connection.status_summary.status_counts)) {
       statusCounts[status] = (statusCounts[status] ?? 0) + count;
     }
+    changeOrderStats = mergeChangeOrderDiffStats(changeOrderStats, changeOrderDiffStats(connection));
   }
 
   return {
@@ -427,6 +433,7 @@ function aggregateConnectionSummaries(connections: Array<CabinetConnection | Dev
       total,
       status_counts: sortCounts(statusCounts),
     },
+    change_order_stats: changeOrderStats,
   };
 }
 
@@ -510,6 +517,9 @@ function mergeConnectionSummary(target: CabinetConnection | DeviceConnection, so
   }
   target.cable_type_counts = sortCounts(target.cable_type_counts);
   target.status_summary.status_counts = sortCounts(target.status_summary.status_counts);
+  if ("change_order_stats" in target) {
+    target.change_order_stats = mergeChangeOrderDiffStats(target.change_order_stats ?? null, changeOrderDiffStats(source));
+  }
 }
 
 function ConnectionSummaryCard({
@@ -538,7 +548,7 @@ function ConnectionSummaryCard({
     <article className={`connection-item ${className}`.trim()}>
       <div className="connection-heading">
         <strong>{title}</strong>
-        <span>{headingMetric ?? t("connections.cableCount", { count: formatNumber(summary.total_cables) })}</span>
+        {headingMetric ? <span>{headingMetric}</span> : <ConnectionCountMetric diffStats={summary.change_order_stats} totalCables={summary.total_cables} />}
       </div>
       <StatusCompletion summary={summary.status_summary} />
       <div className="connection-meta">{subtitle}</div>
@@ -578,7 +588,7 @@ function CabinetConnectionCard({
     <article className="connection-item">
       <div className="connection-heading">
         <strong>{connection.target_cabinet_uid}</strong>
-        <span>{t("connections.cableCount", { count: formatNumber(connection.total_cables) })}</span>
+        <ConnectionCountMetric diffStats={connection.change_order_stats} totalCables={connection.total_cables} />
       </div>
       <StatusCompletion summary={connection.status_summary} />
       <div className="connection-meta">
@@ -597,6 +607,38 @@ function CabinetConnectionCard({
       </button>
     </article>
   );
+}
+
+function ConnectionCountMetric({ diffStats, totalCables }: { diffStats?: ChangeOrderDiffStats | null; totalCables: number }) {
+  const { formatNumber, t } = useI18n();
+  const removed = diffStats?.removed ?? 0;
+  const changed = diffStats?.changed ?? 0;
+  const added = diffStats?.added ?? 0;
+  if (!removed && !changed && !added) {
+    return <span>{t("connections.cableCount", { count: formatNumber(totalCables) })}</span>;
+  }
+  const adjustedTotal = Math.max(0, totalCables - removed + added);
+  return (
+    <span className="connection-count-diff">
+      <b>{formatNumber(adjustedTotal)}</b>
+      <small>
+        (<em className="diff-removed">-{formatNumber(removed)}</em>/<em className="diff-changed">~{formatNumber(changed)}</em>/<em className="diff-added">+{formatNumber(added)}</em>)
+      </small>
+    </span>
+  );
+}
+
+function changeOrderDiffStats(connection: CabinetConnection | DeviceConnection): ChangeOrderDiffStats | null {
+  return "change_order_stats" in connection ? connection.change_order_stats ?? null : null;
+}
+
+function mergeChangeOrderDiffStats(left: ChangeOrderDiffStats | null, right: ChangeOrderDiffStats | null): ChangeOrderDiffStats | null {
+  if (!left && !right) return null;
+  return {
+    removed: (left?.removed ?? 0) + (right?.removed ?? 0),
+    changed: (left?.changed ?? 0) + (right?.changed ?? 0),
+    added: (left?.added ?? 0) + (right?.added ?? 0),
+  };
 }
 
 function DeviceConnectionCard({

@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import ProgrammingError
 
 from backend.api.auth import AuthUser, current_user, require_editor, require_manager
 from backend.core.config import DEFAULT_PROJECT_UID, use_postgresql_topology_storage
@@ -124,9 +125,14 @@ def list_change_orders(project_uid: str = DEFAULT_PROJECT_UID, include_initial: 
         clauses = [db.ChangeOrder.project_uid == project_uid]
         if not include_initial:
             clauses.append(db.ChangeOrder.change_order_number != 0)
-        rows = session.execute(
-            select(db.ChangeOrder).where(*clauses).order_by(db.ChangeOrder.change_order_number.desc(), db.ChangeOrder.created_at.desc())
-        ).scalars().all()
+        try:
+            rows = session.execute(
+                select(db.ChangeOrder).where(*clauses).order_by(db.ChangeOrder.change_order_number.desc(), db.ChangeOrder.created_at.desc())
+            ).scalars().all()
+        except ProgrammingError as exc:
+            if "change_orders" not in str(exc):
+                raise
+            return []
         return [_change_order_record(session, row.uid) for row in rows]
 
 
@@ -250,3 +256,4 @@ def _model_payload(model) -> dict[str, Any]:
 def _require_postgresql() -> None:
     if not use_postgresql_topology_storage():
         raise HTTPException(status_code=422, detail="Change order APIs require PostgreSQL storage mode.")
+

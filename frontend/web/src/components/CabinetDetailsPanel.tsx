@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import type { BulkOperationResponse, CabinetDetailResponse, CabinetLayoutItem, Device, Operation, OperationResponse } from "../types";
+import type { BulkOperationResponse, CabinetDetailResponse, CabinetLayoutItem, ChangeOrderCabinetStats, Device, Operation, OperationResponse } from "../types";
 import { CabinetDeviceLayout } from "./CabinetDeviceLayout";
 import { ProgressCircle } from "./ProgressCircle";
 import { useI18n } from "../i18n";
@@ -7,6 +7,8 @@ import { bulkUpdateLifecycleStatus, updateCabinetStatus, updateDeviceStatus } fr
 import { categoryColor } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
 import type { SelectionGesture } from "../App";
+
+type ChangeOrderCableStatus = "red" | "yellow" | "cyan";
 
 type CabinetDetailsPanelProps = {
   detail: CabinetDetailResponse | null;
@@ -33,6 +35,8 @@ type CabinetDetailsPanelProps = {
       recordUndo?: boolean;
     },
   ) => void;
+  changeOrderStatsByCabinet: Map<string, ChangeOrderCabinetStats>;
+  onViewChangeOrderCables: (cabinetUid: string, changeStatus: ChangeOrderCableStatus) => void;
   onBulkStatusChanged: (
     operation: Promise<BulkOperationResponse>,
     options?: {
@@ -62,6 +66,8 @@ export function CabinetDetailsPanel({
   lifecycleStatuses,
   onStatusChanged,
   onBulkStatusChanged,
+  changeOrderStatsByCabinet,
+  onViewChangeOrderCables,
 }: CabinetDetailsPanelProps) {
   const { formatConstructionPhase, formatLifecycleStatus, formatNumber, t } = useI18n();
   const categorySummaryPan = useDragPan<HTMLElement>();
@@ -76,6 +82,7 @@ export function CabinetDetailsPanel({
   const selectedDevices = detail && selectedDeviceUids.length > 1
     ? detail.devices.filter((device) => selectedDeviceUids.includes(`${device.cabinet_id}:${device.rack_unit}`))
     : [];
+  const selectedCabinetChangeStats = combineChangeOrderStats(selectedCabinetUids.map((uid) => changeOrderStatsByCabinet.get(uid)));
   const selectedDevice = detail && selectedDeviceUid
     ? detail.devices.find((device) => `${device.cabinet_id}:${device.rack_unit}` === selectedDeviceUid) ?? null
     : null;
@@ -132,6 +139,7 @@ export function CabinetDetailsPanel({
             </dd>
           </div>
         </dl>
+        <ChangeOrderStatsSummary stats={selectedCabinetChangeStats} title="Change order stats" />
         <section className="category-summary">
           <div className="section-title">{t("cabinet.types")}</div>
           {categories.map(([category, count]) => (
@@ -235,6 +243,12 @@ export function CabinetDetailsPanel({
         <>
           <h1>{detail.cabinet.cabinet_uid}</h1>
           <ChangeOperationSummary operations={detail.change_operations ?? []} title="Cabinet changes" />
+          <ChangeOrderStatsSummary
+            stats={changeOrderStatsByCabinet.get(detail.cabinet.cabinet_uid) ?? emptyChangeOrderStats()}
+            title="Change order stats"
+            cabinetUid={detail.cabinet.cabinet_uid}
+            onViewChangeOrderCables={onViewChangeOrderCables}
+          />
           <dl className="facts single-cabinet-facts">
             <div>
               <dt>{t("cabinet.category")}</dt>
@@ -343,6 +357,65 @@ export function CabinetDetailsPanel({
   );
 }
 
+
+function ChangeOrderStatsSummary({
+  stats,
+  title,
+  cabinetUid,
+  onViewChangeOrderCables,
+}: {
+  stats: ChangeOrderCabinetStats;
+  title: string;
+  cabinetUid?: string;
+  onViewChangeOrderCables?: (cabinetUid: string, changeStatus: ChangeOrderCableStatus) => void;
+}) {
+  if (stats.total === 0) return null;
+  const canOpenDetails = Boolean(cabinetUid && onViewChangeOrderCables);
+  const diffItems: Array<{ status: ChangeOrderCableStatus; count: number; label: string; className: string }> = [
+    { status: "red", count: stats.removed, label: `-${stats.removed}`, className: "change-order-diff-removed" },
+    { status: "yellow", count: stats.changed, label: `~${stats.changed}`, className: "change-order-diff-changed" },
+    { status: "cyan", count: stats.added, label: `+${stats.added}`, className: "change-order-diff-added" },
+  ];
+  return (
+    <section className="change-order-stats" onClick={(event) => event.stopPropagation()}>
+      <div className="section-title">{title}</div>
+      <div className="change-order-completion">{stats.completed}/{stats.total} complete</div>
+      <div className="change-order-diff-row">
+        {diffItems.map((item) => (
+          <button
+            className={`change-order-diff ${item.className}`}
+            disabled={!canOpenDetails || item.count === 0}
+            key={item.status}
+            onClick={() => {
+              if (!cabinetUid || !onViewChangeOrderCables) return;
+              onViewChangeOrderCables(cabinetUid, item.status);
+            }}
+            type="button"
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function combineChangeOrderStats(statsList: Array<ChangeOrderCabinetStats | undefined>): ChangeOrderCabinetStats {
+  return statsList.reduce<ChangeOrderCabinetStats>(
+    (total, stats) => ({
+      completed: total.completed + (stats?.completed ?? 0),
+      total: total.total + (stats?.total ?? 0),
+      added: total.added + (stats?.added ?? 0),
+      changed: total.changed + (stats?.changed ?? 0),
+      removed: total.removed + (stats?.removed ?? 0),
+    }),
+    emptyChangeOrderStats(),
+  );
+}
+
+function emptyChangeOrderStats(): ChangeOrderCabinetStats {
+  return { completed: 0, total: 0, added: 0, changed: 0, removed: 0 };
+}
 function DeviceDetailSummary({
   canEdit,
   device,
@@ -649,3 +722,4 @@ function average(values: number[]): number {
   if (!values.length) return 0;
   return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
 }
+

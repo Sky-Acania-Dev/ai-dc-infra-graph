@@ -5,6 +5,7 @@ import type {
   AuthUser,
   BulkOperationResponse,
   CabinetCableDetail,
+  ChangeOrderRecord,
   DataHallCableSummaryResponse,
   Device,
   DeviceConnectionResponse,
@@ -92,6 +93,20 @@ export async function fetchCabinetConnectionCables(
   return response.json();
 }
 
+export async function fetchCabinetChangeOrderCables(
+  cabinetUid: string,
+  changeStatus: "red" | "yellow" | "cyan",
+): Promise<CableDetailResponse> {
+  const params = new URLSearchParams({ change_status: changeStatus });
+  const response = await fetch(
+    `${API_BASE_URL}/topology/cabinets/${encodeURIComponent(cabinetUid)}/change-order-cables?${params.toString()}`,
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to load cabinet change order cable details: ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function fetchDeviceConnectionCables(
   sourceDeviceUid: string,
   targetDeviceUid: string,
@@ -115,6 +130,13 @@ export async function fetchDeviceConnections(cabinetUid: string, rackUnit: numbe
   return response.json();
 }
 
+export async function fetchChangeOrders(): Promise<ChangeOrderRecord[]> {
+  const response = await fetch(`${API_BASE_URL}/change-orders`);
+  if (!response.ok) {
+    throw new Error(`Failed to load change orders: ${response.status}`);
+  }
+  return response.json();
+}
 export async function fetchValidationReport(): Promise<ValidationResponse> {
   const response = await fetch(`${API_BASE_URL}/topology/validation`);
   if (!response.ok) {
@@ -301,3 +323,4 @@ async function errorMessage(response: Response, fallback: string): Promise<strin
   }
   return `${fallback}: ${response.status}`;
 }
+

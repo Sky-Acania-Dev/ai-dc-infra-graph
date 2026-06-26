@@ -2,7 +2,7 @@ import { categoryColor, labelColors } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useI18n } from "../i18n";
-import type { CabinetLayoutItem } from "../types";
+import type { CabinetLayoutItem, ChangeOrderCabinetStats } from "../types";
 import type { SelectionGesture } from "../App";
 import { ViewerScaleSlider } from "./ViewerScaleSlider";
 
@@ -25,6 +25,10 @@ type CabinetMapProps = {
   isDeviceMode: boolean;
   mapSize: MapSize;
   progressDisplay: MapProgressDisplay;
+  changeOrderStats: Map<string, ChangeOrderCabinetStats>;
+  changeOrderOptions: Array<{ number: number; label: string }>;
+  selectedChangeOrderNumbers: Set<number>;
+  onChangeOrderSelectionChange: (changeOrderNumbers: number[]) => void;
   onSelectCabinet: (cabinetUid: string, gesture: SelectionGesture) => void;
   onClearSelection: () => void;
   onDataHallChange: (dataHall: string) => void;
@@ -33,7 +37,7 @@ type CabinetMapProps = {
 };
 
 export type MapSize = "xsmall" | "small" | "medium" | "large" | "xlarge";
-export type MapProgressDisplay = "text" | "termination" | "dress";
+export type MapProgressDisplay = "text" | "termination" | "dress" | "change_orders";
 
 const MAP_SIZE_SETTINGS: Record<
   MapSize,
@@ -173,6 +177,10 @@ export function CabinetMap({
   isDeviceMode,
   mapSize,
   progressDisplay,
+  changeOrderStats,
+  changeOrderOptions,
+  selectedChangeOrderNumbers,
+  onChangeOrderSelectionChange,
   onSelectCabinet,
   onClearSelection,
   onDataHallChange,
@@ -210,16 +218,23 @@ export function CabinetMap({
             ))}
           </div>
           <div className="map-size-control" aria-label={t("map.display")}>
-            {(["text", "termination", "dress"] as MapProgressDisplay[]).map((display) => (
+            {(["text", "termination", "dress", "change_orders"] as MapProgressDisplay[]).map((display) => (
               <button
                 className={display === progressDisplay ? "is-active" : ""}
                 key={display}
                 onClick={() => onProgressDisplayChange(display)}
               >
-                {display === "text" ? t("map.displayType") : display === "termination" ? t("map.displayTermination") : t("map.displayDress")}
+                {display === "text" ? t("map.displayType") : display === "termination" ? t("map.displayTermination") : display === "dress" ? t("map.displayDress") : "CO"}
               </button>
             ))}
           </div>
+          {progressDisplay === "change_orders" ? (
+            <ChangeOrderFilter
+              onChange={onChangeOrderSelectionChange}
+              options={changeOrderOptions}
+              selectedNumbers={selectedChangeOrderNumbers}
+            />
+          ) : null}
           <ViewerScaleSlider
             label={t("viewer.scale")}
             onChange={onMapSizeChange}
@@ -252,6 +267,7 @@ export function CabinetMap({
             const connectedSourceCount = connectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
             const showConnectionCount = connectedSourceCount > 1;
             const isDimmed = hasSelection && !isSelected && !isConnected;
+            const cabinetChangeStats = changeOrderStats.get(cabinet.cabinet_uid) ?? emptyChangeOrderStats();
             const cabinetTypeLabel = progressDisplay === "text" ? cabinet.category : "";
             const cabinetTypeFit = fitSvgText(
               cabinetTypeLabel,
@@ -298,7 +314,7 @@ export function CabinetMap({
                 >
                   {cabinetTypeLabel}
                 </text>
-                {progressDisplay !== "text" ? (
+                {progressDisplay !== "text" && (progressDisplay !== "change_orders" || cabinetChangeStats.total > 0) ? (
                   <ProgressBar
                     x={x + 2}
                     y={y + settings.cellHeight * 0.53}
@@ -307,9 +323,12 @@ export function CabinetMap({
                     percent={
                       progressDisplay === "termination"
                         ? cabinet.cable_termination_percent
-                        : cabinet.cable_dress_percent
+                        : progressDisplay === "dress"
+                          ? cabinet.cable_dress_percent
+                          : changeOrderPercent(cabinetChangeStats)
                     }
                     fontSize={settings.cabinetTypeFontSize}
+                    label={progressDisplay === "change_orders" ? `${cabinetChangeStats.completed}/${cabinetChangeStats.total}` : undefined}
                   />
                 ) : null}
                 {showConnectionCount ? (
@@ -416,6 +435,7 @@ function ProgressBar({
   height,
   percent,
   fontSize,
+  label,
 }: {
   x: number;
   y: number;
@@ -423,9 +443,10 @@ function ProgressBar({
   height: number;
   percent: number;
   fontSize: number;
+  label?: string;
 }) {
   const clamped = Math.min(100, Math.max(0, percent));
-  const label = `${Math.round(clamped)}%`;
+  const displayLabel = label ?? `${Math.round(clamped)}%`;
   const labelFontSize = Math.min(fontSize, Math.max(5, height * 0.58));
   return (
     <g className="map-progress-bar">
@@ -446,7 +467,7 @@ function ProgressBar({
         y={y + height / 2}
         style={{ fontSize: labelFontSize }}
       >
-        {label}
+        {displayLabel}
       </text>
     </g>
   );
@@ -457,5 +478,53 @@ function progressColor(percent: number): string {
   if (percent < 50) return "#f97316";
   if (percent < 75) return "#eab308";
   return "#22c55e";
+}
+function ChangeOrderFilter({
+  options,
+  selectedNumbers,
+  onChange,
+}: {
+  options: Array<{ number: number; label: string }>;
+  selectedNumbers: Set<number>;
+  onChange: (changeOrderNumbers: number[]) => void;
+}) {
+  const selectedLabel = selectedNumbers.size === 0 ? "Total" : [...selectedNumbers].sort((a, b) => a - b).map((number) => `#${number}`).join(", ");
+
+  function toggle(number: number, checked: boolean) {
+    const next = new Set(selectedNumbers);
+    if (checked) next.add(number);
+    else next.delete(number);
+    onChange([...next].sort((a, b) => a - b));
+  }
+
+  return (
+    <details className="map-change-order-filter" onClick={(event) => event.stopPropagation()}>
+      <summary>{selectedLabel}</summary>
+      <div className="map-change-order-menu">
+        <label>
+          <input checked={selectedNumbers.size === 0} onChange={() => onChange([])} type="checkbox" />
+          <span>Total</span>
+        </label>
+        {options.map((option) => (
+          <label key={option.number}>
+            <input
+              checked={selectedNumbers.has(option.number)}
+              onChange={(event) => toggle(option.number, event.target.checked)}
+              type="checkbox"
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function emptyChangeOrderStats(): ChangeOrderCabinetStats {
+  return { completed: 0, total: 0, added: 0, changed: 0, removed: 0 };
+}
+
+function changeOrderPercent(stats: ChangeOrderCabinetStats): number {
+  return stats.total > 0 ? (stats.completed / stats.total) * 100 : 0;
 }
 
