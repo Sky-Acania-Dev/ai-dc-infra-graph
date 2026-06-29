@@ -47,6 +47,7 @@ class PersistedOperationList(BaseModel):
     version: int
     operation_types: list[str] = Field(default_factory=list)
     user_uids: list[str] = Field(default_factory=list)
+    change_order_keys: list[str] = Field(default_factory=list)
     min_timestamp: datetime | None = None
     max_timestamp: datetime | None = None
 
@@ -324,6 +325,7 @@ def list_operations(
     offset: int = 0,
     operation_type: str | None = None,
     user_uid: str | None = None,
+    change_order_key: str | None = None,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
 ) -> PersistedOperationList:
@@ -334,6 +336,13 @@ def list_operations(
         clauses.append(db.OperationLog.operation_type == operation_type)
     if user_uid:
         clauses.append(db.OperationLog.user_uid == user_uid)
+    if change_order_key:
+        clauses.append(db.OperationLog.operation_type == "source_update")
+        clauses.append(
+            (db.OperationLog.source_uid == change_order_key)
+            | (db.OperationLog.source_operator == change_order_key)
+            | (db.OperationLog.operation_group_uid == change_order_key)
+        )
     if start_time is not None:
         clauses.append(db.OperationLog.created_at >= start_time)
     if end_time is not None:
@@ -352,7 +361,14 @@ def list_operations(
         .limit(normalized_limit)
     ).scalars()
     facet_rows = session.execute(
-        select(db.OperationLog.operation_type, db.OperationLog.user_uid, db.OperationLog.created_at)
+        select(
+            db.OperationLog.operation_type,
+            db.OperationLog.user_uid,
+            db.OperationLog.created_at,
+            db.OperationLog.source_uid,
+            db.OperationLog.source_operator,
+            db.OperationLog.operation_group_uid,
+        )
         .where(db.OperationLog.project_uid == project_uid)
         .order_by(db.OperationLog.id)
     ).all()
@@ -366,10 +382,27 @@ def list_operations(
         version=version if after is None or total else after,
         operation_types=sorted({row.operation_type for row in facet_rows if row.operation_type}),
         user_uids=sorted({row.user_uid for row in facet_rows if row.user_uid}),
+        change_order_keys=sorted(
+            {
+                _change_order_key(row.source_uid, row.source_operator, row.operation_group_uid)
+                for row in facet_rows
+                if row.operation_type == "source_update"
+                and _change_order_key(row.source_uid, row.source_operator, row.operation_group_uid)
+            },
+            key=_change_order_key_sort_value,
+        ),
         min_timestamp=min(timestamps) if timestamps else None,
         max_timestamp=max(timestamps) if timestamps else None,
     )
 
+
+def _change_order_key(source_uid: str | None, source_operator: str | None, operation_group_uid: str | None) -> str:
+    return source_uid or source_operator or operation_group_uid or ""
+
+
+def _change_order_key_sort_value(value: str) -> tuple[int, str]:
+    digits = "".join(character for character in value if character.isdigit())
+    return (int(digits) if digits else 0, value)
 
 def _append_operation(
     session: Session,

@@ -299,6 +299,7 @@ class OperationListResponse(BaseModel):
     has_more: bool = False
     operation_types: list[str] = Field(default_factory=list)
     user_uids: list[str] = Field(default_factory=list)
+    change_order_keys: list[str] = Field(default_factory=list)
     min_timestamp: str | None = None
     max_timestamp: str | None = None
 
@@ -698,6 +699,7 @@ def list_operations(
     offset: int = 0,
     operation_type: str | None = None,
     user_uid: str | None = None,
+    change_order_key: str | None = None,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
@@ -713,6 +715,7 @@ def list_operations(
             offset=normalized_offset,
             operation_type=operation_type,
             user_uid=user_uid,
+            change_order_key=change_order_key,
             start_time=start_time,
             end_time=end_time,
         )
@@ -725,12 +728,14 @@ def list_operations(
             has_more=page.has_more,
             operation_types=page.operation_types,
             user_uids=page.user_uids,
+            change_order_keys=page.change_order_keys,
             min_timestamp=page.min_timestamp.isoformat() if page.min_timestamp else None,
             max_timestamp=page.max_timestamp.isoformat() if page.max_timestamp else None,
         )
     all_operations = _load_operations(_operations_path(database_path))
     operation_types = sorted({operation.type for operation in all_operations if operation.type})
     user_uids = sorted({operation.userUid for operation in all_operations if operation.userUid})
+    change_order_keys = sorted({operation_change_order_key(operation) for operation in all_operations if operation.type == "source_update" and operation_change_order_key(operation)})
     timestamps = [operation.timestamp for operation in all_operations if operation.timestamp]
     operations = all_operations
     if after is not None:
@@ -739,6 +744,8 @@ def list_operations(
         operations = [operation for operation in operations if operation.type == operation_type]
     if user_uid:
         operations = [operation for operation in operations if operation.userUid == user_uid]
+    if change_order_key:
+        operations = [operation for operation in operations if operation.type == "source_update" and operation_change_order_key(operation) == change_order_key]
     if start_time is not None:
         operations = [operation for operation in operations if _parse_operation_timestamp(operation.timestamp) >= start_time]
     if end_time is not None:
@@ -754,9 +761,14 @@ def list_operations(
         has_more=normalized_offset + normalized_limit < total,
         operation_types=operation_types,
         user_uids=user_uids,
+        change_order_keys=change_order_keys,
         min_timestamp=min(timestamps) if timestamps else None,
         max_timestamp=max(timestamps) if timestamps else None,
     )
+
+
+def operation_change_order_key(operation: Operation) -> str:
+    return operation.sourceUid or operation.sourceOperator or operation.operationGroupUid or ""
 
 
 @router.get("/validation", response_model=ValidationResponse)
@@ -922,11 +934,12 @@ def cabinet_connection_cables(
 def cabinet_change_order_cables(
     cabinet_uid: str,
     change_status: str | None = None,
+    change_order_key: list[str] | None = None,
 ) -> CabinetCableDetailResponse:
     cabinet_uid = cabinet_uid.upper()
     if not use_postgresql_topology_storage():
         raise HTTPException(status_code=400, detail="Change order cable details require PostgreSQL topology storage.")
-    return _postgres_cabinet_change_order_cables(cabinet_uid, change_status)
+    return _postgres_cabinet_change_order_cables(cabinet_uid, change_status, set(change_order_key or []))
 
 
 @router.get(
@@ -1830,11 +1843,13 @@ def _postgres_source_update_statuses(session, cable_uids: list[str]) -> dict[str
 def _postgres_cabinet_change_order_cables(
     cabinet_uid: str,
     change_status: str | None,
+    change_order_keys: set[str] | None = None,
 ) -> CabinetCableDetailResponse:
-    allowed_statuses = {"red", "yellow", "cyan"}
+    allowed_statuses = {"red", "yellow", "cyan", "replaced"}
+    change_order_keys = change_order_keys or set()
     normalized_status = change_status.lower() if change_status else None
     if normalized_status is not None and normalized_status not in allowed_statuses:
-        raise HTTPException(status_code=400, detail="change_status must be one of red, yellow, or cyan.")
+        raise HTTPException(status_code=400, detail="change_status must be one of red, yellow, cyan, or replaced.")
 
     with session_factory()() as session:
         _postgres_require_cabinet(session, cabinet_uid)
@@ -1847,18 +1862,26 @@ def _postgres_cabinet_change_order_cables(
             )
             .order_by(db.OperationLog.id.desc())
         ).scalars()
+        latest_operation_ids = _latest_source_update_operation_ids(session)
         details: list[CabinetCableDetail] = []
         seen: set[str] = set()
         for operation in operations:
-            if operation.entity_uid in seen:
+            if change_order_keys and _operation_change_order_key(operation) not in change_order_keys:
                 continue
-            detail = _source_update_cable_detail_for_cabinet(operation, cabinet_uid)
+            if not change_order_keys and operation.entity_uid in seen:
+                continue
+            detail = _source_update_cable_detail_for_cabinet(
+                operation,
+                cabinet_uid,
+                is_replaced=latest_operation_ids.get(operation.entity_uid) not in {None, operation.id},
+            )
             if detail is None:
                 continue
             if normalized_status is not None and detail.change_status != normalized_status:
                 continue
             details.append(detail)
-            seen.add(operation.entity_uid)
+            if not change_order_keys:
+                seen.add(operation.entity_uid)
 
     status_label = normalized_status or "all"
     return CabinetCableDetailResponse(
@@ -1867,6 +1890,22 @@ def _postgres_cabinet_change_order_cables(
         cables=sorted(details, key=lambda cable: (cable.change_status, cable.cable_type, cable.a_port_uid, cable.z_port_uid, cable.uid)),
     )
 
+
+def _latest_source_update_operation_ids(session) -> dict[str, int]:
+    operations = session.execute(
+        select(db.OperationLog.entity_uid, func.max(db.OperationLog.id))
+        .where(
+            db.OperationLog.project_uid == DEFAULT_PROJECT_UID,
+            db.OperationLog.entity_type == "cable",
+            db.OperationLog.operation_type == "source_update",
+        )
+        .group_by(db.OperationLog.entity_uid)
+    ).all()
+    return {entity_uid: operation_id for entity_uid, operation_id in operations if entity_uid and operation_id is not None}
+
+
+def _operation_change_order_key(operation: db.OperationLog) -> str:
+    return operation.source_uid or operation.source_operator or operation.operation_group_uid or ""
 
 def _postgres_source_update_target_cabinet_uids(session, cabinet_uid: str) -> set[str]:
     operations = session.execute(
@@ -2097,16 +2136,19 @@ def _source_update_cable_detail_from_operation(operation: db.OperationLog) -> Ca
     return _cable_detail_from_source_update_record(operation, record, change_status=change_status)
 
 
-def _source_update_cable_detail_for_cabinet(operation: db.OperationLog, cabinet_uid: str) -> CabinetCableDetail | None:
-    change_status = _change_status_from_operation(operation)
+def _source_update_cable_detail_for_cabinet(operation: db.OperationLog, cabinet_uid: str, *, is_replaced: bool = False) -> CabinetCableDetail | None:
+    base_change_status = _change_status_from_operation(operation)
+    display_change_status = "replaced" if is_replaced else base_change_status
     old_record = _source_update_record(operation, "old_record", operation.before)
     new_record = _source_update_record(operation, "new_record", operation.after)
-    match_records = [old_record, new_record] if change_status == "yellow" else [_source_update_display_record(operation, change_status)]
+    match_records = [old_record, new_record] if base_change_status == "yellow" else [_source_update_display_record(operation, base_change_status)]
     if not any(_source_update_record_matches_cabinet(record, cabinet_uid) for record in match_records):
         return None
-    return _cable_detail_from_source_update_record(operation, _source_update_display_record(operation, change_status), change_status=change_status)
-
-
+    return _cable_detail_from_source_update_record(
+        operation,
+        _source_update_display_record(operation, base_change_status),
+        change_status=display_change_status,
+    )
 def _source_update_display_record(operation: db.OperationLog, change_status: str) -> dict[str, Any]:
     if change_status == "red":
         return _source_update_record(operation, "old_record", operation.before)

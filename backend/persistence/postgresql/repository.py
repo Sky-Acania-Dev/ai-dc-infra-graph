@@ -142,6 +142,7 @@ class PostgresTopologyRepository(TopologyRepository):
         offset: int = 0,
         operation_type: str | None = None,
         user_uid: str | None = None,
+        change_order_key: str | None = None,
         start_time=None,
         end_time=None,
     ):
@@ -154,6 +155,7 @@ class PostgresTopologyRepository(TopologyRepository):
                 offset=offset,
                 operation_type=operation_type,
                 user_uid=user_uid,
+                change_order_key=change_order_key,
                 start_time=start_time,
                 end_time=end_time,
             )

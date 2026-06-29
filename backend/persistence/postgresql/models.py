@@ -413,6 +413,37 @@ class FilterPreset(TimestampColumns, Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
 
 
+class EntityGroup(TimestampColumns, Base):
+    __tablename__ = "entity_groups"
+    __table_args__ = (
+        CheckConstraint("entity_type in ('cable', 'cabinet', 'device', 'port', 'bundle')", name="ck_entity_groups_entity_type"),
+        UniqueConstraint("project_uid", "entity_type", "name", name="uq_entity_groups_project_entity_name"),
+        Index("ix_entity_groups_project_entity", "project_uid", "entity_type", "created_at"),
+        Index("ix_entity_groups_owner", "owner_user_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="cable")
+    owner_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    metadata_json: Mapped[dict[str, Any]] = jsonb_dict()
+
+
+class EntityGroupMember(Base):
+    __tablename__ = "entity_group_members"
+    __table_args__ = (
+        CheckConstraint("entity_type in ('cable', 'cabinet', 'device', 'port', 'bundle')", name="ck_entity_group_members_entity_type"),
+        Index("ix_entity_group_members_entity", "entity_type", "entity_uid"),
+    )
+
+    group_uid: Mapped[str] = mapped_column(ForeignKey("entity_groups.uid", ondelete="CASCADE"), primary_key=True)
+    entity_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    entity_uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    sequence: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
 Index(
     "uq_filter_presets_private_owner_name",
     FilterPreset.project_uid,

@@ -1332,21 +1332,73 @@ button {
   max-height: calc(100vh - 268px);
 }
 
-.operations-table code {
-  display: block;
-  max-width: 520px;
+.operations-table {
+  min-width: 1180px;
+  table-layout: fixed;
+}
+
+.operations-table th:nth-child(1),
+.operations-table td:nth-child(1) {
+  width: 56px;
+}
+
+.operations-table th:nth-child(2),
+.operations-table td:nth-child(2) {
+  width: 96px;
+}
+
+.operations-table th:nth-child(3),
+.operations-table td:nth-child(3) {
+  width: 180px;
+}
+
+.operations-table th:nth-child(4),
+.operations-table td:nth-child(4) {
+  width: 96px;
+}
+
+.operations-table th:nth-child(5),
+.operations-table td:nth-child(5) {
+  width: 110px;
+}
+
+.operations-table th:nth-child(6),
+.operations-table td:nth-child(6) {
+  width: 188px;
+}
+
+.operations-table th:nth-child(7),
+.operations-table td:nth-child(7) {
+  width: 120px;
+}
+
+.operations-table th:nth-child(8),
+.operations-table td:nth-child(8),
+.operations-table th:nth-child(9),
+.operations-table td:nth-child(9) {
+  width: 165px;
+}
+
+.operations-table td {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.operations-table code {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .operation-log-filters {
   align-items: end;
   background: #ffffff;
   border-bottom: 1px solid #e2e8f0;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(280px, 1fr) minmax(130px, auto) minmax(150px, auto) auto;
+  grid-template-columns: minmax(280px, 1fr) minmax(130px, auto) minmax(150px, auto) minmax(120px, auto) auto;
   padding: 10px 0;
 }
 
@@ -2234,14 +2286,13 @@ button {
   display: inline-flex;
   font-size: 10px;
   font-weight: 900;
-  height: 30px;
+  min-height: 34px;
   list-style: none;
-  max-width: 150px;
-  min-width: 58px;
+  max-width: 240px;
+  min-width: 170px;
   overflow: hidden;
-  padding: 0 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 6px;
+  padding: 4px 8px;
 }
 
 .map-change-order-filter summary::-webkit-details-marker {
@@ -2297,7 +2348,7 @@ button {
 .change-order-diff-row {
   display: grid;
   gap: 6px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .change-order-diff {
@@ -2355,3 +2406,216 @@ button.change-order-diff {
   background: #06b6d4;
 }
 
+
+.map-change-order-filter-title,
+.map-change-order-filter-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-change-order-filter-title {
+  color: #475569;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.map-change-order-filter-value {
+  color: #111827;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.map-change-order-filter-count {
+  align-items: center;
+  background: #0f172a;
+  color: #ffffff;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 10px;
+  height: 18px;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 5px;
+}
+
+.change-row-replaced {
+  background: #f5f3ff;
+}
+
+.change-row-replaced:hover,
+.change-row-replaced.is-selected-cable,
+.change-row-replaced.is-primary-selected {
+  background: #ede9fe;
+}
+.change-order-diff-replaced {
+  background: #ede9fe;
+  border-color: #c4b5fd;
+  color: #5b21b6;
+}
+
+.change-dot-replaced {
+  background: #7c3aed;
+}
+
+.entity-groups-panel {
+  gap: 10px;
+}
+
+.entity-group-create,
+.entity-group-edit {
+  display: grid;
+  gap: 7px;
+}
+
+.entity-group-create input,
+.entity-group-create textarea,
+.entity-group-edit input,
+.entity-group-edit textarea {
+  border: 1px solid #cbd5e1;
+  color: #111827;
+  font-size: 12px;
+  padding: 6px 7px;
+  width: 100%;
+}
+
+.entity-group-create button,
+.entity-group-actions button,
+.entity-group-members-header button,
+.entity-group-member button,
+.selector-summary button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 7px;
+}
+
+.entity-group-create button:disabled,
+.entity-group-actions button:disabled,
+.entity-group-members-header button:disabled,
+.entity-group-member button:disabled,
+.selector-summary button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.entity-group-list {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.entity-group-card {
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+}
+
+.entity-group-card.is-active {
+  border-color: #2563eb;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.entity-group-main {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #111827;
+  display: flex;
+  font-size: 13px;
+  font-weight: 900;
+  justify-content: space-between;
+  padding: 0;
+  text-align: left;
+}
+
+.entity-group-main b {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #3730a3;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.entity-group-card p,
+.entity-group-empty {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.entity-group-meta,
+.entity-group-actions,
+.entity-group-members-header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.entity-group-meta span {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.entity-group-members {
+  border-top: 1px solid #e2e8f0;
+  display: grid;
+  gap: 6px;
+  padding-top: 7px;
+}
+
+.entity-group-members-header span {
+  color: #334155;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.entity-group-member-list {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.entity-group-member {
+  align-items: center;
+  background: #f8fafc;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 5px 6px;
+}
+
+.entity-group-member code {
+  color: #334155;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selector-summary {
+  align-items: center;
+  color: #1d4ed8;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  font-weight: 900;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.cable-overlay.selection-mode-multi .table-scroll tbody,
+.cable-overlay.selection-mode-remove .table-scroll tbody {
+  user-select: none;
+}

@@ -177,7 +177,7 @@ export type CabinetCableDetail = {
   z_port_uid: string;
   a_optic: string;
   z_optic: string;
-  change_status: "green" | "yellow" | "red" | "cyan";
+  change_status: "green" | "yellow" | "red" | "cyan" | "replaced";
 };
 
 export type CabinetCableDetailResponse = {
@@ -304,8 +304,30 @@ export type OperationListResponse = {
   has_more: boolean;
   operation_types: string[];
   user_uids: string[];
+  change_order_keys: string[];
   min_timestamp?: string | null;
   max_timestamp?: string | null;
+};
+
+export type EntityGroupMember = {
+  entity_type: string;
+  entity_uid: string;
+  sequence?: number | null;
+  created_at?: string | null;
+};
+
+export type EntityGroupRecord = {
+  uid: string;
+  project_uid: string;
+  name: string;
+  description: string;
+  entity_type: string;
+  owner_user_uid?: string | null;
+  metadata_json: Record<string, unknown>;
+  members: EntityGroupMember[];
+  member_count: number;
+  created_at: string;
+  updated_at: string;
 };
 export type ChangeOrderItemRecord = {
   uid: string;
@@ -347,5 +369,6 @@ export type ChangeOrderCabinetStats = {
   added: number;
   changed: number;
   removed: number;
+  replaced: number;
 };
 

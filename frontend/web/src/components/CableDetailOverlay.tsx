@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { updateCable, type UpdateCablePayload } from "../api";
 import type { CabinetCableDetail, CableDetailResponse, CableProgressPhase, CableProgressPhaseDefinition, OperationResponse, TopologyEnums } from "../types";
 import { useI18n } from "../i18n";
@@ -18,11 +18,16 @@ type CableDetailOverlayProps = {
   onClose: () => void;
   onPageRequest?: (offset: number, limit: (typeof PAGE_SIZE_OPTIONS)[number]) => void;
   onSelectCable: (cable: CabinetCableDetail, gesture: SelectionGesture) => void;
+  onSelectCableRange: (cableUids: string[], anchorCableUid: string, gesture: SelectionGesture) => void;
+  onSetCableSelection: (cableUids: string[], primaryCableUid: string | null) => void;
   onCableUpdated: (response: OperationResponse) => void;
+  selectorLabel?: string | null;
+  onAddSelectedToGroup?: () => void;
+  canAddSelectedToGroup?: boolean;
 };
 
 type SortDirection = "asc" | "desc";
-type ChangeStatus = "green" | "yellow" | "red" | "cyan";
+type ChangeStatus = "green" | "yellow" | "red" | "cyan" | "replaced";
 type CableColumnKey =
   | "uid"
   | "cable_type"
@@ -82,7 +87,12 @@ export function CableDetailOverlay({
   onClose,
   onPageRequest,
   onSelectCable,
+  onSelectCableRange,
+  onSetCableSelection,
   onCableUpdated,
+  selectorLabel,
+  onAddSelectedToGroup,
+  canAddSelectedToGroup = false,
 }: CableDetailOverlayProps) {
   const {
     formatCableProgressPhaseName,
@@ -101,7 +111,7 @@ export function CableDetailOverlay({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(250);
   const [tableScale, setTableScale] = useState<CableTableScale>("m");
-  const [changeFilters, setChangeFilters] = useState<Record<ChangeStatus, boolean>>({ green: true, yellow: true, cyan: true, red: true });
+  const [changeFilters, setChangeFilters] = useState<Record<ChangeStatus, boolean>>({ green: true, yellow: true, cyan: true, red: true, replaced: true });
   const debouncedFilterText = useDebouncedValue(filterText, 500);
   const serverTotalRows =
     cableDetail && "total_cables" in cableDetail && typeof cableDetail.total_cables === "number" ? cableDetail.total_cables : null;
@@ -178,15 +188,33 @@ export function CableDetailOverlay({
   const normalizedPage = isServerPaged ? Math.floor(serverOffset / effectivePageSize) + 1 : Math.min(page, pageCount);
   const pageStartIndex = isServerPaged ? serverOffset : (normalizedPage - 1) * effectivePageSize;
   const pagedCables = isServerPaged ? visibleCables : visibleCables.slice(pageStartIndex, pageStartIndex + effectivePageSize);
+  const currentCableUidSet = useMemo(() => new Set(cableDetail?.cables.map((cable) => cable.uid) ?? []), [cableDetail]);
   const selectedCables = useMemo(
     () => cableDetail?.cables.filter((cable) => selectedCableUids.has(cable.uid)) ?? [],
     [cableDetail, selectedCableUids],
   );
+  const selectedCurrentCableUids = useMemo(
+    () => [...selectedCableUids].filter((uid) => currentCableUidSet.has(uid)),
+    [currentCableUidSet, selectedCableUids],
+  );
+  const visibleCableUids = useMemo(() => visibleCables.map((cable) => cable.uid), [visibleCables]);
+  const selectedVisibleCount = visibleCableUids.filter((uid) => selectedCableUids.has(uid)).length;
+  const areAllVisibleSelected = visibleCableUids.length > 0 && selectedVisibleCount === visibleCableUids.length;
+  const canApplySelectedToGroup = canAddSelectedToGroup && selectionMode !== "single" && selectedCurrentCableUids.length > 0;
+  const selectorStatusLabel = selectedCableUids.size > 0
+    ? `${formatNumber(selectedCableUids.size)} ${selectedCableUids.size === 1 ? "cable is" : "cables are"} selected`
+    : selectorLabel;
 
   useEffect(() => {
     if (isServerPaged) return;
     setPage(1);
   }, [cableDetail, filters, isServerPaged, rangeFilters, sortDirection, sortKey]);
+
+  useEffect(() => {
+    if (!cableDetail) return;
+    const staleSelection = [...selectedCableUids].some((uid) => !currentCableUidSet.has(uid));
+    if (staleSelection) onSetCableSelection(selectedCurrentCableUids, selectedCurrentCableUids.at(-1) ?? null);
+  }, [cableDetail, currentCableUidSet, onSetCableSelection, selectedCableUids, selectedCurrentCableUids]);
 
   useEffect(() => {
     if (isServerPaged) return;
@@ -222,6 +250,35 @@ export function CableDetailOverlay({
     });
   }
 
+  function selectAllVisibleCables() {
+    if (!visibleCableUids.length || areAllVisibleSelected) return;
+    const nextSelection = [...new Set([...selectedCableUids, ...visibleCableUids])];
+    onSetCableSelection(nextSelection, visibleCableUids[0] ?? nextSelection.at(-1) ?? null);
+  }
+
+  function deselectAllVisibleCables() {
+    if (!visibleCableUids.length || selectedVisibleCount === 0) return;
+    const visibleSet = new Set(visibleCableUids);
+    const nextSelection = [...selectedCableUids].filter((uid) => !visibleSet.has(uid));
+    onSetCableSelection(nextSelection, nextSelection.at(-1) ?? null);
+  }
+
+  function handleCableRowClick(cable: CabinetCableDetail, event: MouseEvent<HTMLTableRowElement>) {
+    if (isCableEditTarget(event.target)) return;
+    event.preventDefault();
+    const gesture = { ctrlKey: event.ctrlKey, metaKey: event.metaKey, shiftKey: event.shiftKey };
+    if (event.shiftKey && selectionMode !== "single" && selectedCableUid) {
+      const anchorIndex = visibleCableUids.indexOf(selectedCableUid);
+      const currentIndex = visibleCableUids.indexOf(cable.uid);
+      if (anchorIndex >= 0 && currentIndex >= 0) {
+        const [start, end] = anchorIndex < currentIndex ? [anchorIndex, currentIndex] : [currentIndex, anchorIndex];
+        onSelectCableRange(visibleCableUids.slice(start, end + 1), cable.uid, gesture);
+        return;
+      }
+    }
+    onSelectCable(cable, gesture);
+  }
+
   function setVisibleColumnFilter(columnKey: CableColumnKey, shouldIncludeVisible: boolean) {
     const allValues = uniqueValues[columnKey] ?? [];
     const visibleValues = filteredUniqueValues[columnKey] ?? [];
@@ -252,13 +309,28 @@ export function CableDetailOverlay({
           </h2>
           <div className="overlay-count">
             {cableDetail
-              ? t("cable.countVisible", {
+              ? `${t("cable.countVisible", {
                   visible: formatNumber(visibleCables.length),
                   total: formatNumber(totalRows),
-                })
+                })}${selectedVisibleCount ? ` · ${formatNumber(selectedVisibleCount)} selected on this page` : ""}`
               : t("common.loading", { target: t("cable.details") })}
-            {selectedCables.length > 1 ? ` Â· Selected ${formatNumber(selectedCables.length)}` : ""}
           </div>
+          {selectorStatusLabel ? (
+            <div className="selector-summary">
+              <span>{selectorStatusLabel}</span>
+              <button disabled={!visibleCableUids.length || areAllVisibleSelected} onClick={() => selectAllVisibleCables()} type="button">
+                Select all
+              </button>
+              <button disabled={!visibleCableUids.length || selectedVisibleCount === 0} onClick={() => deselectAllVisibleCables()} type="button">
+                Deselect all
+              </button>
+              {onAddSelectedToGroup && selectionMode !== "single" ? (
+                <button disabled={!canApplySelectedToGroup} onClick={onAddSelectedToGroup} type="button">
+                  {selectionMode === "remove" ? "Remove selected" : "Add selected"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {selectedCables.length > 1 ? (
             <CableSelectionSummary cables={selectedCables} formatNumber={formatNumber} />
           ) : null}
@@ -395,7 +467,10 @@ export function CableDetailOverlay({
               <tr
                 className={`${selectedCableUids.has(cable.uid) ? "is-selected-cable" : ""} ${selectedCableUid === cable.uid ? "is-primary-selected" : ""} change-row-${cable.change_status ?? "green"}`}
                 key={`${cable.uid}-${cable.a_port_uid}-${cable.z_port_uid}-${pageStartIndex + index}`}
-                onClick={(event) => onSelectCable(cable, event)}
+                onMouseDown={(event) => {
+                  if (event.shiftKey || selectionMode !== "single") event.preventDefault();
+                }}
+                onClick={(event) => handleCableRowClick(cable, event)}
               >
                 {COLUMNS.map((column) => (
                   <td key={column.key}>
@@ -513,7 +588,7 @@ function ChangeStatusFilter({
 }) {
   return (
     <div className="change-status-filter">
-      {(["green", "yellow", "cyan", "red"] as ChangeStatus[]).map((status) => (
+      {(["green", "yellow", "cyan", "red", "replaced"] as ChangeStatus[]).map((status) => (
         <label key={status}>
           <input checked={filters[status]} onChange={(event) => onChange(status, event.target.checked)} type="checkbox" />
           <ChangeDot status={status} />
@@ -675,6 +750,7 @@ function changeStatusLabel(status: ChangeStatus): string {
   if (status === "red") return "Removed";
   if (status === "yellow") return "Changed";
   if (status === "cyan") return "Added";
+  if (status === "replaced") return "Replaced";
   return "No change";
 }
 
@@ -1025,13 +1101,13 @@ function CableSelectionSummary({
 }) {
   const typeCounts = countBy(cables, (cable) => cable.cable_type);
   const statusCounts = countBy(cables, (cable) => cable.status);
-  const totalLength = cables.reduce((total, cable) => total + (cable.length_meters ?? cable.length_used_meters ?? 0), 0);
+  const lengthCounts = countBy(cables, (cable) => String(cable.length_meters ?? cable.length_used_meters ?? ""));
 
   return (
     <div className="selection-summary">
       <span>{formatNumber(typeCounts.length)} types</span>
       <span>{formatNumber(statusCounts.length)} statuses</span>
-      <span>{formatNumber(Math.round(totalLength))} m</span>
+      <span>{formatNumber(lengthCounts.length)} unique lengths</span>
     </div>
   );
 }
@@ -1285,3 +1361,9 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
   return debouncedValue;
 }
 
+
+
+function isCableEditTarget(target: EventTarget | null): boolean {
+  const element = target instanceof HTMLElement ? target : null;
+  return Boolean(element?.closest("[data-cable-editable=\"true\"], button, input, select, textarea, summary, details"));
+}

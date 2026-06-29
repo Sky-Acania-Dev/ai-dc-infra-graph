@@ -9,6 +9,7 @@ import type {
   DataHallCableSummaryResponse,
   Device,
   DeviceConnectionResponse,
+  EntityGroupRecord,
   OperationListResponse,
   OperationResponse,
   TopologyEnums,
@@ -25,6 +26,71 @@ export async function fetchCurrentUser(): Promise<AuthUser> {
   return response.json();
 }
 
+
+export type SaveEntityGroupPayload = {
+  name: string;
+  description?: string;
+  entity_type?: string;
+  member_uids?: string[];
+  metadata_json?: Record<string, unknown>;
+};
+
+export type UpdateEntityGroupPayload = Partial<Omit<SaveEntityGroupPayload, "entity_type">>;
+
+export async function fetchEntityGroups(entityType = "cable"): Promise<EntityGroupRecord[]> {
+  const params = new URLSearchParams({ entity_type: entityType });
+  const response = await fetch(`${API_BASE_URL}/entity-groups?${params.toString()}`);
+  if (response.status === 404) {
+    return [];
+  }
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, "Failed to load entity groups"));
+  }
+  return response.json();
+}
+
+export async function createEntityGroup(payload: SaveEntityGroupPayload): Promise<EntityGroupRecord> {
+  const response = await fetch(`${API_BASE_URL}/entity-groups`, {
+    body: JSON.stringify({ ...payload, entity_type: payload.entity_type ?? "cable" }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, "Failed to create entity group"));
+  }
+  return response.json();
+}
+
+export async function updateEntityGroup(groupUid: string, payload: UpdateEntityGroupPayload): Promise<EntityGroupRecord> {
+  const response = await fetch(`${API_BASE_URL}/entity-groups/${encodeURIComponent(groupUid)}`, {
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+    method: "PATCH",
+  });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, "Failed to update entity group"));
+  }
+  return response.json();
+}
+
+export async function addEntityGroupMembers(groupUid: string, memberUids: string[]): Promise<EntityGroupRecord> {
+  const response = await fetch(`${API_BASE_URL}/entity-groups/${encodeURIComponent(groupUid)}/members`, {
+    body: JSON.stringify({ member_uids: memberUids }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, "Failed to add group members"));
+  }
+  return response.json();
+}
+
+export async function deleteEntityGroup(groupUid: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/entity-groups/${encodeURIComponent(groupUid)}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, "Failed to delete entity group"));
+  }
+}
 export async function fetchTopologyEnums(): Promise<TopologyEnums> {
   const response = await fetch(`${API_BASE_URL}/topology/enums`);
   if (!response.ok) {
@@ -95,9 +161,11 @@ export async function fetchCabinetConnectionCables(
 
 export async function fetchCabinetChangeOrderCables(
   cabinetUid: string,
-  changeStatus: "red" | "yellow" | "cyan",
+  changeStatus: "red" | "yellow" | "cyan" | "replaced",
+  changeOrderKeys: string[] = [],
 ): Promise<CableDetailResponse> {
   const params = new URLSearchParams({ change_status: changeStatus });
+  for (const key of changeOrderKeys) params.append("change_order_key", key);
   const response = await fetch(
     `${API_BASE_URL}/topology/cabinets/${encodeURIComponent(cabinetUid)}/change-order-cables?${params.toString()}`,
   );
@@ -257,6 +325,7 @@ export type FetchOperationsParams = {
   offset?: number;
   operationType?: string;
   userUid?: string;
+  changeOrderKey?: string;
   startTime?: string | null;
   endTime?: string | null;
 };
@@ -271,6 +340,7 @@ export async function fetchOperations(
   if (options.offset != null) params.set("offset", String(options.offset));
   if (options.operationType) params.set("operation_type", options.operationType);
   if (options.userUid) params.set("user_uid", options.userUid);
+  if (options.changeOrderKey) params.set("change_order_key", options.changeOrderKey);
   if (options.startTime) params.set("start_time", options.startTime);
   if (options.endTime) params.set("end_time", options.endTime);
   const response = await fetch(`${API_BASE_URL}/topology/operations?${params.toString()}`);

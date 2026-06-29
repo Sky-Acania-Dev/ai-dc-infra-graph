@@ -8,7 +8,7 @@ import { categoryColor } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
 import type { SelectionGesture } from "../App";
 
-type ChangeOrderCableStatus = "red" | "yellow" | "cyan";
+type ChangeOrderCableStatus = "red" | "yellow" | "cyan" | "replaced";
 
 type CabinetDetailsPanelProps = {
   detail: CabinetDetailResponse | null;
@@ -375,6 +375,7 @@ function ChangeOrderStatsSummary({
     { status: "red", count: stats.removed, label: `-${stats.removed}`, className: "change-order-diff-removed" },
     { status: "yellow", count: stats.changed, label: `~${stats.changed}`, className: "change-order-diff-changed" },
     { status: "cyan", count: stats.added, label: `+${stats.added}`, className: "change-order-diff-added" },
+    { status: "replaced", count: stats.replaced, label: `R${stats.replaced}`, className: "change-order-diff-replaced" },
   ];
   return (
     <section className="change-order-stats" onClick={(event) => event.stopPropagation()}>
@@ -406,6 +407,7 @@ function combineChangeOrderStats(statsList: Array<ChangeOrderCabinetStats | unde
       completed: total.completed + (stats?.completed ?? 0),
       total: total.total + (stats?.total ?? 0),
       added: total.added + (stats?.added ?? 0),
+      replaced: total.replaced + (stats?.replaced ?? 0),
       changed: total.changed + (stats?.changed ?? 0),
       removed: total.removed + (stats?.removed ?? 0),
     }),
@@ -414,7 +416,7 @@ function combineChangeOrderStats(statsList: Array<ChangeOrderCabinetStats | unde
 }
 
 function emptyChangeOrderStats(): ChangeOrderCabinetStats {
-  return { completed: 0, total: 0, added: 0, changed: 0, removed: 0 };
+  return { completed: 0, total: 0, added: 0, changed: 0, removed: 0, replaced: 0 };
 }
 function DeviceDetailSummary({
   canEdit,

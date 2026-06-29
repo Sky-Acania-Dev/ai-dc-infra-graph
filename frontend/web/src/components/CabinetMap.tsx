@@ -26,7 +26,7 @@ type CabinetMapProps = {
   mapSize: MapSize;
   progressDisplay: MapProgressDisplay;
   changeOrderStats: Map<string, ChangeOrderCabinetStats>;
-  changeOrderOptions: Array<{ number: number; label: string }>;
+  changeOrderOptions: Array<{ key: string; number: number; label: string }>;
   selectedChangeOrderNumbers: Set<number>;
   onChangeOrderSelectionChange: (changeOrderNumbers: number[]) => void;
   onSelectCabinet: (cabinetUid: string, gesture: SelectionGesture) => void;
@@ -484,11 +484,12 @@ function ChangeOrderFilter({
   selectedNumbers,
   onChange,
 }: {
-  options: Array<{ number: number; label: string }>;
+  options: Array<{ key: string; number: number; label: string }>;
   selectedNumbers: Set<number>;
   onChange: (changeOrderNumbers: number[]) => void;
 }) {
-  const selectedLabel = selectedNumbers.size === 0 ? "Total" : [...selectedNumbers].sort((a, b) => a - b).map((number) => `#${number}`).join(", ");
+  const selectedLabel = selectedNumbers.size === 0 ? "All COs" : [...selectedNumbers].sort((a, b) => a - b).map((number) => `#${number}`).join(", ");
+  const selectionCount = selectedNumbers.size === 0 ? options.length : selectedNumbers.size;
 
   function toggle(number: number, checked: boolean) {
     const next = new Set(selectedNumbers);
@@ -499,14 +500,18 @@ function ChangeOrderFilter({
 
   return (
     <details className="map-change-order-filter" onClick={(event) => event.stopPropagation()}>
-      <summary>{selectedLabel}</summary>
+      <summary>
+        <span className="map-change-order-filter-title">Change Orders</span>
+        <span className="map-change-order-filter-value">{selectedLabel}</span>
+        <span className="map-change-order-filter-count">{selectionCount}</span>
+      </summary>
       <div className="map-change-order-menu">
         <label>
           <input checked={selectedNumbers.size === 0} onChange={() => onChange([])} type="checkbox" />
-          <span>Total</span>
+          <span>All change orders</span>
         </label>
         {options.map((option) => (
-          <label key={option.number}>
+          <label key={option.key}>
             <input
               checked={selectedNumbers.has(option.number)}
               onChange={(event) => toggle(option.number, event.target.checked)}
@@ -521,7 +526,7 @@ function ChangeOrderFilter({
 }
 
 function emptyChangeOrderStats(): ChangeOrderCabinetStats {
-  return { completed: 0, total: 0, added: 0, changed: 0, removed: 0 };
+  return { completed: 0, total: 0, added: 0, changed: 0, removed: 0, replaced: 0 };
 }
 
 function changeOrderPercent(stats: ChangeOrderCabinetStats): number {

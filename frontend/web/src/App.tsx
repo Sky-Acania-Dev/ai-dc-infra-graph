@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  addEntityGroupMembers,
+  createEntityGroup,
+  deleteEntityGroup,
   fetchCabinetChangeOrderCables,
   fetchCabinetConnectionCables,
   fetchCabinetDetail,
   fetchCabinetLayout,
   fetchChangeOrders,
   fetchCurrentUser,
+  fetchEntityGroups,
   fetchDataHallCableSummary,
   fetchDataHallCables,
   fetchDeviceConnectionCables,
@@ -15,6 +19,7 @@ import {
   updateCabinetStatus,
   updateCable,
   updateDeviceStatus,
+  updateEntityGroup,
   type UpdateCablePayload,
 } from "./api";
 import { CableDetailOverlay } from "./components/CableDetailOverlay";
@@ -22,6 +27,7 @@ import { CabinetConnectionsPanel, type CabinetCableRoute, type DeviceCableRoute 
 import { CabinetDetailsPanel } from "./components/CabinetDetailsPanel";
 import { CabinetMap } from "./components/CabinetMap";
 import { DevicePortLayout } from "./components/DevicePortLayout";
+import { EntityGroupsPanel } from "./components/EntityGroupsPanel";
 import { ValidationView } from "./components/ValidationView";
 import type { MapProgressDisplay, MapSize } from "./components/CabinetMap";
 import type {
@@ -38,6 +44,7 @@ import type {
   DataHallCableSummaryResponse,
   Device,
   DeviceConnectionResponse,
+  EntityGroupRecord,
   Operation,
   BulkOperationResponse,
   OperationListResponse,
@@ -48,8 +55,8 @@ import { useI18n, type Locale } from "./i18n";
 
 const DATA_HALLS = ["DH1", "DH2"];
 const OPERATION_POLL_INTERVAL_MS = 5000;
-type AppMode = "topology" | "validation" | "operations";
-type ChangeOrderCableStatus = "red" | "yellow" | "cyan";
+type AppMode = "topology" | "groups" | "validation" | "operations";
+type ChangeOrderCableStatus = "red" | "yellow" | "cyan" | "replaced";
 type CenterViewMode = "cabinet_map" | "port_layout";
 type CableDetailPageLoader = (offset: number, limit: number) => Promise<CableDetailResponse>;
 export type SelectionMode = "single" | "multi" | "remove";
@@ -90,6 +97,8 @@ export function App() {
   const [dataHallCableSummary, setDataHallCableSummary] = useState<DataHallCableSummaryResponse | null>(null);
   const [operationList, setOperationList] = useState<OperationListResponse | null>(null);
   const [changeOrders, setChangeOrders] = useState<ChangeOrderRecord[]>([]);
+  const [entityGroups, setEntityGroups] = useState<EntityGroupRecord[]>([]);
+  const [activeEntityGroupUid, setActiveEntityGroupUid] = useState<string | null>(null);
   const [sourceUpdateOperations, setSourceUpdateOperations] = useState<Operation[]>([]);
   const [selectedChangeOrderNumbers, setSelectedChangeOrderNumbers] = useState<number[]>([]);
   const [pendingSaveCount, setPendingSaveCount] = useState(0);
@@ -106,6 +115,7 @@ export function App() {
   const lastSeenOperationIdRef = useRef<number | null>(null);
   const isPollingOperationsRef = useRef(false);
   const canEdit = currentUser?.role === "manager" || currentUser?.role === "editor";
+  const canManageGroups = currentUser?.role === "manager";
 
   useEffect(() => {
     fetchCurrentUser()
@@ -238,6 +248,22 @@ export function App() {
     };
   }, [selectedDeviceUids]);
 
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+    fetchEntityGroups("cable")
+      .then((groups) => {
+        if (cancelled) return;
+        setEntityGroups(groups);
+        setActiveEntityGroupUid((current) => current ?? groups[0]?.uid ?? null);
+      })
+      .catch((requestError: Error) => {
+        if (!cancelled) setError(requestError.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser]);
   useEffect(() => {
     if (!currentUser) return;
     let cancelled = false;
@@ -387,10 +413,14 @@ export function App() {
   }
 
   function viewCabinetChangeOrderCables(cabinetUid: string, changeStatus: ChangeOrderCableStatus) {
-    const statusLabel = changeStatus === "red" ? "Removed" : changeStatus === "yellow" ? "Changed" : "Added";
+    const statusLabel = changeStatus === "red" ? "Removed" : changeStatus === "yellow" ? "Changed" : changeStatus === "cyan" ? "Added" : "Replaced";
+    const selectedChangeOrderKeys = changeOrderOptions
+      .filter((option) => selectedChangeOrderNumberSet.has(option.number))
+      .map((option) => option.key);
+    const selectedLabel = selectedChangeOrderKeys.length ? ` (${selectedChangeOrderKeys.length} COs)` : "";
     openCableDetail(
-      { source: cabinetUid, target: `${statusLabel} change order cables` },
-      () => fetchCabinetChangeOrderCables(cabinetUid, changeStatus),
+      { source: cabinetUid, target: `${statusLabel} change order cables${selectedLabel}` },
+      () => fetchCabinetChangeOrderCables(cabinetUid, changeStatus, selectedChangeOrderKeys),
     );
   }
 
@@ -419,6 +449,60 @@ export function App() {
     );
   }
 
+  function refreshEntityGroups(nextActiveUid?: string | null) {
+    fetchEntityGroups("cable")
+      .then((groups) => {
+        setEntityGroups(groups);
+        if (nextActiveUid !== undefined) {
+          setActiveEntityGroupUid(nextActiveUid);
+        } else {
+          setActiveEntityGroupUid((current) => current && groups.some((group) => group.uid === current) ? current : groups[0]?.uid ?? null);
+        }
+      })
+      .catch((requestError: Error) => setError(requestError.message));
+  }
+
+  function createCableGroup(name: string, description: string) {
+    if (!canManageGroups) return;
+    setError(null);
+    createEntityGroup({ name, description, entity_type: "cable" })
+      .then((group) => refreshEntityGroups(group.uid))
+      .catch((requestError: Error) => setError(requestError.message));
+  }
+
+  function updateCableGroup(groupUid: string, payload: { name?: string; description?: string; member_uids?: string[] }) {
+    if (!canManageGroups) return;
+    setError(null);
+    updateEntityGroup(groupUid, payload)
+      .then((group) => refreshEntityGroups(group.uid))
+      .catch((requestError: Error) => setError(requestError.message));
+  }
+
+  function removeCableGroup(groupUid: string) {
+    if (!canManageGroups) return;
+    setError(null);
+    deleteEntityGroup(groupUid)
+      .then(() => refreshEntityGroups())
+      .catch((requestError: Error) => setError(requestError.message));
+  }
+
+  function applySelectedCablesToActiveGroup() {
+    if (!activeEntityGroupUid || !selectedCableUids.length || !canManageGroups) return;
+    const activeGroup = entityGroups.find((group) => group.uid === activeEntityGroupUid);
+    setError(null);
+    if (selectionMode === "remove" && activeGroup) {
+      const removeSet = new Set(selectedCableUids);
+      updateEntityGroup(activeEntityGroupUid, {
+        member_uids: activeGroup.members.map((member) => member.entity_uid).filter((uid) => !removeSet.has(uid)),
+      })
+        .then((group) => refreshEntityGroups(group.uid))
+        .catch((requestError: Error) => setError(requestError.message));
+      return;
+    }
+    addEntityGroupMembers(activeEntityGroupUid, selectedCableUids)
+      .then((group) => refreshEntityGroups(group.uid))
+      .catch((requestError: Error) => setError(requestError.message));
+  }
   function openCableDetail(
     route: { source: string; target: string },
     load: () => Promise<CableDetailResponse>,
@@ -614,6 +698,24 @@ export function App() {
     setSelectedCableUid(cableUid);
   }
 
+
+  function selectCableRange(cableUids: string[], anchorCableUid: string, gesture: SelectionGesture) {
+    if (!cableUids.length) return;
+    if (isRemoveGesture(gesture, selectionMode)) {
+      const removeSet = new Set(cableUids);
+      const nextSelection = selectedCableUids.filter((uid) => !removeSet.has(uid));
+      setSelectedCableUids(nextSelection);
+      setSelectedCableUid(nextSelection.at(-1) ?? null);
+      return;
+    }
+    setSelectedCableUids((current) => [...new Set([...current, ...cableUids])]);
+    setSelectedCableUid(anchorCableUid);
+  }
+
+  function setCableSelection(cableUids: string[], primaryCableUid: string | null) {
+    setSelectedCableUids([...new Set(cableUids)]);
+    setSelectedCableUid(primaryCableUid);
+  }
   function handleOperationResponse(response: OperationResponse, options: { recordUndo?: boolean } = {}) {
     const shouldRecordUndo = options.recordUndo ?? true;
     applyOperation(response.operation);
@@ -886,12 +988,15 @@ export function App() {
       <header className="topbar">
         <div>
           <span className="eyebrow">{t("app.name")}</span>
-          <h1>{mode === "topology" ? t("app.topologyTitle") : t("app.validationTitle")}</h1>
+          <h1>{mode === "groups" ? "Entity Groups" : mode === "topology" ? t("app.topologyTitle") : mode === "operations" ? "Operation Log" : t("app.validationTitle")}</h1>
         </div>
         <div className="topbar-controls">
           <div className="segmented-control" role="tablist" aria-label={t("settings.label")}>
             <button className={mode === "topology" ? "is-active" : ""} onClick={() => setMode("topology")}>
               {t("view.topology")}
+            </button>
+            <button className={mode === "groups" ? "is-active" : ""} onClick={() => setMode("groups")}>
+              Groups
             </button>
             <button className={mode === "validation" ? "is-active" : ""} onClick={() => setMode("validation")}>
               {t("view.validation")}
@@ -941,28 +1046,43 @@ export function App() {
         <OperationDebugView initialOperationList={operationList} />
       ) : (
         <div className="workspace">
-          <CabinetDetailsPanel
-            detail={detail}
-            dataHall={dataHall}
-            cabinets={cabinets}
-            selectedCabinetUids={selectedCabinetUids}
-            selectedDeviceUid={selectedDeviceUid}
-            selectedDeviceUids={selectedDeviceUids}
-            deviceScrollRequest={deviceScrollRequest}
-            connectedDeviceUids={connectedDeviceUids}
-            onSelectDevice={selectDeviceWithGesture}
-            onViewPortLayout={viewPortLayout}
-            activePortLayoutDeviceUid={centerViewMode === "port_layout" ? selectedDeviceUid : null}
-            onShowCabinetMap={() => setCenterViewMode("cabinet_map")}
-            onClearDeviceSelection={clearDeviceSelection}
-            canEdit={canEdit}
-            expectedVersion={operationCursorVersion}
-            lifecycleStatuses={topologyEnums?.lifecycle_statuses ?? []}
-            onStatusChanged={submitOperation}
-            onBulkStatusChanged={submitBulkOperation}
-            changeOrderStatsByCabinet={changeOrderStatsByCabinet}
-            onViewChangeOrderCables={viewCabinetChangeOrderCables}
-          />
+          {mode === "groups" ? (
+            <EntityGroupsPanel
+              groups={entityGroups}
+              activeGroupUid={activeEntityGroupUid}
+              selectedCableUids={selectedCableUids}
+              selectionMode={selectionMode}
+              canManage={canManageGroups}
+              onCreateGroup={createCableGroup}
+              onUpdateGroup={updateCableGroup}
+              onDeleteGroup={removeCableGroup}
+              onActivateGroup={setActiveEntityGroupUid}
+              onAddSelectedCables={applySelectedCablesToActiveGroup}
+            />
+          ) : (
+            <CabinetDetailsPanel
+              detail={detail}
+              dataHall={dataHall}
+              cabinets={cabinets}
+              selectedCabinetUids={selectedCabinetUids}
+              selectedDeviceUid={selectedDeviceUid}
+              selectedDeviceUids={selectedDeviceUids}
+              deviceScrollRequest={deviceScrollRequest}
+              connectedDeviceUids={connectedDeviceUids}
+              onSelectDevice={selectDeviceWithGesture}
+              onViewPortLayout={viewPortLayout}
+              activePortLayoutDeviceUid={centerViewMode === "port_layout" ? selectedDeviceUid : null}
+              onShowCabinetMap={() => setCenterViewMode("cabinet_map")}
+              onClearDeviceSelection={clearDeviceSelection}
+              canEdit={canEdit}
+              expectedVersion={operationCursorVersion}
+              lifecycleStatuses={topologyEnums?.lifecycle_statuses ?? []}
+              onStatusChanged={submitOperation}
+              onBulkStatusChanged={submitBulkOperation}
+              changeOrderStatsByCabinet={changeOrderStatsByCabinet}
+              onViewChangeOrderCables={viewCabinetChangeOrderCables}
+            />
+          )}
           {isLoading ? (
             <section className="map-pane loading-pane">{t("common.loading", { target: dataHall })}</section>
           ) : (
@@ -1020,7 +1140,12 @@ export function App() {
                 onClose={closeCableDetail}
                 onPageRequest={cableDetailPageLoader ? requestCableDetailPage : undefined}
                 onSelectCable={(cable, gesture) => selectCable(cable.uid, gesture)}
+                onSelectCableRange={selectCableRange}
+                onSetCableSelection={setCableSelection}
                 onCableUpdated={handleOperationResponse}
+                selectorLabel={mode === "groups" && activeEntityGroupUid ? `Selecting cables for ${entityGroups.find((group) => group.uid === activeEntityGroupUid)?.name ?? "active group"}` : null}
+                onAddSelectedToGroup={canManageGroups ? applySelectedCablesToActiveGroup : undefined}
+                canAddSelectedToGroup={canManageGroups && Boolean(activeEntityGroupUid) && selectedCableUids.length > 0}
               />
             </div>
           )}
@@ -1058,17 +1183,18 @@ async function fetchAllSourceUpdateOperations(): Promise<Operation[]> {
 function buildChangeOrderOptions(
   changeOrders: ChangeOrderRecord[],
   sourceUpdateOperations: Operation[],
-): Array<{ number: number; label: string }> {
+): Array<{ key: string; number: number; label: string }> {
   if (sourceUpdateOperations.length) {
     const groups = operationChangeOrderGroups(sourceUpdateOperations);
     return [...groups.entries()]
       .sort((left, right) => left[1].number - right[1].number)
-      .map(([, group]) => ({ number: group.number, label: group.label }));
+      .map(([key, group]) => ({ key, number: group.number, label: group.label }));
   }
   if (changeOrders.length) {
     return [...changeOrders]
       .sort((left, right) => left.change_order_number - right.change_order_number)
       .map((order) => ({
+        key: order.uid,
         number: order.change_order_number,
         label: `#${order.change_order_number}${order.title ? ` ${order.title}` : ""}`,
       }));
@@ -1119,13 +1245,14 @@ function buildChangeOrderCabinetStatsFromOperations(
 ): Map<string, ChangeOrderCabinetStats> {
   const selectedNumbers = new Set(selectedChangeOrderNumbers);
   const groups = operationChangeOrderGroups(operations);
+  const latestOperationIds = latestSourceUpdateOperationIds(operations);
   const statsByCabinet = new Map<string, ChangeOrderCabinetStats>();
   for (const operation of operations) {
     const group = groups.get(operationChangeOrderKey(operation));
     if (!group || (selectedNumbers.size && !selectedNumbers.has(group.number))) continue;
     const cabinetUids = cabinetUidsForOperation(operation);
     if (!cabinetUids.size) continue;
-    const bucket = changeBucketForOperation(operation);
+    const bucket = changeBucketForOperation(operation, latestOperationIds);
     for (const cabinetUid of cabinetUids) {
       const stats = statsByCabinet.get(cabinetUid) ?? emptyChangeOrderStats();
       stats.total += 1;
@@ -1135,6 +1262,14 @@ function buildChangeOrderCabinetStatsFromOperations(
     }
   }
   return statsByCabinet;
+}
+
+function latestSourceUpdateOperationIds(operations: Operation[]): Map<string, number> {
+  const latest = new Map<string, number>();
+  for (const operation of operations) {
+    latest.set(operation.entityId, Math.max(latest.get(operation.entityId) ?? 0, operation.opId));
+  }
+  return latest;
 }
 
 function operationChangeOrderGroups(operations: Operation[]): Map<string, { number: number; label: string }> {
@@ -1189,21 +1324,23 @@ function cabinetUidFromPortUid(value: unknown): string | null {
   return `${parts[0].toUpperCase()}:${parts[1].padStart(3, "0")}`;
 }
 
-function changeBucketForOperation(operation: Operation): "added" | "changed" | "removed" {
+function changeBucketForOperation(operation: Operation, latestOperationIds: Map<string, number>): "added" | "changed" | "removed" | "replaced" {
+  const latestId = latestOperationIds.get(operation.entityId);
+  if (latestId !== undefined && latestId > operation.opId) return "replaced";
   const changeType = String(operation.after.change_type ?? "").toLowerCase();
   if (changeType === "added") return "added";
   if (changeType === "removed") return "removed";
   return "changed";
 }
 
-function changeBucketForIntent(intent: string): "added" | "changed" | "removed" {
+function changeBucketForIntent(intent: string): "added" | "changed" | "removed" | "replaced" {
   if (intent === "add_cable") return "added";
   if (intent === "remove_cable" || intent === "retire_cable") return "removed";
   return "changed";
 }
 
 function emptyChangeOrderStats(): ChangeOrderCabinetStats {
-  return { completed: 0, total: 0, added: 0, changed: 0, removed: 0 };
+  return { completed: 0, total: 0, added: 0, changed: 0, removed: 0, replaced: 0 };
 }
 function mergeCabinetCableDetails(
   sourceCabinetUid: string,
@@ -1260,6 +1397,7 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
   const [offset, setOffset] = useState(0);
   const [operationType, setOperationType] = useState("");
   const [userUid, setUserUid] = useState("");
+  const [changeOrderKey, setChangeOrderKey] = useState("");
   const [timeRange, setTimeRange] = useState<{ min: number; max: number } | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [refreshCount, setRefreshCount] = useState(0);
@@ -1285,6 +1423,7 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
       offset,
       operationType,
       userUid,
+      changeOrderKey,
       startTime: timeRange ? new Date(timeRange.min).toISOString() : null,
       endTime: timeRange ? new Date(timeRange.max + 999).toISOString() : null,
     })
@@ -1300,12 +1439,13 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
     return () => {
       cancelled = true;
     };
-  }, [offset, operationType, pageSize, refreshCount, timeRange?.max, timeRange?.min, userUid]);
+  }, [changeOrderKey, offset, operationType, pageSize, refreshCount, timeRange?.max, timeRange?.min, userUid]);
 
   function resetFilters() {
     setOffset(0);
     setOperationType("");
     setUserUid("");
+    setChangeOrderKey("");
     setTimeRange(null);
   }
 
@@ -1317,6 +1457,11 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
   function updateUserUid(value: string) {
     setOffset(0);
     setUserUid(value);
+  }
+
+  function updateChangeOrderKey(value: string) {
+    setOffset(0);
+    setChangeOrderKey(value);
   }
 
   function updatePageSize(value: number) {
@@ -1406,6 +1551,17 @@ function OperationDebugView({ initialOperationList }: { initialOperationList: Op
             {(operationList?.user_uids ?? []).map((uid) => (
               <option key={uid} value={uid}>
                 {uid}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>CO</span>
+          <select value={changeOrderKey} onChange={(event) => updateChangeOrderKey(event.target.value)}>
+            <option value="">All</option>
+            {(operationList?.change_order_keys ?? []).map((key) => (
+              <option key={key} value={key}>
+                {changeOrderKeyLabel(key)}
               </option>
             ))}
           </select>
@@ -1505,6 +1661,11 @@ function rangeActiveStyle(range: { min: number; max: number }, sourceMin: number
   };
 }
 
+
+function changeOrderKeyLabel(key: string): string {
+  const match = key.match(/\d+/);
+  return match ? `#${Number(match[0])}` : key;
+}
 function operationTypeLabel(type: string): string {
   return type === "source_update" ? "Change Order" : type;
 }
