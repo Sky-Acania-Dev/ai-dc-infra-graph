@@ -1571,7 +1571,7 @@ def _postgres_data_hall_cables(
                 .order_by(db.Cable.cable_type, db.Cable.a_port_uid, db.Cable.z_port_uid, db.Cable.uid)
                 .offset(offset)
                 .limit(limit)
-            ).scalars()
+            ).all()
         )
         change_statuses = _postgres_source_update_statuses(session, [row.uid for row in rows])
         removed_cables = _postgres_removed_cable_details_for_data_hall_scope(

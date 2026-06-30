@@ -47,7 +47,7 @@ type CableColumn = {
 };
 type NumericRange = { min: number; max: number };
 type RangeFilter = NumericRange;
-const PAGE_SIZE_OPTIONS = [100, 250, 500, 1000] as const;
+const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 type CableTableScale = "xs" | "s" | "m" | "l" | "xl" | "xxl" | "xxxl";
 const CABLE_TABLE_SCALE_STEPS: Array<{ value: CableTableScale; label: string; fontSize: number }> = [
   { value: "xs", label: "10", fontSize: 10 },
@@ -109,7 +109,7 @@ export function CableDetailOverlay({
   const [filterText, setFilterText] = useState<Partial<Record<CableColumnKey, string>>>({});
   const [openFilterColumn, setOpenFilterColumn] = useState<CableColumnKey | null>(null);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(250);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(25);
   const [tableScale, setTableScale] = useState<CableTableScale>("m");
   const [changeFilters, setChangeFilters] = useState<Record<ChangeStatus, boolean>>({ green: true, yellow: true, cyan: true, red: true, replaced: true });
   const debouncedFilterText = useDebouncedValue(filterText, 500);

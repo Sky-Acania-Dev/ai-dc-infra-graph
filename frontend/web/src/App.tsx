@@ -444,7 +444,7 @@ export function App() {
       fetchDataHallCables(dataHall, bucket.scope, cableType, bucket.target_data_hall, limit, offset);
     openCableDetail(
       { source: dataHall, target },
-      () => loadPage(0, 500),
+      () => loadPage(0, 25),
       loadPage,
     );
   }

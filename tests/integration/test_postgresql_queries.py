@@ -377,6 +377,69 @@ class PostgreSQLQueryTests(unittest.TestCase):
         self.assertTrue(response.ok)
         self.assertEqual(validation.summary.port_collision_findings, 0)
 
+    def test_fastapi_data_hall_external_cable_details_use_postgresql(self) -> None:
+        previous_backend = os.environ.get("TOPOLOGY_STORAGE_BACKEND")
+        os.environ["TOPOLOGY_STORAGE_BACKEND"] = "postgresql"
+        database = build_topology_database_from_results(
+            cutsheet_result=ingest_cutsheet_rows(
+                [
+                    {
+                        "STATUS": "Cable Is Ran: Complete",
+                        "A-LOC:CAB:RU": "dh1:001:10",
+                        "A-PORT": "ibs0p0",
+                        "A_MODEL": "Switch",
+                        "Z-LOC:CAB:RU": "dh2:003:20",
+                        "Z-PORT": "swp1s0",
+                        "Z_MODEL": "Patch Panel",
+                        "CABLE": "MPO12 2x2",
+                    },
+                ]
+            ),
+            overhead_result=OverheadIngestionResult(
+                summary=OverheadIngestionSummary(cabinets=2, data_halls=2, unknown_category_cabinets=0),
+                cabinets=[
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:001",
+                        data_hall_id="DH1",
+                        cabinet_id="001",
+                        category="DPR-H1",
+                        cabinet_group="Fabric Core",
+                        source_row=7,
+                        source_col=5,
+                    ),
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH2:003",
+                        data_hall_id="DH2",
+                        cabinet_id="003",
+                        category="DPR-H2",
+                        cabinet_group="Fabric Core",
+                        source_row=8,
+                        source_col=6,
+                    ),
+                ],
+            ),
+        )
+        with self.factory() as session:
+            with session.begin():
+                replace_project_topology(session, database)
+        try:
+            detail = topology_api.data_hall_cables(
+                "DH1",
+                scope="external",
+                target_data_hall="DH2",
+                cable_type="MPO12 2x2",
+                limit=5,
+                offset=0,
+            )
+        finally:
+            if previous_backend is None:
+                os.environ.pop("TOPOLOGY_STORAGE_BACKEND", None)
+            else:
+                os.environ["TOPOLOGY_STORAGE_BACKEND"] = previous_backend
+
+        self.assertEqual(detail.target_cabinet_uid, "DH2")
+        self.assertEqual(detail.total_cables, 1)
+        self.assertEqual([cable.uid for cable in detail.cables], ["CBL-000001"])
     def test_task_crew_and_personnel_endpoints_use_postgresql(self) -> None:
         suffix = uuid4().hex[:8]
         manager = AuthUser(uid=f"task-manager-{suffix}", display_name="Task Manager", role=UserRole.MANAGER)
