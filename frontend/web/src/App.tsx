@@ -10,6 +10,7 @@ import {
   fetchChangeOrders,
   fetchCurrentUser,
   fetchEntityGroups,
+  fetchEntityGroupCables,
   fetchDataHallCableSummary,
   fetchDataHallCables,
   fetchDeviceConnectionCables,
@@ -28,6 +29,7 @@ import { CabinetDetailsPanel } from "./components/CabinetDetailsPanel";
 import { CabinetMap } from "./components/CabinetMap";
 import { DevicePortLayout } from "./components/DevicePortLayout";
 import { EntityGroupsPanel } from "./components/EntityGroupsPanel";
+import { EntityGroupSummaryPanel } from "./components/EntityGroupSummaryPanel";
 import { ValidationView } from "./components/ValidationView";
 import type { MapProgressDisplay, MapSize } from "./components/CabinetMap";
 import type {
@@ -99,6 +101,9 @@ export function App() {
   const [changeOrders, setChangeOrders] = useState<ChangeOrderRecord[]>([]);
   const [entityGroups, setEntityGroups] = useState<EntityGroupRecord[]>([]);
   const [activeEntityGroupUid, setActiveEntityGroupUid] = useState<string | null>(null);
+  const [selectedEntityGroupUids, setSelectedEntityGroupUids] = useState<string[]>([]);
+  const [groupCableDetails, setGroupCableDetails] = useState<CableDetailResponse[]>([]);
+  const [isGroupCableDetailLoading, setIsGroupCableDetailLoading] = useState(false);
   const [sourceUpdateOperations, setSourceUpdateOperations] = useState<Operation[]>([]);
   const [selectedChangeOrderNumbers, setSelectedChangeOrderNumbers] = useState<number[]>([]);
   const [pendingSaveCount, setPendingSaveCount] = useState(0);
@@ -255,7 +260,12 @@ export function App() {
       .then((groups) => {
         if (cancelled) return;
         setEntityGroups(groups);
-        setActiveEntityGroupUid((current) => current ?? groups[0]?.uid ?? null);
+        const firstGroupUid = groups[0]?.uid ?? null;
+        setActiveEntityGroupUid((current) => current ?? firstGroupUid);
+        setSelectedEntityGroupUids((current) => {
+          const valid = current.filter((uid) => groups.some((group) => group.uid === uid));
+          return valid.length ? valid : firstGroupUid ? [firstGroupUid] : [];
+        });
       })
       .catch((requestError: Error) => {
         if (!cancelled) setError(requestError.message);
@@ -264,6 +274,7 @@ export function App() {
       cancelled = true;
     };
   }, [currentUser]);
+
   useEffect(() => {
     if (!currentUser) return;
     let cancelled = false;
@@ -285,6 +296,29 @@ export function App() {
       cancelled = true;
     };
   }, [currentUser]);
+
+  useEffect(() => {
+    if (mode !== "groups" || selectedEntityGroupUids.length === 0) {
+      setGroupCableDetails([]);
+      setIsGroupCableDetailLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setIsGroupCableDetailLoading(true);
+    Promise.all(selectedEntityGroupUids.map(fetchEntityGroupCables))
+      .then((details) => {
+        if (!cancelled) setGroupCableDetails(details);
+      })
+      .catch((requestError: Error) => {
+        if (!cancelled) setError(requestError.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsGroupCableDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, selectedEntityGroupUids]);
 
   useEffect(() => {
     if (mode !== "operations") return;
@@ -314,23 +348,94 @@ export function App() {
     };
   }, []);
 
-  const cabinetConnectionCounts = useMemo(() => {
-    if (selectedCabinetUids.length <= 1) return new Map<string, number>();
-    const selectedCabinetUidSet = new Set(selectedCabinetUids);
-    const counts = new Map<string, number>();
+  const selectedCabinetDetailRows = useMemo(() => {
+    const byUid = new Map<string, CabinetDetailResponse>();
+    if (detail) byUid.set(detail.cabinet.cabinet_uid, detail);
     for (const selectedDetail of selectedCabinetDetails) {
+      byUid.set(selectedDetail.cabinet.cabinet_uid, selectedDetail);
+    }
+    return [...byUid.values()];
+  }, [detail, selectedCabinetDetails]);
+  const selectedCabinetUidSet = useMemo(() => new Set(selectedCabinetUids), [selectedCabinetUids]);
+  const selectedDeviceUidSet = useMemo(() => new Set(selectedDeviceUids), [selectedDeviceUids]);
+  const selectedCableUidSet = useMemo(() => new Set(selectedCableUids), [selectedCableUids]);
+  const selectedChangeOrderNumberSet = useMemo(() => new Set(selectedChangeOrderNumbers), [selectedChangeOrderNumbers]);
+  const activeEntityGroup = useMemo(
+    () => entityGroups.find((group) => group.uid === activeEntityGroupUid) ?? null,
+    [activeEntityGroupUid, entityGroups],
+  );
+  const selectedEntityGroups = useMemo(
+    () => selectedEntityGroupUids.map((uid) => entityGroups.find((group) => group.uid === uid)).filter((group): group is EntityGroupRecord => Boolean(group)),
+    [entityGroups, selectedEntityGroupUids],
+  );
+  const groupSelectedCabinetUidSet = useMemo(
+    () => new Set(selectedEntityGroups.flatMap((group) => group.associated_cabinet_uids)),
+    [selectedEntityGroups],
+  );
+  const groupAddedCabinetUidSet = useMemo(() => {
+    if (mode !== "groups" || selectionMode === "remove") return new Set<string>();
+    return new Set([...selectedCabinetUidSet].filter((uid) => !groupSelectedCabinetUidSet.has(uid)));
+  }, [groupSelectedCabinetUidSet, mode, selectedCabinetUidSet, selectionMode]);
+  const groupRemovedCabinetUidSet = useMemo(() => {
+    if (mode !== "groups" || selectionMode !== "remove") return new Set<string>();
+    return new Set([...selectedCabinetUidSet].filter((uid) => groupSelectedCabinetUidSet.has(uid)));
+  }, [groupSelectedCabinetUidSet, mode, selectedCabinetUidSet, selectionMode]);
+  const groupActiveConnectionCounts = useMemo(
+    () => buildGroupCabinetNeighborCounts(groupCableDetails, groupSelectedCabinetUidSet),
+    [groupCableDetails, groupSelectedCabinetUidSet],
+  );
+  const groupRemainingConnectionCounts = useMemo(() => {
+    if (groupRemovedCabinetUidSet.size === 0) return groupActiveConnectionCounts;
+    const remaining = new Set([...groupSelectedCabinetUidSet].filter((uid) => !groupRemovedCabinetUidSet.has(uid)));
+    return buildGroupCabinetNeighborCounts(groupCableDetails, remaining);
+  }, [groupActiveConnectionCounts, groupCableDetails, groupRemovedCabinetUidSet, groupSelectedCabinetUidSet]);
+  const groupLostNeighborUids = useMemo(() => {
+    const lost = new Set<string>();
+    for (const [cabinetUid, count] of groupActiveConnectionCounts) {
+      if (count > 0 && (groupRemainingConnectionCounts.get(cabinetUid) ?? 0) === 0) lost.add(cabinetUid);
+    }
+    return lost;
+  }, [groupActiveConnectionCounts, groupRemainingConnectionCounts]);
+  const groupReducedConnectionCounts = useMemo(() => {
+    const reduced = new Map<string, number>();
+    for (const [cabinetUid, count] of groupActiveConnectionCounts) {
+      const remaining = groupRemainingConnectionCounts.get(cabinetUid) ?? 0;
+      if (remaining > 0 && remaining < count) reduced.set(cabinetUid, remaining);
+    }
+    return reduced;
+  }, [groupActiveConnectionCounts, groupRemainingConnectionCounts]);
+  const groupAddedConnectionCounts = useMemo(
+    () => buildDetailNeighborCounts(selectedCabinetDetailRows, groupAddedCabinetUidSet),
+    [groupAddedCabinetUidSet, selectedCabinetDetailRows],
+  );
+  const normalCabinetConnectionCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (deviceDetail) {
+      for (const cabinetUid of deviceDetail.connected_cabinet_uids) counts.set(cabinetUid, 1);
+      return counts;
+    }
+    for (const selectedDetail of selectedCabinetDetailRows) {
       if (!selectedCabinetUidSet.has(selectedDetail.cabinet.cabinet_uid)) continue;
       for (const connection of selectedDetail.connections) {
         counts.set(connection.target_cabinet_uid, (counts.get(connection.target_cabinet_uid) ?? 0) + 1);
       }
     }
     return counts;
-  }, [selectedCabinetDetails, selectedCabinetUids]);
+  }, [deviceDetail, selectedCabinetDetailRows, selectedCabinetUidSet]);
+  const cabinetConnectionCounts = mode === "groups" ? groupActiveConnectionCounts : normalCabinetConnectionCounts;
   const connectedCabinetUids = useMemo(() => {
-    if (deviceDetail) return new Set(deviceDetail.connected_cabinet_uids);
-    if (selectedCabinetUids.length > 1) return new Set(cabinetConnectionCounts.keys());
-    return new Set(detail?.connections.map((connection) => connection.target_cabinet_uid) ?? []);
-  }, [cabinetConnectionCounts, detail, deviceDetail, selectedCabinetUids.length]);
+    if (mode === "groups") {
+      return new Set([
+        ...groupActiveConnectionCounts.keys(),
+        ...groupAddedConnectionCounts.keys(),
+        ...groupLostNeighborUids,
+        ...groupReducedConnectionCounts.keys(),
+      ]);
+    }
+    return new Set(normalCabinetConnectionCounts.keys());
+  }, [groupActiveConnectionCounts, groupAddedConnectionCounts, groupLostNeighborUids, groupReducedConnectionCounts, mode, normalCabinetConnectionCounts]);
+  const mapSelectedCabinetUidSet = mode === "groups" ? groupSelectedCabinetUidSet : selectedCabinetUidSet;
+  const mapSelectedCabinetUid = selectedCabinetUid;
   const connectedDataHalls = useMemo(
     () => new Set([...connectedCabinetUids].map((cabinetUid) => cabinetUid.split(":")[0])),
     [connectedCabinetUids],
@@ -339,10 +444,6 @@ export function App() {
     () => new Set(deviceDetail?.connected_devices.map((connection) => connection.target_device_uid) ?? []),
     [deviceDetail],
   );
-  const selectedCabinetUidSet = useMemo(() => new Set(selectedCabinetUids), [selectedCabinetUids]);
-  const selectedDeviceUidSet = useMemo(() => new Set(selectedDeviceUids), [selectedDeviceUids]);
-  const selectedCableUidSet = useMemo(() => new Set(selectedCableUids), [selectedCableUids]);
-  const selectedChangeOrderNumberSet = useMemo(() => new Set(selectedChangeOrderNumbers), [selectedChangeOrderNumbers]);
   const changeOrderOptions = useMemo(
     () => buildChangeOrderOptions(changeOrders, sourceUpdateOperations),
     [changeOrders, sourceUpdateOperations],
@@ -455,9 +556,15 @@ export function App() {
         setEntityGroups(groups);
         if (nextActiveUid !== undefined) {
           setActiveEntityGroupUid(nextActiveUid);
-        } else {
-          setActiveEntityGroupUid((current) => current && groups.some((group) => group.uid === current) ? current : groups[0]?.uid ?? null);
+          setSelectedEntityGroupUids(nextActiveUid ? [nextActiveUid] : []);
+          return;
         }
+        setSelectedEntityGroupUids((current) => {
+          const valid = current.filter((uid) => groups.some((group) => group.uid === uid));
+          const next = valid.length ? valid : groups[0]?.uid ? [groups[0].uid] : [];
+          setActiveEntityGroupUid((currentActive) => currentActive && next.includes(currentActive) ? currentActive : next.at(-1) ?? null);
+          return next;
+        });
       })
       .catch((requestError: Error) => setError(requestError.message));
   }
@@ -486,6 +593,31 @@ export function App() {
       .catch((requestError: Error) => setError(requestError.message));
   }
 
+  function clearEntityGroupSelection() {
+    setActiveEntityGroupUid(null);
+    setSelectedEntityGroupUids([]);
+    clearSelection();
+  }
+
+  function selectEntityGroup(groupUid: string, gesture: SelectionGesture) {
+    setSelectedCabinetUid(null);
+    setSelectedCabinetUids([]);
+    closeCableDetail();
+    if (isRemoveGesture(gesture, selectionMode)) {
+      const nextSelection = selectedEntityGroupUids.filter((uid) => uid !== groupUid);
+      setSelectedEntityGroupUids(nextSelection);
+      if (activeEntityGroupUid === groupUid) setActiveEntityGroupUid(nextSelection.at(-1) ?? null);
+      return;
+    }
+
+    if (isMultiGesture(gesture, selectionMode)) {
+      setSelectedEntityGroupUids((current) => (current.includes(groupUid) ? current : [...current, groupUid]));
+    } else {
+      setSelectedEntityGroupUids([groupUid]);
+    }
+    setActiveEntityGroupUid(groupUid);
+  }
+
   function applySelectedCablesToActiveGroup() {
     if (!activeEntityGroupUid || !selectedCableUids.length || !canManageGroups) return;
     const activeGroup = entityGroups.find((group) => group.uid === activeEntityGroupUid);
@@ -503,6 +635,20 @@ export function App() {
       .then((group) => refreshEntityGroups(group.uid))
       .catch((requestError: Error) => setError(requestError.message));
   }
+
+  function viewActiveGroupCables() {
+    const cableGroups = selectedEntityGroups.filter((group) => group.entity_type === "cable");
+    if (!cableGroups.length) return;
+    const sourceLabel = cableGroups.length === 1 ? cableGroups[0].name : `${cableGroups.length} groups`;
+    openCableDetail(
+      { source: sourceLabel, target: "Group cables" },
+      () =>
+        Promise.all(cableGroups.map((group) => fetchEntityGroupCables(group.uid))).then((responses) =>
+          mergeGroupCableDetails(sourceLabel, responses),
+        ),
+    );
+  }
+
   function openCableDetail(
     route: { source: string; target: string },
     load: () => Promise<CableDetailResponse>,
@@ -636,7 +782,25 @@ export function App() {
   }
 
   function selectCabinet(cabinetUid: string, gesture: SelectionGesture) {
-    if (isRemoveGesture(gesture, selectionMode)) {
+    const isRemoveIntent = isRemoveGesture(gesture, selectionMode);
+
+    if (mode === "groups") {
+      setSelectedCabinetUid(cabinetUid);
+      closeCableDetail();
+      clearDeviceSelection();
+      if (isRemoveIntent) {
+        setSelectedCabinetUids((current) => current.includes(cabinetUid) ? current.filter((uid) => uid !== cabinetUid) : [...current, cabinetUid]);
+        return;
+      }
+      if (isMultiGesture(gesture, selectionMode)) {
+        setSelectedCabinetUids((current) => current.includes(cabinetUid) ? current : [...current, cabinetUid]);
+      } else {
+        setSelectedCabinetUids([cabinetUid]);
+      }
+      return;
+    }
+
+    if (isRemoveIntent) {
       const nextSelection = selectedCabinetUids.filter((uid) => uid !== cabinetUid);
       setSelectedCabinetUids(nextSelection);
       if (selectedCabinetUid === cabinetUid) {
@@ -1050,13 +1214,15 @@ export function App() {
             <EntityGroupsPanel
               groups={entityGroups}
               activeGroupUid={activeEntityGroupUid}
+              selectedGroupUids={selectedEntityGroupUids}
               selectedCableUids={selectedCableUids}
               selectionMode={selectionMode}
               canManage={canManageGroups}
               onCreateGroup={createCableGroup}
               onUpdateGroup={updateCableGroup}
               onDeleteGroup={removeCableGroup}
-              onActivateGroup={setActiveEntityGroupUid}
+              onSelectGroup={selectEntityGroup}
+              onClearGroupSelection={clearEntityGroupSelection}
               onAddSelectedCables={applySelectedCablesToActiveGroup}
             />
           ) : (
@@ -1108,11 +1274,16 @@ export function App() {
                   connectedDataHalls={connectedDataHalls}
                   dataHall={dataHall}
                   dataHalls={DATA_HALLS}
-                  selectedCabinetUid={selectedCabinetUid}
-                  selectedCabinetUids={selectedCabinetUidSet}
+                  selectedCabinetUid={mapSelectedCabinetUid}
+                  selectedCabinetUids={mapSelectedCabinetUidSet}
                   selectedDeviceCabinetUid={deviceDetail?.source_cabinet_uid ?? null}
                   connectedCabinetUids={connectedCabinetUids}
                   connectedCabinetCounts={cabinetConnectionCounts}
+                  addedCabinetUids={groupAddedCabinetUidSet}
+                  removedCabinetUids={groupRemovedCabinetUidSet}
+                  addedConnectedCabinetCounts={groupAddedConnectionCounts}
+                  reducedConnectedCabinetCounts={groupReducedConnectionCounts}
+                  lostConnectedCabinetUids={groupLostNeighborUids}
                   isDeviceMode={Boolean(selectedDeviceUid)}
                   mapSize={mapSize}
                   progressDisplay={mapProgressDisplay}
@@ -1143,22 +1314,32 @@ export function App() {
                 onSelectCableRange={selectCableRange}
                 onSetCableSelection={setCableSelection}
                 onCableUpdated={handleOperationResponse}
-                selectorLabel={mode === "groups" && activeEntityGroupUid ? `Selecting cables for ${entityGroups.find((group) => group.uid === activeEntityGroupUid)?.name ?? "active group"}` : null}
+                selectorLabel={mode === "groups" && activeEntityGroupUid ? `Selecting cables for ${activeEntityGroup?.name ?? "active group"}` : null}
                 onAddSelectedToGroup={canManageGroups ? applySelectedCablesToActiveGroup : undefined}
                 canAddSelectedToGroup={canManageGroups && Boolean(activeEntityGroupUid) && selectedCableUids.length > 0}
               />
             </div>
           )}
-          <CabinetConnectionsPanel
-            detail={detail}
-            selectedCabinetDetails={selectedCabinetDetails}
-            deviceDetail={deviceDetail}
-            selectedDeviceDetails={selectedDeviceDetails}
-            dataHallCableSummary={dataHallCableSummary}
-            onViewCables={viewConnectionCables}
-            onViewDeviceCables={viewDeviceConnectionCables}
-            onViewDataHallCables={viewDataHallCables}
-          />
+          {mode === "groups" && selectedEntityGroups.length > 0 ? (
+            <EntityGroupSummaryPanel
+              groups={entityGroups}
+              selectedGroups={selectedEntityGroups}
+              cableDetails={groupCableDetails}
+              isLoading={isGroupCableDetailLoading}
+              onViewCables={viewActiveGroupCables}
+            />
+          ) : (
+            <CabinetConnectionsPanel
+              detail={detail}
+              selectedCabinetDetails={selectedCabinetDetails}
+              deviceDetail={deviceDetail}
+              selectedDeviceDetails={selectedDeviceDetails}
+              dataHallCableSummary={dataHallCableSummary}
+              onViewCables={viewConnectionCables}
+              onViewDeviceCables={viewDeviceConnectionCables}
+              onViewDataHallCables={viewDataHallCables}
+            />
+          )}
         </div>
       )}
     </main>
@@ -1317,6 +1498,41 @@ function operationRecordPayloads(payload: Record<string, unknown>): Array<Record
   return records;
 }
 
+function buildGroupCabinetNeighborCounts(
+  cableDetails: CableDetailResponse[],
+  sourceCabinetUids: Set<string>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  const seenCableUids = new Set<string>();
+  for (const cable of cableDetails.flatMap((response) => response.cables)) {
+    if (seenCableUids.has(cable.uid)) continue;
+    seenCableUids.add(cable.uid);
+    const aCabinetUid = cabinetUidFromPortUid(cable.a_port_uid);
+    const zCabinetUid = cabinetUidFromPortUid(cable.z_port_uid);
+    if (!aCabinetUid || !zCabinetUid || aCabinetUid === zCabinetUid) continue;
+    const aIsSource = sourceCabinetUids.has(aCabinetUid);
+    const zIsSource = sourceCabinetUids.has(zCabinetUid);
+    if (aIsSource && !zIsSource) counts.set(zCabinetUid, (counts.get(zCabinetUid) ?? 0) + 1);
+    if (zIsSource && !aIsSource) counts.set(aCabinetUid, (counts.get(aCabinetUid) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function buildDetailNeighborCounts(
+  details: CabinetDetailResponse[],
+  sourceCabinetUids: Set<string>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const detail of details) {
+    if (!sourceCabinetUids.has(detail.cabinet.cabinet_uid)) continue;
+    for (const connection of detail.connections) {
+      if (sourceCabinetUids.has(connection.target_cabinet_uid)) continue;
+      counts.set(connection.target_cabinet_uid, (counts.get(connection.target_cabinet_uid) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
 function cabinetUidFromPortUid(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const parts = value.split(":");
@@ -1352,6 +1568,23 @@ function mergeCabinetCableDetails(
   return {
     source_cabinet_uid: sourceCabinetUid,
     target_cabinet_uid: targetCabinetUid,
+    cables,
+    total_cables: totalCables,
+    offset: 0,
+    limit: cables.length,
+    has_more: responses.some(hasMoreCables),
+  };
+}
+
+function mergeGroupCableDetails(
+  sourceLabel: string,
+  responses: CableDetailResponse[],
+): CabinetCableDetailResponse {
+  const cables = uniqueCables(responses.flatMap((response) => response.cables));
+  const totalCables = responses.reduce((total, response) => total + (cableDetailTotal(response) ?? response.cables.length), 0);
+  return {
+    source_cabinet_uid: sourceLabel,
+    target_cabinet_uid: "Group cables",
     cables,
     total_cables: totalCables,
     offset: 0,

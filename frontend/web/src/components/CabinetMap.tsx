@@ -22,6 +22,11 @@ type CabinetMapProps = {
   selectedDeviceCabinetUid: string | null;
   connectedCabinetUids: Set<string>;
   connectedCabinetCounts: Map<string, number>;
+  addedCabinetUids: Set<string>;
+  removedCabinetUids: Set<string>;
+  addedConnectedCabinetCounts: Map<string, number>;
+  reducedConnectedCabinetCounts: Map<string, number>;
+  lostConnectedCabinetUids: Set<string>;
   isDeviceMode: boolean;
   mapSize: MapSize;
   progressDisplay: MapProgressDisplay;
@@ -174,6 +179,11 @@ export function CabinetMap({
   selectedDeviceCabinetUid,
   connectedCabinetUids,
   connectedCabinetCounts,
+  addedCabinetUids,
+  removedCabinetUids,
+  addedConnectedCabinetCounts,
+  reducedConnectedCabinetCounts,
+  lostConnectedCabinetUids,
   isDeviceMode,
   mapSize,
   progressDisplay,
@@ -197,6 +207,18 @@ export function CabinetMap({
   const height = PADDING * 2 + rowY(maxRow, settings) + settings.cellHeight;
   const hasSelection = selectedCabinetUids.size > 0;
   const mapPan = useDragPan<HTMLDivElement>();
+  const primaryPositionedCabinet = selectedCabinetUid
+    ? positioned.find((cabinet) => cabinet.cabinet_uid === selectedCabinetUid)
+    : null;
+  const primaryFrame = primaryPositionedCabinet
+    ? {
+        x:
+          PADDING +
+          primaryPositionedCabinet.block * (10 * settings.cellWidth + settings.blockGap) +
+          primaryPositionedCabinet.col * settings.cellWidth,
+        y: PADDING + rowY(primaryPositionedCabinet.row, settings),
+      }
+    : null;
 
   return (
     <section className="map-pane">
@@ -261,12 +283,17 @@ export function CabinetMap({
               cabinet.col * settings.cellWidth;
             const y = PADDING + rowY(cabinet.row, settings);
             const isSelected = selectedCabinetUids.has(cabinet.cabinet_uid);
-            const isPrimarySelected = cabinet.cabinet_uid === selectedCabinetUid;
             const isDeviceSource = isDeviceMode && cabinet.cabinet_uid === selectedDeviceCabinetUid;
-            const isConnected = connectedCabinetUids.has(cabinet.cabinet_uid);
+            const isAdded = addedCabinetUids.has(cabinet.cabinet_uid);
+            const isRemoved = removedCabinetUids.has(cabinet.cabinet_uid);
+            const isLostConnection = lostConnectedCabinetUids.has(cabinet.cabinet_uid);
+            const reducedConnectionCount = reducedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
+            const isReducedConnection = reducedConnectionCount > 0;
             const connectedSourceCount = connectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
-            const showConnectionCount = connectedSourceCount > 1;
-            const isDimmed = hasSelection && !isSelected && !isConnected;
+            const addedConnectionCount = addedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
+            const isConnected = connectedCabinetUids.has(cabinet.cabinet_uid);
+            const showConnectionCount = connectedSourceCount > 0 || addedConnectionCount > 0 || reducedConnectionCount > 0;
+            const isDimmed = (hasSelection && !isSelected && !isConnected) || isAdded || (addedConnectionCount > 0 && connectedSourceCount === 0) || isLostConnection;
             const cabinetChangeStats = changeOrderStats.get(cabinet.cabinet_uid) ?? emptyChangeOrderStats();
             const cabinetTypeLabel = progressDisplay === "text" ? cabinet.category : "";
             const cabinetTypeFit = fitSvgText(
@@ -278,8 +305,9 @@ export function CabinetMap({
             return (
               <g
                 key={cabinet.cabinet_uid}
-                className={`map-cabinet ${isSelected ? "is-selected" : ""} ${isPrimarySelected ? "is-primary-selected" : ""} ${isDeviceSource ? "is-device-source" : ""} ${isConnected ? "is-connected" : ""} ${isDimmed ? "is-dimmed" : ""}`}
+                className={`map-cabinet ${isSelected ? "is-selected" : ""} ${isAdded ? "is-added-selection" : ""} ${isRemoved ? "is-removed-selection" : ""} ${isConnected ? "is-connected" : ""} ${addedConnectionCount > 0 ? "is-added-connected" : ""} ${isLostConnection ? "is-lost-connection" : ""} ${isReducedConnection ? "is-reduced-connection" : ""} ${isDeviceSource ? "is-device-source" : ""} ${isDimmed ? "is-dimmed" : ""}`}
                 role="button"
+                style={{ color: label.fill }}
                 tabIndex={0}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -292,6 +320,21 @@ export function CabinetMap({
                 <rect className="cabinet-rect" x={x} y={y} width={settings.cellWidth - 2} height={settings.cellHeight - 2} fill={fill}>
                   <title>{`${cabinet.cabinet_uid}\n${cabinet.category}\n${cabinet.cabinet_group}`}</title>
                 </rect>
+                <rect
+                  className="cabinet-state-frame"
+                  x={x - 1}
+                  y={y - 1}
+                  width={settings.cellWidth}
+                  height={settings.cellHeight}
+                  rx={Math.max(3, settings.cellHeight * 0.14)}
+                />
+                <rect
+                  className="cabinet-neighbor-frame"
+                  x={x}
+                  y={y}
+                  width={settings.cellWidth - 2}
+                  height={settings.cellHeight - 2}
+                />
                 <text
                   className="cabinet-id"
                   x={x + (settings.cellWidth - 2) / 2}
@@ -333,7 +376,10 @@ export function CabinetMap({
                 ) : null}
                 {showConnectionCount ? (
                   <ConnectionCountBadge
-                    count={connectedSourceCount}
+                    addedCount={addedConnectionCount}
+                    count={isReducedConnection ? reducedConnectionCount : connectedSourceCount}
+                    isReduced={isReducedConnection}
+                    isAddedOnly={connectedSourceCount === 0 && !isReducedConnection && addedConnectionCount > 0}
                     x={x + settings.cellWidth - 2}
                     y={y}
                     cellHeight={settings.cellHeight}
@@ -343,6 +389,16 @@ export function CabinetMap({
               </g>
             );
           })}
+          {primaryFrame ? (
+            <rect
+              className="cabinet-primary-frame"
+              x={primaryFrame.x - 2}
+              y={primaryFrame.y - 2}
+              width={settings.cellWidth + 2}
+              height={settings.cellHeight + 2}
+              rx={Math.max(4, settings.cellHeight * 0.18)}
+            />
+          ) : null}
         </svg>
       </div>
     </section>
@@ -397,23 +453,29 @@ function estimateSvgTextWidth(text: string, fontSize: number): number {
 }
 
 function ConnectionCountBadge({
+  addedCount = 0,
   count,
+  isAddedOnly,
+  isReduced,
   x,
   y,
   cellHeight,
   fontSize,
 }: {
+  addedCount?: number;
   count: number;
+  isAddedOnly: boolean;
+  isReduced: boolean;
   x: number;
   y: number;
   cellHeight: number;
   fontSize: number;
 }) {
-  const label = String(count);
-  const radius = Math.max(5, Math.min(9, cellHeight * 0.28));
-  const badgeFontSize = Math.max(6, Math.min(fontSize + 1, radius * 1.18));
+  const label = addedCount > 0 && count > 0 ? `${count}+${addedCount}` : String(count || addedCount);
+  const radius = Math.max(5, Math.min(10, cellHeight * 0.3, 5 + label.length * 2.1));
+  const badgeFontSize = Math.max(6, Math.min(fontSize + 1, radius * 0.95));
   return (
-    <g className="cabinet-connection-count" aria-label={`${label} selected cabinets connected`}>
+    <g className={`cabinet-connection-count ${isAddedOnly ? "is-added-only" : ""} ${isReduced ? "is-reduced" : ""}`.trim()} aria-label={`${label} connected cabinets`}>
       <circle cx={x - radius * 0.35} cy={y + radius * 0.35} r={radius} />
       <text
         dominantBaseline="central"
@@ -422,7 +484,8 @@ function ConnectionCountBadge({
         y={y + radius * 0.35}
         style={{ fontSize: badgeFontSize }}
       >
-        {label}
+        {count > 0 ? <tspan className="active-count">{count}</tspan> : null}
+        {addedCount > 0 ? <tspan className="added-count">{count > 0 ? `+${addedCount}` : addedCount}</tspan> : null}
       </text>
     </g>
   );

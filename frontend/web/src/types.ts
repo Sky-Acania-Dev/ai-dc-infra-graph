@@ -326,6 +326,7 @@ export type EntityGroupRecord = {
   metadata_json: Record<string, unknown>;
   members: EntityGroupMember[];
   member_count: number;
+  associated_cabinet_uids: string[];
   created_at: string;
   updated_at: string;
 };

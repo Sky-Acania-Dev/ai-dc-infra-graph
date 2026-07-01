@@ -10,6 +10,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from backend.api.auth import AuthUser, current_user, require_manager
+from backend.api.topology import (
+    CabinetCableDetailResponse,
+    _postgres_cable_detail,
+    _postgres_cable_detail_columns,
+    _postgres_source_update_statuses,
+)
 from backend.core.config import DEFAULT_PROJECT_UID, use_postgresql_topology_storage
 from backend.persistence.postgresql import models as db
 from backend.persistence.postgresql.session import session_factory
@@ -36,6 +42,7 @@ class EntityGroupRecord(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     members: list[EntityGroupMemberRecord] = Field(default_factory=list)
     member_count: int = 0
+    associated_cabinet_uids: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -121,6 +128,49 @@ def get_entity_group(group_uid: str, user: AuthUser = Depends(current_user)) -> 
         return _record(session, group)
 
 
+@router.get("/{group_uid}/cables", response_model=CabinetCableDetailResponse)
+def get_entity_group_cables(group_uid: str, user: AuthUser = Depends(current_user)) -> CabinetCableDetailResponse:
+    _require_postgresql()
+    with session_factory()() as session:
+        group = _group_or_404(session, group_uid)
+        if group.entity_type != "cable":
+            raise HTTPException(status_code=422, detail="Cable detail is only available for cable groups.")
+        cable_uids = [member.entity_uid for member in _members(session, group.uid)]
+        if not cable_uids:
+            return CabinetCableDetailResponse(
+                source_cabinet_uid=group.uid,
+                target_cabinet_uid=group.name,
+                cables=[],
+                total_cables=0,
+                limit=0,
+                offset=0,
+                has_more=False,
+            )
+
+        rows = session.execute(
+            select(*_postgres_cable_detail_columns()).where(
+                db.Cable.uid.in_(cable_uids),
+                db.Cable.deleted_at.is_(None),
+            )
+        ).all()
+        row_by_uid = {row.uid: row for row in rows}
+        change_statuses = _postgres_source_update_statuses(session, cable_uids)
+        cables = [
+            _postgres_cable_detail(row_by_uid[cable_uid], change_status=change_statuses.get(cable_uid, "green"))
+            for cable_uid in cable_uids
+            if cable_uid in row_by_uid
+        ]
+        return CabinetCableDetailResponse(
+            source_cabinet_uid=group.uid,
+            target_cabinet_uid=group.name,
+            cables=cables,
+            total_cables=len(cables),
+            limit=len(cables),
+            offset=0,
+            has_more=False,
+        )
+
+
 @router.patch("/{group_uid}", response_model=EntityGroupRecord)
 def update_entity_group(
     group_uid: str,
@@ -201,10 +251,79 @@ def _record(session, group: db.EntityGroup) -> EntityGroupRecord:
             for member in members
         ],
         member_count=len(members),
+        associated_cabinet_uids=_associated_cabinet_uids(session, members),
         created_at=group.created_at,
         updated_at=group.updated_at,
     )
 
+def _associated_cabinet_uids(session, members: list[db.EntityGroupMember]) -> list[str]:
+    cabinet_uids: set[str] = set()
+    members_by_type: dict[str, list[str]] = {}
+    for member in members:
+        members_by_type.setdefault(member.entity_type, []).append(member.entity_uid)
+
+    cable_uids = members_by_type.get("cable", [])
+    if cable_uids:
+        cable_rows = session.execute(
+            select(db.Cable.a_port_uid, db.Cable.z_port_uid).where(
+                db.Cable.uid.in_(cable_uids),
+                db.Cable.deleted_at.is_(None),
+            )
+        ).all()
+        for a_port_uid, z_port_uid in cable_rows:
+            for cabinet_uid in (_cabinet_uid_from_port_uid(a_port_uid), _cabinet_uid_from_port_uid(z_port_uid)):
+                if cabinet_uid:
+                    cabinet_uids.add(cabinet_uid)
+
+    cabinet_uids.update(members_by_type.get("cabinet", []))
+
+    device_uids = members_by_type.get("device", [])
+    if device_uids:
+        cabinet_uids.update(
+            session.execute(
+                select(db.Device.cabinet_uid).where(
+                    db.Device.uid.in_(device_uids),
+                    db.Device.deleted_at.is_(None),
+                )
+            ).scalars()
+        )
+
+    port_uids = members_by_type.get("port", [])
+    if port_uids:
+        cabinet_uids.update(
+            session.execute(
+                select(db.Port.cabinet_uid).where(
+                    db.Port.uid.in_(port_uids),
+                    db.Port.deleted_at.is_(None),
+                )
+            ).scalars()
+        )
+
+    bundle_uids = members_by_type.get("bundle", [])
+    if bundle_uids:
+        bundle_cable_rows = session.execute(
+            select(db.Cable.a_port_uid, db.Cable.z_port_uid)
+            .join(db.CableBundleCable, db.CableBundleCable.cable_uid == db.Cable.uid)
+            .where(
+                db.CableBundleCable.cable_bundle_uid.in_(bundle_uids),
+                db.Cable.deleted_at.is_(None),
+            )
+        ).all()
+        for a_port_uid, z_port_uid in bundle_cable_rows:
+            for cabinet_uid in (_cabinet_uid_from_port_uid(a_port_uid), _cabinet_uid_from_port_uid(z_port_uid)):
+                if cabinet_uid:
+                    cabinet_uids.add(cabinet_uid)
+
+    return sorted(cabinet_uids)
+
+
+def _cabinet_uid_from_port_uid(port_uid: str | None) -> str | None:
+    if not port_uid:
+        return None
+    parts = port_uid.split(":", 2)
+    if len(parts) < 2:
+        return None
+    return f"{parts[0].upper()}:{parts[1].upper()}"
 
 def _members(session, group_uid: str) -> list[db.EntityGroupMember]:
     return session.execute(

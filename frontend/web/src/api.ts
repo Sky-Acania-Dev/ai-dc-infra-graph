@@ -73,6 +73,14 @@ export async function updateEntityGroup(groupUid: string, payload: UpdateEntityG
   return response.json();
 }
 
+export async function fetchEntityGroupCables(groupUid: string): Promise<CableDetailResponse> {
+  const response = await fetch(`${API_BASE_URL}/entity-groups/${encodeURIComponent(groupUid)}/cables`);
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, "Failed to load group cable details"));
+  }
+  return response.json();
+}
+
 export async function addEntityGroupMembers(groupUid: string, memberUids: string[]): Promise<EntityGroupRecord> {
   const response = await fetch(`${API_BASE_URL}/entity-groups/${encodeURIComponent(groupUid)}/members`, {
     body: JSON.stringify({ member_uids: memberUids }),
