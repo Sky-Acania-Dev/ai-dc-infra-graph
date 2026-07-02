@@ -23,7 +23,11 @@ type CableDetailOverlayProps = {
   onCableUpdated: (response: OperationResponse) => void;
   selectorLabel?: string | null;
   onAddSelectedToGroup?: () => void;
+  onToggleGroupMembership?: (cableUid: string) => void;
   canAddSelectedToGroup?: boolean;
+  groupMemberCounts?: Map<string, number>;
+  selectedGroupCount?: number;
+  selectorMessage?: string | null;
 };
 
 type SortDirection = "asc" | "desc";
@@ -92,7 +96,11 @@ export function CableDetailOverlay({
   onCableUpdated,
   selectorLabel,
   onAddSelectedToGroup,
+  onToggleGroupMembership,
   canAddSelectedToGroup = false,
+  groupMemberCounts,
+  selectedGroupCount = 0,
+  selectorMessage,
 }: CableDetailOverlayProps) {
   const {
     formatCableProgressPhaseName,
@@ -200,7 +208,13 @@ export function CableDetailOverlay({
   const visibleCableUids = useMemo(() => visibleCables.map((cable) => cable.uid), [visibleCables]);
   const selectedVisibleCount = visibleCableUids.filter((uid) => selectedCableUids.has(uid)).length;
   const areAllVisibleSelected = visibleCableUids.length > 0 && selectedVisibleCount === visibleCableUids.length;
-  const canApplySelectedToGroup = canAddSelectedToGroup && selectionMode !== "single" && selectedCurrentCableUids.length > 0;
+  const isGroupSelector = Boolean(groupMemberCounts || selectorLabel || onAddSelectedToGroup);
+  const actionableSelectedCableUids = selectedCurrentCableUids.filter((uid) => {
+    if (!groupMemberCounts || selectedGroupCount <= 0) return true;
+    const membershipCount = groupMemberCounts.get(uid) ?? 0;
+    return selectionMode === "remove" ? membershipCount > 0 : membershipCount < selectedGroupCount;
+  });
+  const canApplySelectedToGroup = canAddSelectedToGroup && actionableSelectedCableUids.length > 0;
   const selectorStatusLabel = selectedCableUids.size > 0
     ? `${formatNumber(selectedCableUids.size)} ${selectedCableUids.size === 1 ? "cable is" : "cables are"} selected`
     : selectorLabel;
@@ -324,13 +338,14 @@ export function CableDetailOverlay({
               <button disabled={!visibleCableUids.length || selectedVisibleCount === 0} onClick={() => deselectAllVisibleCables()} type="button">
                 Deselect all
               </button>
-              {onAddSelectedToGroup && selectionMode !== "single" ? (
+              {onAddSelectedToGroup ? (
                 <button disabled={!canApplySelectedToGroup} onClick={onAddSelectedToGroup} type="button">
                   {selectionMode === "remove" ? "Remove selected" : "Add selected"}
                 </button>
               ) : null}
             </div>
           ) : null}
+          {selectorMessage ? <div className="selector-feedback">{selectorMessage}</div> : null}
           {selectedCables.length > 1 ? (
             <CableSelectionSummary cables={selectedCables} formatNumber={formatNumber} />
           ) : null}
@@ -379,6 +394,7 @@ export function CableDetailOverlay({
         <table>
           <thead>
             <tr>
+              {isGroupSelector ? <th className="membership-column">Added</th> : null}
               {COLUMNS.map((column) => (
                 <th key={column.key}>
                   <button className="sort-button" onClick={() => toggleSort(column.key)}>
@@ -391,6 +407,7 @@ export function CableDetailOverlay({
               ))}
             </tr>
             <tr className="filter-row">
+              {isGroupSelector ? <th className="membership-column" aria-label="Group membership" /> : null}
               {COLUMNS.map((column) => (
                 <th key={column.key}>
                   <details
@@ -463,15 +480,38 @@ export function CableDetailOverlay({
             </tr>
           </thead>
           <tbody>
-            {pagedCables.map((cable, index) => (
+            {pagedCables.map((cable, index) => {
+              const groupMembershipCount = groupMemberCounts?.get(cable.uid) ?? 0;
+              const membershipState = selectedGroupCount > 0 && groupMembershipCount >= selectedGroupCount ? "all" : groupMembershipCount > 0 ? "some" : "none";
+              return (
               <tr
-                className={`${selectedCableUids.has(cable.uid) ? "is-selected-cable" : ""} ${selectedCableUid === cable.uid ? "is-primary-selected" : ""} change-row-${cable.change_status ?? "green"}`}
+                className={`${membershipState !== "none" ? "is-group-member-cable" : ""} ${membershipState === "some" ? "is-partial-group-member-cable" : ""} ${selectedCableUids.has(cable.uid) ? "is-selected-cable" : ""} ${selectedCableUid === cable.uid ? "is-primary-selected" : ""} change-row-${cable.change_status ?? "green"}`}
                 key={`${cable.uid}-${cable.a_port_uid}-${cable.z_port_uid}-${pageStartIndex + index}`}
                 onMouseDown={(event) => {
                   if (event.shiftKey || selectionMode !== "single") event.preventDefault();
                 }}
                 onClick={(event) => handleCableRowClick(cable, event)}
               >
+                {isGroupSelector ? (
+                  <td className="membership-cell">
+                    <button
+                      aria-label={membershipState === "all" ? "Remove from selected groups" : "Add to selected groups"}
+                      className="membership-toggle"
+                      data-cable-editable="true"
+                      disabled={!onToggleGroupMembership}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onToggleGroupMembership?.(cable.uid);
+                      }}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      type="button"
+                    >
+                      <span className={`membership-indicator membership-${membershipState}`}>
+                        {membershipState === "all" ? "\u2713" : membershipState === "some" ? <span /> : null}
+                      </span>
+                    </button>
+                  </td>
+                ) : null}
                 {COLUMNS.map((column) => (
                   <td key={column.key}>
                     {renderCableCell({
@@ -489,7 +529,8 @@ export function CableDetailOverlay({
                   </td>
                 ))}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         {!visibleCables.length ? <div className="empty-table-space" /> : null}

@@ -30,6 +30,8 @@ type CabinetConnectionsPanelProps = {
   onViewCables: (routes: CabinetCableRoute[]) => void;
   onViewDeviceCables: (routes: DeviceCableRoute[]) => void;
   onViewDataHallCables: (bucket: DataHallCableBucket, cableType: string) => void;
+  guidance?: string | null;
+  headingOverride?: string | null;
 };
 
 export function CabinetConnectionsPanel({
@@ -41,6 +43,8 @@ export function CabinetConnectionsPanel({
   onViewCables,
   onViewDeviceCables,
   onViewDataHallCables,
+  guidance,
+  headingOverride,
 }: CabinetConnectionsPanelProps) {
   const { formatNumber, t } = useI18n();
   const connectionListPan = useDragPan<HTMLDivElement>();
@@ -64,6 +68,7 @@ export function CabinetConnectionsPanel({
       <aside className="side-pane connections-pane">
         <span className="eyebrow">{t("connections.connectedDevices")}</span>
         <h2>{t("connections.connectedDevicesCount", { count: formatNumber(allConnections.length) })}</h2>
+        <PanelGuidance guidance={guidance} />
         <div className="connection-list drag-pan-surface" {...connectionListPan}>
           <ConnectionSummaryCard
             headingMetric={t("connections.deviceCount", { count: formatNumber(internalConnections.length) })}
@@ -102,6 +107,7 @@ export function CabinetConnectionsPanel({
       <aside className="side-pane connections-pane">
         <span className="eyebrow">{t("connections.connectedDevices")}</span>
         <h2>{t("connections.connectedDevicesCount", { count: formatNumber(deviceDetail.connected_devices.length) })}</h2>
+        <PanelGuidance guidance={guidance} />
         <div className="connection-list drag-pan-surface" {...connectionListPan}>
           <ConnectionSummaryCard
             headingMetric={t("connections.deviceCount", { count: formatNumber(internalConnections.length) })}
@@ -129,6 +135,7 @@ export function CabinetConnectionsPanel({
       <aside className="side-pane connections-pane">
         <span className="eyebrow">{t("connections.dataHallCables")}</span>
         <h2>{dataHallCableSummary?.data_hall_id ?? t("dataHall.fallback")}</h2>
+        <PanelGuidance guidance={guidance} />
         {dataHallCableSummary ? (
           <div className="connection-list drag-pan-surface" {...connectionListPan}>
             <DataHallCableBucketCard
@@ -196,7 +203,8 @@ export function CabinetConnectionsPanel({
     return (
       <aside className="side-pane connections-pane">
         <span className="eyebrow">{t("connections.connectedCabinets")}</span>
-        <h2>{t("connections.connectedCabinetsCount", { count: formatNumber(externalConnections.length) })}</h2>
+        <h2>{headingOverride ?? t("connections.connectedCabinetsCount", { count: formatNumber(externalConnections.length) })}</h2>
+        <PanelGuidance guidance={guidance} />
         <div className="connection-list drag-pan-surface" {...connectionListPan}>
           <ConnectionSummaryCard
             className="intra-connection"
@@ -245,7 +253,8 @@ export function CabinetConnectionsPanel({
   return (
     <aside className="side-pane connections-pane">
       <span className="eyebrow">{t("connections.connectedCabinets")}</span>
-      <h2>{t("connections.connectedCabinetsCount", { count: formatNumber(detail.stats.connected_cabinets) })}</h2>
+      <h2>{headingOverride ?? t("connections.connectedCabinetsCount", { count: formatNumber(detail.stats.connected_cabinets) })}</h2>
+      <PanelGuidance guidance={guidance} />
       <div className="connection-list drag-pan-surface" {...connectionListPan}>
         <ConnectionSummaryCard
           className="intra-connection"
@@ -276,6 +285,9 @@ export function CabinetConnectionsPanel({
   );
 }
 
+function PanelGuidance({ guidance }: { guidance?: string | null }) {
+  return guidance ? <div className="panel-guidance">{guidance}</div> : null;
+}
 type ChangeOrderDiffStats = NonNullable<CabinetConnection["change_order_stats"]>;
 
 type ConnectionSummary = {

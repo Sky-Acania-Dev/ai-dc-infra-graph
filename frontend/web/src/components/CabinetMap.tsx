@@ -14,7 +14,7 @@ type PositionedCabinet = CabinetLayoutItem & {
 
 type CabinetMapProps = {
   cabinets: CabinetLayoutItem[];
-  connectedDataHalls: Set<string>;
+  connectedDataHallCounts: Map<string, number>;
   dataHall: string;
   dataHalls: string[];
   selectedCabinetUid: string | null;
@@ -33,6 +33,7 @@ type CabinetMapProps = {
   changeOrderStats: Map<string, ChangeOrderCabinetStats>;
   changeOrderOptions: Array<{ key: string; number: number; label: string }>;
   selectedChangeOrderNumbers: Set<number>;
+  modeHint?: string | null;
   onChangeOrderSelectionChange: (changeOrderNumbers: number[]) => void;
   onSelectCabinet: (cabinetUid: string, gesture: SelectionGesture) => void;
   onClearSelection: () => void;
@@ -171,7 +172,7 @@ const MAP_SIZE_STEPS: Array<{ value: MapSize; labelKey: string }> = [
 
 export function CabinetMap({
   cabinets,
-  connectedDataHalls,
+  connectedDataHallCounts,
   dataHall,
   dataHalls,
   selectedCabinetUid,
@@ -190,6 +191,7 @@ export function CabinetMap({
   changeOrderStats,
   changeOrderOptions,
   selectedChangeOrderNumbers,
+  modeHint,
   onChangeOrderSelectionChange,
   onSelectCabinet,
   onClearSelection,
@@ -225,19 +227,23 @@ export function CabinetMap({
       <div className="pane-header">
         <div className="map-title-line">
           <h2>{cabinets[0]?.data_hall_id ?? t("dataHall.fallback")}</h2>
-          <span>{t("map.cabinetMap")}</span>
+          <span>{modeHint ?? t("map.cabinetMap")}</span>
         </div>
         <div className="map-controls">
           <div className="map-size-control" role="tablist" aria-label={t("dataHall.selector")}>
-            {dataHalls.map((hall) => (
-              <button
-                className={`${hall === dataHall ? "is-active" : ""} ${connectedDataHalls.has(hall) && hall !== dataHall ? "has-graph-neighbor" : ""}`}
-                key={hall}
-                onClick={() => onDataHallChange(hall)}
-              >
-                {hall}
-              </button>
-            ))}
+            {dataHalls.map((hall) => {
+              const graphNeighborCount = hall === dataHall ? 0 : connectedDataHallCounts.get(hall) ?? 0;
+              return (
+                <button
+                  className={`${hall === dataHall ? "is-active" : ""} ${graphNeighborCount > 0 ? "has-graph-neighbor" : ""}`}
+                  key={hall}
+                  onClick={() => onDataHallChange(hall)}
+                >
+                  <span>{hall}</span>
+                  {graphNeighborCount > 0 ? <b className="data-hall-graph-count">{graphNeighborCount}</b> : null}
+                </button>
+              );
+            })}
           </div>
           <div className="map-size-control" aria-label={t("map.display")}>
             {(["text", "termination", "dress", "change_orders"] as MapProgressDisplay[]).map((display) => (
@@ -293,7 +299,8 @@ export function CabinetMap({
             const addedConnectionCount = addedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
             const isConnected = connectedCabinetUids.has(cabinet.cabinet_uid);
             const showConnectionCount = connectedSourceCount > 0 || addedConnectionCount > 0 || reducedConnectionCount > 0;
-            const isDimmed = (hasSelection && !isSelected && !isConnected) || isAdded || (addedConnectionCount > 0 && connectedSourceCount === 0) || isLostConnection;
+            const isAddedOnlyNeighbor = addedConnectionCount > 0 && connectedSourceCount === 0 && !isSelected && !isAdded && !isRemoved;
+            const isDimmed = (hasSelection && !isSelected && !isConnected) || isAdded || isAddedOnlyNeighbor || (isLostConnection && !isSelected);
             const cabinetChangeStats = changeOrderStats.get(cabinet.cabinet_uid) ?? emptyChangeOrderStats();
             const cabinetTypeLabel = progressDisplay === "text" ? cabinet.category : "";
             const cabinetTypeFit = fitSvgText(
@@ -307,7 +314,6 @@ export function CabinetMap({
                 key={cabinet.cabinet_uid}
                 className={`map-cabinet ${isSelected ? "is-selected" : ""} ${isAdded ? "is-added-selection" : ""} ${isRemoved ? "is-removed-selection" : ""} ${isConnected ? "is-connected" : ""} ${addedConnectionCount > 0 ? "is-added-connected" : ""} ${isLostConnection ? "is-lost-connection" : ""} ${isReducedConnection ? "is-reduced-connection" : ""} ${isDeviceSource ? "is-device-source" : ""} ${isDimmed ? "is-dimmed" : ""}`}
                 role="button"
-                style={{ color: label.fill }}
                 tabIndex={0}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -374,31 +380,45 @@ export function CabinetMap({
                     label={progressDisplay === "change_orders" ? `${cabinetChangeStats.completed}/${cabinetChangeStats.total}` : undefined}
                   />
                 ) : null}
-                {showConnectionCount ? (
-                  <ConnectionCountBadge
-                    addedCount={addedConnectionCount}
-                    count={isReducedConnection ? reducedConnectionCount : connectedSourceCount}
-                    isReduced={isReducedConnection}
-                    isAddedOnly={connectedSourceCount === 0 && !isReducedConnection && addedConnectionCount > 0}
-                    x={x + settings.cellWidth - 2}
-                    y={y}
-                    cellHeight={settings.cellHeight}
-                    fontSize={settings.cabinetTypeFontSize}
-                  />
-                ) : null}
+
               </g>
             );
           })}
           {primaryFrame ? (
             <rect
               className="cabinet-primary-frame"
-              x={primaryFrame.x - 2}
-              y={primaryFrame.y - 2}
-              width={settings.cellWidth + 2}
-              height={settings.cellHeight + 2}
-              rx={Math.max(4, settings.cellHeight * 0.18)}
+              x={primaryFrame.x - 1.6}
+              y={primaryFrame.y - 1.6}
+              width={settings.cellWidth + 1.2}
+              height={settings.cellHeight + 1.2}
+              rx={Math.max(3.5, settings.cellHeight * 0.16)}
             />
           ) : null}
+          {positioned.map((cabinet) => {
+            const x =
+              PADDING +
+              cabinet.block * (10 * settings.cellWidth + settings.blockGap) +
+              cabinet.col * settings.cellWidth;
+            const y = PADDING + rowY(cabinet.row, settings);
+            const reducedConnectionCount = reducedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
+            const isReducedConnection = reducedConnectionCount > 0;
+            const connectedSourceCount = connectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
+            const addedConnectionCount = addedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
+            const showConnectionCount = connectedSourceCount > 0 || addedConnectionCount > 0 || reducedConnectionCount > 0;
+            return showConnectionCount ? (
+              <ConnectionCountBadge
+                addedCount={addedConnectionCount}
+                count={isReducedConnection ? reducedConnectionCount : connectedSourceCount}
+                isReduced={isReducedConnection}
+                isAddedOnly={connectedSourceCount === 0 && !isReducedConnection && addedConnectionCount > 0}
+                key={`badge:${cabinet.cabinet_uid}`}
+                x={x + settings.cellWidth - 2}
+                y={y}
+                cellHeight={settings.cellHeight}
+                fontSize={settings.cabinetTypeFontSize}
+              />
+            ) : null;
+          })}
         </svg>
       </div>
     </section>

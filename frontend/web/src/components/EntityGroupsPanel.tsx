@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import type { SelectionGesture, SelectionMode } from "../App";
 import type { EntityGroupRecord } from "../types";
 
@@ -31,19 +31,28 @@ export function EntityGroupsPanel({
   onClearGroupSelection,
   onAddSelectedCables,
 }: EntityGroupsPanelProps) {
+  const [isCreateExpanded, setIsCreateExpanded] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const activeGroup = groups.find((group) => group.uid === activeGroupUid) ?? null;
+  const selectedGroups = selectedGroupUids.map((uid) => groups.find((group) => group.uid === uid)).filter((group): group is EntityGroupRecord => Boolean(group));
   const selectedActionCount = useMemo(() => {
-    if (!activeGroup) return 0;
-    const existing = new Set(activeGroup.members.map((member) => member.entity_uid));
-    if (selectionMode === "remove") return selectedCableUids.filter((uid) => existing.has(uid)).length;
-    return selectedCableUids.filter((uid) => !existing.has(uid)).length;
-  }, [activeGroup, selectedCableUids, selectionMode]);
+    if (!selectedGroups.length) return 0;
+    let count = 0;
+    for (const cableUid of selectedCableUids) {
+      const membershipCount = selectedGroups.filter((group) => group.members.some((member) => member.entity_type === "cable" && member.entity_uid === cableUid)).length;
+      count += selectionMode === "remove" ? membershipCount : selectedGroups.length - membershipCount;
+    }
+    return count;
+  }, [selectedCableUids, selectedGroups, selectionMode]);
   const selectedGroupSet = useMemo(() => new Set(selectedGroupUids), [selectedGroupUids]);
+
+  useEffect(() => {
+    if (selectedGroupUids.length > 0) setIsCreateExpanded(false);
+  }, [selectedGroupUids.length]);
 
   function submitCreate() {
     const name = draftName.trim();
@@ -51,6 +60,12 @@ export function EntityGroupsPanel({
     onCreateGroup(name, draftDescription.trim());
     setDraftName("");
     setDraftDescription("");
+    setIsCreateExpanded(false);
+  }
+
+  function openCreateCard() {
+    onClearGroupSelection();
+    setIsCreateExpanded(true);
   }
 
   function startEdit(group: EntityGroupRecord) {
@@ -66,12 +81,6 @@ export function EntityGroupsPanel({
     setEditingUid(null);
   }
 
-  function removeMember(group: EntityGroupRecord, memberUid: string) {
-    onUpdateGroup(group.uid, {
-      member_uids: group.members.map((member) => member.entity_uid).filter((uid) => uid !== memberUid),
-    });
-  }
-
   function stopNestedClick(event: MouseEvent) {
     event.stopPropagation();
   }
@@ -85,28 +94,42 @@ export function EntityGroupsPanel({
       <span className="eyebrow">Shared Planning</span>
       <h1>Entity Groups</h1>
       {canManage ? (
-        <div className="entity-group-create entity-group-create-accent" onClick={onClearGroupSelection}>
-          <input
-            onChange={(event) => setDraftName(event.target.value)}
-            placeholder="New cable group"
-            value={draftName}
-          />
-          <textarea
-            onChange={(event) => setDraftDescription(event.target.value)}
-            placeholder="Description"
-            rows={2}
-            value={draftDescription}
-          />
-          <button disabled={!draftName.trim()} onClick={submitCreate} type="button">
-            Add Group
-          </button>
-        </div>
+        isCreateExpanded ? (
+          <div className="entity-group-create entity-group-create-accent is-expanded" onClick={onClearGroupSelection}>
+            <input
+              onChange={(event) => setDraftName(event.target.value)}
+              placeholder="New cable group"
+              value={draftName}
+            />
+            <textarea
+              onChange={(event) => setDraftDescription(event.target.value)}
+              placeholder="Description"
+              rows={2}
+              value={draftDescription}
+            />
+            <div className="entity-group-actions">
+              <button disabled={!draftName.trim()} onClick={submitCreate} type="button">
+                Add Group
+              </button>
+              <button onClick={() => setIsCreateExpanded(false)} type="button">
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="entity-group-create entity-group-create-accent is-collapsed" onClick={openCreateCard}>
+            <button onClick={openCreateCard} type="button">
+              {draftName.trim() ? `Add ${draftName.trim()} Group` : "Add Group"}
+            </button>
+          </div>
+        )
       ) : null}
       <div className="entity-group-list">
         {groups.map((group) => {
           const isActive = group.uid === activeGroup?.uid;
           const isSelected = selectedGroupSet.has(group.uid);
           const isEditing = editingUid === group.uid;
+          const isExpanded = isSelected || isEditing;
           return (
             <article
               className={`entity-group-card ${isActive ? "is-active" : ""} ${isSelected ? "is-selected" : ""}`}
@@ -131,37 +154,31 @@ export function EntityGroupsPanel({
                     <span>{group.name}</span>
                     <b>{group.member_count}</b>
                   </div>
-                  {group.description ? <p>{group.description}</p> : null}
-                  <div className="entity-group-meta">
-                    <span>{group.entity_type}</span>
-                    <span>{group.owner_user_uid ?? "shared"}</span>
-                  </div>
-                  {canManage ? (
-                    <div className="entity-group-actions" onClick={stopNestedClick}>
-                      <button onClick={() => startEdit(group)} type="button">Modify</button>
-                      <button onClick={() => onDeleteGroup(group.uid)} type="button">Remove</button>
-                    </div>
+                  {isExpanded ? (
+                    <>
+                      {group.description ? <p>{group.description}</p> : null}
+                      <MemberSummary group={group} />
+                      <div className="entity-group-meta">
+                        <span>{group.entity_type}</span>
+                        <span>{group.owner_user_uid ?? "shared"}</span>
+                      </div>
+                      {canManage ? (
+                        <div className="entity-group-actions" onClick={stopNestedClick}>
+                          <button onClick={() => startEdit(group)} type="button">Modify</button>
+                          <button onClick={() => onDeleteGroup(group.uid)} type="button">Remove</button>
+                        </div>
+                      ) : null}
+                    </>
                   ) : null}
                 </>
               )}
-              {isActive ? (
+              {isActive && canManage && selectedGroupUids.length > 0 ? (
                 <div className="entity-group-members" onClick={stopNestedClick}>
                   <div className="entity-group-members-header">
-                    <span>Members</span>
-                    {canManage ? (
-                      <button disabled={selectedActionCount === 0} onClick={onAddSelectedCables} type="button">
-                        {selectionMode === "remove" ? "Remove Selected" : "Add Selected"} {selectedActionCount ? `(${selectedActionCount})` : ""}
-                      </button>
-                    ) : null}
-                  </div>
-                  <div className="entity-group-member-list">
-                    {group.members.map((member) => (
-                      <div className="entity-group-member" key={`${member.entity_type}:${member.entity_uid}`}>
-                        <code>{member.entity_uid}</code>
-                        {canManage ? <button onClick={() => removeMember(group, member.entity_uid)} type="button">X</button> : null}
-                      </div>
-                    ))}
-                    {!group.members.length ? <div className="entity-group-empty">No members yet.</div> : null}
+                    <span>Group actions</span>
+                    <button disabled={selectedActionCount === 0} onClick={onAddSelectedCables} type="button">
+                      {selectionMode === "remove" ? "Remove Selected" : "Add Selected"} {selectedActionCount ? `(${selectedActionCount})` : ""}
+                    </button>
                   </div>
                 </div>
               ) : null}
@@ -172,4 +189,28 @@ export function EntityGroupsPanel({
       </div>
     </section>
   );
+}
+
+function MemberSummary({ group }: { group: EntityGroupRecord }) {
+  const summaries = memberTypeSummary(group);
+  if (!summaries.length) return <div className="entity-group-empty">No members yet.</div>;
+  return (
+    <div className="entity-group-member-summary">
+      {summaries.map(({ entityType, count }) => (
+        <span className="entity-group-member-chip" key={entityType}>
+          <b>{count}</b> {count === 1 ? entityType : `${entityType}s`}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function memberTypeSummary(group: EntityGroupRecord): Array<{ entityType: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const member of group.members) {
+    counts.set(member.entity_type, (counts.get(member.entity_type) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([entityType, count]) => ({ entityType, count }))
+    .sort((left, right) => left.entityType.localeCompare(right.entityType));
 }

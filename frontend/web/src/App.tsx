@@ -104,6 +104,7 @@ export function App() {
   const [selectedEntityGroupUids, setSelectedEntityGroupUids] = useState<string[]>([]);
   const [groupCableDetails, setGroupCableDetails] = useState<CableDetailResponse[]>([]);
   const [isGroupCableDetailLoading, setIsGroupCableDetailLoading] = useState(false);
+  const [groupActionMessage, setGroupActionMessage] = useState<string | null>(null);
   const [sourceUpdateOperations, setSourceUpdateOperations] = useState<Operation[]>([]);
   const [selectedChangeOrderNumbers, setSelectedChangeOrderNumbers] = useState<number[]>([]);
   const [pendingSaveCount, setPendingSaveCount] = useState(0);
@@ -364,10 +365,24 @@ export function App() {
     () => entityGroups.find((group) => group.uid === activeEntityGroupUid) ?? null,
     [activeEntityGroupUid, entityGroups],
   );
+  const activeGroupCableMemberUidSet = useMemo(
+    () => new Set(activeEntityGroup?.members.filter((member) => member.entity_type === "cable").map((member) => member.entity_uid) ?? []),
+    [activeEntityGroup],
+  );
   const selectedEntityGroups = useMemo(
     () => selectedEntityGroupUids.map((uid) => entityGroups.find((group) => group.uid === uid)).filter((group): group is EntityGroupRecord => Boolean(group)),
     [entityGroups, selectedEntityGroupUids],
   );
+  const selectedGroupCableMemberCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const group of selectedEntityGroups) {
+      for (const member of group.members) {
+        if (member.entity_type !== "cable") continue;
+        counts.set(member.entity_uid, (counts.get(member.entity_uid) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [selectedEntityGroups]);
   const groupSelectedCabinetUidSet = useMemo(
     () => new Set(selectedEntityGroups.flatMap((group) => group.associated_cabinet_uids)),
     [selectedEntityGroups],
@@ -436,10 +451,14 @@ export function App() {
   }, [groupActiveConnectionCounts, groupAddedConnectionCounts, groupLostNeighborUids, groupReducedConnectionCounts, mode, normalCabinetConnectionCounts]);
   const mapSelectedCabinetUidSet = mode === "groups" ? groupSelectedCabinetUidSet : selectedCabinetUidSet;
   const mapSelectedCabinetUid = selectedCabinetUid;
-  const connectedDataHalls = useMemo(
-    () => new Set([...connectedCabinetUids].map((cabinetUid) => cabinetUid.split(":")[0])),
-    [connectedCabinetUids],
-  );
+  const connectedDataHallCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const cabinetUid of connectedCabinetUids) {
+      const hall = cabinetUid.split(":")[0];
+      counts.set(hall, (counts.get(hall) ?? 0) + 1);
+    }
+    return counts;
+  }, [connectedCabinetUids]);
   const connectedDeviceUids = useMemo(
     () => new Set(deviceDetail?.connected_devices.map((connection) => connection.target_device_uid) ?? []),
     [deviceDetail],
@@ -600,6 +619,7 @@ export function App() {
   }
 
   function selectEntityGroup(groupUid: string, gesture: SelectionGesture) {
+    setGroupActionMessage(null);
     setSelectedCabinetUid(null);
     setSelectedCabinetUids([]);
     closeCableDetail();
@@ -618,24 +638,98 @@ export function App() {
     setActiveEntityGroupUid(groupUid);
   }
 
-  function applySelectedCablesToActiveGroup() {
-    if (!activeEntityGroupUid || !selectedCableUids.length || !canManageGroups) return;
-    const activeGroup = entityGroups.find((group) => group.uid === activeEntityGroupUid);
+  function toggleCableMembershipForSelectedGroups(cableUid: string) {
+    if (!selectedEntityGroups.length || !canManageGroups) return;
+    const currentMembershipCount = selectedGroupCableMemberCounts.get(cableUid) ?? 0;
     setError(null);
-    if (selectionMode === "remove" && activeGroup) {
-      const removeSet = new Set(selectedCableUids);
-      updateEntityGroup(activeEntityGroupUid, {
-        member_uids: activeGroup.members.map((member) => member.entity_uid).filter((uid) => !removeSet.has(uid)),
-      })
-        .then((group) => refreshEntityGroups(group.uid))
+    setGroupActionMessage(null);
+
+    if (currentMembershipCount >= selectedEntityGroups.length) {
+      let removedMemberships = 0;
+      Promise.all(
+        selectedEntityGroups.map((group) => {
+          const hasCable = group.members.some((member) => member.entity_type === "cable" && member.entity_uid === cableUid);
+          if (!hasCable) return Promise.resolve(group);
+          removedMemberships += 1;
+          return updateEntityGroup(group.uid, {
+            member_uids: group.members.map((member) => member.entity_uid).filter((uid) => uid !== cableUid),
+          });
+        }),
+      )
+        .then(() => {
+          setGroupActionMessage(
+            `${removedMemberships} ${removedMemberships === 1 ? "cable membership" : "cable memberships"} removed from selected groups.`,
+          );
+          refreshEntityGroups();
+        })
         .catch((requestError: Error) => setError(requestError.message));
       return;
     }
-    addEntityGroupMembers(activeEntityGroupUid, selectedCableUids)
-      .then((group) => refreshEntityGroups(group.uid))
+
+    let addedMemberships = 0;
+    Promise.all(
+      selectedEntityGroups.map((group) => {
+        const hasCable = group.members.some((member) => member.entity_type === "cable" && member.entity_uid === cableUid);
+        if (hasCable) return Promise.resolve(group);
+        addedMemberships += 1;
+        return addEntityGroupMembers(group.uid, [cableUid]);
+      }),
+    )
+      .then(() => {
+        setGroupActionMessage(
+          `${addedMemberships} ${addedMemberships === 1 ? "cable membership" : "cable memberships"} added to selected groups.`,
+        );
+        refreshEntityGroups();
+      })
       .catch((requestError: Error) => setError(requestError.message));
   }
+  function applySelectedCablesToActiveGroup() {
+    if (!selectedEntityGroups.length || !selectedCableUids.length || !canManageGroups) return;
+    const selectedUids = [...selectedCableUids];
+    setError(null);
+    setGroupActionMessage(null);
 
+    if (selectionMode === "remove") {
+      let removedMemberships = 0;
+      const updates = selectedEntityGroups.map((group) => {
+        const removeSet = new Set(selectedUids);
+        const existingSelected = group.members.filter((member) => member.entity_type === "cable" && removeSet.has(member.entity_uid));
+        removedMemberships += existingSelected.length;
+        if (!existingSelected.length) return Promise.resolve(group);
+        return updateEntityGroup(group.uid, {
+          member_uids: group.members.map((member) => member.entity_uid).filter((uid) => !removeSet.has(uid)),
+        });
+      });
+      Promise.all(updates)
+        .then(() => {
+          setGroupActionMessage(
+            `${removedMemberships} ${removedMemberships === 1 ? "cable membership" : "cable memberships"} removed from ${selectedEntityGroups.length} ${selectedEntityGroups.length === 1 ? "group" : "groups"}.`,
+          );
+          refreshEntityGroups();
+        })
+        .catch((requestError: Error) => setError(requestError.message));
+      return;
+    }
+
+    let addedMemberships = 0;
+    const updates = selectedEntityGroups.map((group) => {
+      const existing = new Set(group.members.filter((member) => member.entity_type === "cable").map((member) => member.entity_uid));
+      const missingUids = selectedUids.filter((uid) => !existing.has(uid));
+      addedMemberships += missingUids.length;
+      if (!missingUids.length) return Promise.resolve(group);
+      return addEntityGroupMembers(group.uid, missingUids);
+    });
+    Promise.all(updates)
+      .then(() => {
+        setGroupActionMessage(
+          addedMemberships > 0
+            ? `${addedMemberships} ${addedMemberships === 1 ? "cable membership" : "cable memberships"} added across ${selectedEntityGroups.length} ${selectedEntityGroups.length === 1 ? "group" : "groups"}.`
+            : `Selected cables are already in the selected ${selectedEntityGroups.length === 1 ? "group" : "groups"}.`,
+        );
+        refreshEntityGroups();
+      })
+      .catch((requestError: Error) => setError(requestError.message));
+  }
   function viewActiveGroupCables() {
     const cableGroups = selectedEntityGroups.filter((group) => group.entity_type === "cable");
     if (!cableGroups.length) return;
@@ -785,6 +879,7 @@ export function App() {
     const isRemoveIntent = isRemoveGesture(gesture, selectionMode);
 
     if (mode === "groups") {
+      setGroupActionMessage(null);
       setSelectedCabinetUid(cabinetUid);
       closeCableDetail();
       clearDeviceSelection();
@@ -1271,7 +1366,7 @@ export function App() {
               ) : (
                 <CabinetMap
                   cabinets={cabinets}
-                  connectedDataHalls={connectedDataHalls}
+                  connectedDataHallCounts={connectedDataHallCounts}
                   dataHall={dataHall}
                   dataHalls={DATA_HALLS}
                   selectedCabinetUid={mapSelectedCabinetUid}
@@ -1290,6 +1385,7 @@ export function App() {
                   changeOrderStats={changeOrderStatsByCabinet}
                   changeOrderOptions={changeOrderOptions}
                   selectedChangeOrderNumbers={selectedChangeOrderNumberSet}
+                  modeHint={mode === "groups" ? activeEntityGroup ? "Click cabinets to inspect candidate cables for this group" : "Select a group to view or edit its cable members" : null}
                   onSelectCabinet={selectCabinet}
                   onClearSelection={clearSelection}
                   onDataHallChange={setDataHall}
@@ -1314,13 +1410,17 @@ export function App() {
                 onSelectCableRange={selectCableRange}
                 onSetCableSelection={setCableSelection}
                 onCableUpdated={handleOperationResponse}
-                selectorLabel={mode === "groups" && activeEntityGroupUid ? `Selecting cables for ${activeEntityGroup?.name ?? "active group"}` : null}
-                onAddSelectedToGroup={canManageGroups ? applySelectedCablesToActiveGroup : undefined}
-                canAddSelectedToGroup={canManageGroups && Boolean(activeEntityGroupUid) && selectedCableUids.length > 0}
+                selectorLabel={mode === "groups" && selectedEntityGroups.length > 0 ? selectedEntityGroups.length === 1 ? `Selecting cables for ${activeEntityGroup?.name ?? "active group"}` : `Selecting cables for ${selectedEntityGroups.length} groups` : null}
+                selectorMessage={mode === "groups" ? groupActionMessage : null}
+                groupMemberCounts={mode === "groups" ? selectedGroupCableMemberCounts : undefined}
+                selectedGroupCount={mode === "groups" ? selectedEntityGroups.length : 0}
+                onAddSelectedToGroup={canManageGroups && selectedEntityGroups.length > 0 ? applySelectedCablesToActiveGroup : undefined}
+                onToggleGroupMembership={canManageGroups && selectedEntityGroups.length > 0 ? toggleCableMembershipForSelectedGroups : undefined}
+                canAddSelectedToGroup={canManageGroups && selectedEntityGroups.length > 0 && selectedCableUids.length > 0}
               />
             </div>
           )}
-          {mode === "groups" && selectedEntityGroups.length > 0 ? (
+          {mode === "groups" && selectedEntityGroups.length > 0 && selectedCabinetUids.length === 0 ? (
             <EntityGroupSummaryPanel
               groups={entityGroups}
               selectedGroups={selectedEntityGroups}
@@ -1338,6 +1438,8 @@ export function App() {
               onViewCables={viewConnectionCables}
               onViewDeviceCables={viewDeviceConnectionCables}
               onViewDataHallCables={viewDataHallCables}
+              headingOverride={mode === "groups" && selectedCabinetUids.length > 0 ? `${selectedCabinetUids.length} selected ${selectedCabinetUids.length === 1 ? "cabinet" : "cabinets"}` : null}
+              guidance={mode === "groups" && selectedCabinetUids.length > 0 && canManageGroups && activeEntityGroup && selectedEntityGroupUids.length === 1 ? `Open a cable list from these cabinets, select candidate cables, then use Add selected to add members to ${activeEntityGroup.name}.` : null}
             />
           )}
         </div>

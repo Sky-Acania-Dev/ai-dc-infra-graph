@@ -26,9 +26,9 @@ Orange means currently selected or viewed status. It is also used for major deci
 
 ## Cabinet Map Frames
 
-The last-clicked cabinet uses the existing larger rounded primary frame as a separate top-layer overlay. Keep this frame black; do not recolor it for add or remove mode, and do not let it replace the cabinet status frame color or style.
+The last-clicked cabinet uses the same rounded-frame geometry and thickness as the active frame, rendered as a top-layer orange overlay so there is no gap between the active and last-clicked frames.
 
-Selected or active cabinets use normal color with a thick black/white rounded frame, matching the main text contrast color instead of a semantic accent hue. In group mode, this means cabinets already inside the selected group. Neighbor styling must not override this active frame. Cabinet number text should be bolded further for selected cabinets.
+Selected or active cabinets use normal color with a moderately thick black rounded frame in light mode, and a moderately thick white rounded frame when dark mode is implemented. In group mode, this means cabinets already inside the selected group. Neighbor styling must not override this active frame. Cabinet number text should be bolded further for selected cabinets.
 
 Graph neighbors of selected or active cabinets use a simple square black frame that sits flush with the cabinet box, with no gap and no rounded corners. Show a black count dot with a white number for connected active cabinets. If a cabinet is also active or selected, omit the graph-neighbor frame and keep only the count dot.
 
@@ -39,3 +39,5 @@ Graph neighbors of added selection use faded cabinet fill with a thin square bla
 Removed selection uses normal color with a medium purple rounded frame, overriding the normal active-cabinet cyan frame.
 
 Graph neighbors lost by removed selection use dashed thin square black frames. If the neighbor is completely lost, it is faded. If only the connected-active count is reduced, keep normal color, use the dashed thin black frame, and show the remaining active count in purple inside the black count dot. If a cabinet is also active or selected, omit the graph-neighbor frame and keep the selected/active frame.
+Data-hall selector buttons should use an orange accent background and show a small black circular count badge when graph neighbors exist in another data hall. The badge count is the number of graph-neighbor cabinets in that data hall.
+Connection count dots should render above cabinet frames, including selected and last-clicked frames.
