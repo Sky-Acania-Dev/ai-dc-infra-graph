@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addEntityGroupMembers,
   createEntityGroup,
+  createEntityGroupFromCableGroup,
   deleteEntityGroup,
   fetchCabinetChangeOrderCables,
   fetchCabinetConnectionCables,
   fetchCabinetDetail,
   fetchCabinetLayout,
+  fetchCableSourceGroups,
   fetchChangeOrders,
   fetchCurrentUser,
   fetchEntityGroups,
@@ -42,6 +44,7 @@ import type {
   ChangeOrderItemRecord,
   ChangeOrderRecord,
   AuthUser,
+  CableGroupSourceRecord,
   DataHallCableBucket,
   DataHallCableSummaryResponse,
   Device,
@@ -100,6 +103,7 @@ export function App() {
   const [operationList, setOperationList] = useState<OperationListResponse | null>(null);
   const [changeOrders, setChangeOrders] = useState<ChangeOrderRecord[]>([]);
   const [entityGroups, setEntityGroups] = useState<EntityGroupRecord[]>([]);
+  const [cableSourceGroups, setCableSourceGroups] = useState<CableGroupSourceRecord[]>([]);
   const [activeEntityGroupUid, setActiveEntityGroupUid] = useState<string | null>(null);
   const [selectedEntityGroupUids, setSelectedEntityGroupUids] = useState<string[]>([]);
   const [groupCableDetails, setGroupCableDetails] = useState<CableDetailResponse[]>([]);
@@ -257,6 +261,13 @@ export function App() {
   useEffect(() => {
     if (!currentUser) return;
     let cancelled = false;
+    fetchCableSourceGroups()
+      .then((sourceGroups) => {
+        if (!cancelled) setCableSourceGroups(sourceGroups);
+      })
+      .catch(() => {
+        if (!cancelled) setCableSourceGroups([]);
+      });
     fetchEntityGroups("cable")
       .then((groups) => {
         if (cancelled) return;
@@ -570,6 +581,9 @@ export function App() {
   }
 
   function refreshEntityGroups(nextActiveUid?: string | null) {
+    fetchCableSourceGroups()
+      .then(setCableSourceGroups)
+      .catch(() => setCableSourceGroups([]));
     fetchEntityGroups("cable")
       .then((groups) => {
         setEntityGroups(groups);
@@ -593,6 +607,31 @@ export function App() {
     setError(null);
     createEntityGroup({ name, description, entity_type: "cable" })
       .then((group) => refreshEntityGroups(group.uid))
+      .catch((requestError: Error) => setError(requestError.message));
+  }
+
+  function createCableGroupFromSourceGroup(sourceGroup: string) {
+    if (!canManageGroups) return;
+    setError(null);
+    setGroupActionMessage(null);
+    createEntityGroupFromCableGroup(sourceGroup)
+      .then((group) => {
+        setGroupActionMessage(`Created ${group.name} with ${group.member_count} cables from GROUP ${sourceGroup}.`);
+        refreshEntityGroups(group.uid);
+      })
+      .catch((requestError: Error) => setError(requestError.message));
+  }
+
+  function createCableGroupsFromSourceGroups(sourceGroups: string[]) {
+    if (!canManageGroups || sourceGroups.length === 0) return;
+    setError(null);
+    setGroupActionMessage(null);
+    Promise.all(sourceGroups.map(createEntityGroupFromCableGroup))
+      .then((groups) => {
+        const cableCount = groups.reduce((total, group) => total + group.member_count, 0);
+        setGroupActionMessage(`Created ${groups.length} groups with ${cableCount} total cable memberships.`);
+        refreshEntityGroups(groups.at(-1)?.uid ?? null);
+      })
       .catch((requestError: Error) => setError(requestError.message));
   }
 
@@ -1313,12 +1352,15 @@ export function App() {
               selectedCableUids={selectedCableUids}
               selectionMode={selectionMode}
               canManage={canManageGroups}
+              cableSourceGroups={cableSourceGroups}
               onCreateGroup={createCableGroup}
               onUpdateGroup={updateCableGroup}
               onDeleteGroup={removeCableGroup}
               onSelectGroup={selectEntityGroup}
               onClearGroupSelection={clearEntityGroupSelection}
               onAddSelectedCables={applySelectedCablesToActiveGroup}
+              onCreateFromCableGroup={createCableGroupFromSourceGroup}
+              onCreateFromCableGroups={createCableGroupsFromSourceGroups}
             />
           ) : (
             <CabinetDetailsPanel

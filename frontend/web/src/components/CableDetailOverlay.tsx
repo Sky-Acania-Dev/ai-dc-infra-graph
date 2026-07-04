@@ -208,7 +208,7 @@ export function CableDetailOverlay({
   const visibleCableUids = useMemo(() => visibleCables.map((cable) => cable.uid), [visibleCables]);
   const selectedVisibleCount = visibleCableUids.filter((uid) => selectedCableUids.has(uid)).length;
   const areAllVisibleSelected = visibleCableUids.length > 0 && selectedVisibleCount === visibleCableUids.length;
-  const isGroupSelector = Boolean(groupMemberCounts || selectorLabel || onAddSelectedToGroup);
+  const isGroupSelector = selectedGroupCount > 0 && Boolean(groupMemberCounts || selectorLabel || onAddSelectedToGroup);
   const actionableSelectedCableUids = selectedCurrentCableUids.filter((uid) => {
     if (!groupMemberCounts || selectedGroupCount <= 0) return true;
     const membershipCount = groupMemberCounts.get(uid) ?? 0;

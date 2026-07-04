@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import type { SelectionGesture, SelectionMode } from "../App";
-import type { EntityGroupRecord } from "../types";
+import type { CableGroupSourceRecord, EntityGroupRecord } from "../types";
 
 type EntityGroupsPanelProps = {
   groups: EntityGroupRecord[];
@@ -9,12 +9,15 @@ type EntityGroupsPanelProps = {
   selectedCableUids: string[];
   selectionMode: SelectionMode;
   canManage: boolean;
+  cableSourceGroups: CableGroupSourceRecord[];
   onCreateGroup: (name: string, description: string) => void;
   onUpdateGroup: (groupUid: string, payload: { name?: string; description?: string; member_uids?: string[] }) => void;
   onDeleteGroup: (groupUid: string) => void;
   onSelectGroup: (groupUid: string, gesture: SelectionGesture) => void;
   onClearGroupSelection: () => void;
   onAddSelectedCables: () => void;
+  onCreateFromCableGroup: (sourceGroup: string) => void;
+  onCreateFromCableGroups: (sourceGroups: string[]) => void;
 };
 
 export function EntityGroupsPanel({
@@ -24,16 +27,20 @@ export function EntityGroupsPanel({
   selectedCableUids,
   selectionMode,
   canManage,
+  cableSourceGroups,
   onCreateGroup,
   onUpdateGroup,
   onDeleteGroup,
   onSelectGroup,
   onClearGroupSelection,
   onAddSelectedCables,
+  onCreateFromCableGroup,
+  onCreateFromCableGroups,
 }: EntityGroupsPanelProps) {
   const [isCreateExpanded, setIsCreateExpanded] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
+  const [sourceGroupValue, setSourceGroupValue] = useState("");
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -49,10 +56,23 @@ export function EntityGroupsPanel({
     return count;
   }, [selectedCableUids, selectedGroups, selectionMode]);
   const selectedGroupSet = useMemo(() => new Set(selectedGroupUids), [selectedGroupUids]);
+  const existingCableGroupNames = useMemo(() => new Set(groups.filter((group) => group.entity_type === "cable").map((group) => group.name)), [groups]);
+  const missingSourceGroups = useMemo(
+    () => cableSourceGroups.filter((sourceGroup) => !existingCableGroupNames.has(sourceGroup.group)),
+    [cableSourceGroups, existingCableGroupNames],
+  );
+  const selectedSourceGroupExists = existingCableGroupNames.has(sourceGroupValue);
 
   useEffect(() => {
     if (selectedGroupUids.length > 0) setIsCreateExpanded(false);
   }, [selectedGroupUids.length]);
+
+  useEffect(() => {
+    if (!sourceGroupValue && cableSourceGroups.length > 0) setSourceGroupValue(cableSourceGroups[0].group);
+    if (sourceGroupValue && !cableSourceGroups.some((sourceGroup) => sourceGroup.group === sourceGroupValue)) {
+      setSourceGroupValue(cableSourceGroups[0]?.group ?? "");
+    }
+  }, [cableSourceGroups, sourceGroupValue]);
 
   function submitCreate() {
     const name = draftName.trim();
@@ -66,6 +86,17 @@ export function EntityGroupsPanel({
   function openCreateCard() {
     onClearGroupSelection();
     setIsCreateExpanded(true);
+  }
+
+  function submitCreateFromCableGroup() {
+    const sourceGroup = sourceGroupValue.trim();
+    if (!sourceGroup || !canManage) return;
+    onCreateFromCableGroup(sourceGroup);
+  }
+
+  function submitCreateMissingCableGroups() {
+    if (!missingSourceGroups.length || !canManage) return;
+    onCreateFromCableGroups(missingSourceGroups.map((sourceGroup) => sourceGroup.group));
   }
 
   function startEdit(group: EntityGroupRecord) {
@@ -123,6 +154,23 @@ export function EntityGroupsPanel({
             </button>
           </div>
         )
+      ) : null}
+      {canManage && cableSourceGroups.length > 0 ? (
+        <div className="entity-group-create entity-group-source-import">
+          <select value={sourceGroupValue} onChange={(event) => setSourceGroupValue(event.target.value)}>
+            {cableSourceGroups.map((sourceGroup) => (
+              <option key={sourceGroup.group} value={sourceGroup.group}>
+                {sourceGroup.group} ({sourceGroup.cable_count})
+              </option>
+            ))}
+          </select>
+          <button disabled={!sourceGroupValue.trim() || selectedSourceGroupExists} onClick={submitCreateFromCableGroup} type="button">
+            {selectedSourceGroupExists ? "Already Created" : "Create from GROUP"}
+          </button>
+          <button disabled={!missingSourceGroups.length} onClick={submitCreateMissingCableGroups} type="button">
+            Create Missing ({missingSourceGroups.length})
+          </button>
+        </div>
       ) : null}
       <div className="entity-group-list">
         {groups.map((group) => {

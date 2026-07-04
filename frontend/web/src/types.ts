@@ -309,6 +309,11 @@ export type OperationListResponse = {
   max_timestamp?: string | null;
 };
 
+export type CableGroupSourceRecord = {
+  group: string;
+  cable_count: number;
+};
+
 export type EntityGroupMember = {
   entity_type: string;
   entity_uid: string;

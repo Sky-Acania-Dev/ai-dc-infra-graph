@@ -3,6 +3,7 @@ import type {
   CabinetDetailResponse,
   CabinetLayoutItem,
   AuthUser,
+  CableGroupSourceRecord,
   BulkOperationResponse,
   CabinetCableDetail,
   ChangeOrderRecord,
@@ -36,6 +37,51 @@ export type SaveEntityGroupPayload = {
 };
 
 export type UpdateEntityGroupPayload = Partial<Omit<SaveEntityGroupPayload, "entity_type">>;
+
+export async function fetchCableSourceGroups(): Promise<CableGroupSourceRecord[]> {
+  const response = await fetch(`${API_BASE_URL}/entity-groups/source-cable-groups`);
+  if (response.status === 404) {
+    return [];
+  }
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, "Failed to load source cable groups"));
+  }
+  return response.json();
+}
+
+export type EntityGroupFilterPayload = {
+  version: 1;
+  logic?: "and" | "or";
+  rules: Array<{ field: string; operator: string; value?: unknown }>;
+};
+
+export async function createEntityGroupFromFilter(payload: {
+  name: string;
+  description?: string;
+  entity_type?: string;
+  filter_payload: EntityGroupFilterPayload;
+  metadata_json?: Record<string, unknown>;
+}): Promise<EntityGroupRecord> {
+  const response = await fetch(`${API_BASE_URL}/entity-groups/from-filter`, {
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, "Failed to create group from filter"));
+  }
+  return response.json();
+}
+
+export async function createEntityGroupFromCableGroup(sourceGroup: string): Promise<EntityGroupRecord> {
+  return createEntityGroupFromFilter({
+    name: sourceGroup,
+    description: `Imported from cable GROUP ${sourceGroup}.`,
+    entity_type: "cable",
+    filter_payload: { version: 1, logic: "and", rules: [{ field: "group", operator: "equals", value: sourceGroup }] },
+    metadata_json: { source: "cable_group_shortcut", source_cable_group: sourceGroup },
+  });
+}
 
 export async function fetchEntityGroups(entityType = "cable"): Promise<EntityGroupRecord[]> {
   const params = new URLSearchParams({ entity_type: entityType });

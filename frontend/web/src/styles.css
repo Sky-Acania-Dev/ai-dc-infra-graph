@@ -2561,6 +2561,7 @@ button.change-order-diff {
 }
 
 .entity-group-create input,
+.entity-group-create select,
 .entity-group-create textarea,
 .entity-group-edit input,
 .entity-group-edit textarea {
