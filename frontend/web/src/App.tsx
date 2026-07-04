@@ -109,6 +109,10 @@ export function App() {
   const [groupCableDetails, setGroupCableDetails] = useState<CableDetailResponse[]>([]);
   const [isGroupCableDetailLoading, setIsGroupCableDetailLoading] = useState(false);
   const [groupActionMessage, setGroupActionMessage] = useState<string | null>(null);
+  const [isEntityGroupDataLoading, setIsEntityGroupDataLoading] = useState(true);
+  const [removingEntityGroupUids, setRemovingEntityGroupUids] = useState<string[]>([]);
+  const [isCreatingFromCableGroup, setIsCreatingFromCableGroup] = useState(false);
+  const [isCreatingMissingCableGroups, setIsCreatingMissingCableGroups] = useState(false);
   const [sourceUpdateOperations, setSourceUpdateOperations] = useState<Operation[]>([]);
   const [selectedChangeOrderNumbers, setSelectedChangeOrderNumbers] = useState<number[]>([]);
   const [pendingSaveCount, setPendingSaveCount] = useState(0);
@@ -259,28 +263,35 @@ export function App() {
   }, [selectedDeviceUids]);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      setIsEntityGroupDataLoading(true);
+      return;
+    }
     let cancelled = false;
-    fetchCableSourceGroups()
-      .then((sourceGroups) => {
-        if (!cancelled) setCableSourceGroups(sourceGroups);
-      })
-      .catch(() => {
-        if (!cancelled) setCableSourceGroups([]);
-      });
-    fetchEntityGroups("cable")
-      .then((groups) => {
+    setIsEntityGroupDataLoading(true);
+    Promise.allSettled([fetchCableSourceGroups(), fetchEntityGroups("cable")])
+      .then(([sourceGroupsResult, groupsResult]) => {
         if (cancelled) return;
-        setEntityGroups(groups);
-        const firstGroupUid = groups[0]?.uid ?? null;
-        setActiveEntityGroupUid((current) => current ?? firstGroupUid);
-        setSelectedEntityGroupUids((current) => {
-          const valid = current.filter((uid) => groups.some((group) => group.uid === uid));
-          return valid.length ? valid : firstGroupUid ? [firstGroupUid] : [];
-        });
+        if (sourceGroupsResult.status === "fulfilled") {
+          setCableSourceGroups(sourceGroupsResult.value);
+        } else {
+          setCableSourceGroups([]);
+        }
+        if (groupsResult.status === "fulfilled") {
+          const groups = groupsResult.value;
+          setEntityGroups(groups);
+          const firstGroupUid = groups[0]?.uid ?? null;
+          setActiveEntityGroupUid((current) => current ?? firstGroupUid);
+          setSelectedEntityGroupUids((current) => {
+            const valid = current.filter((uid) => groups.some((group) => group.uid === uid));
+            return valid.length ? valid : firstGroupUid ? [firstGroupUid] : [];
+          });
+        } else {
+          setError(groupsResult.reason instanceof Error ? groupsResult.reason.message : "Failed to load entity groups");
+        }
       })
-      .catch((requestError: Error) => {
-        if (!cancelled) setError(requestError.message);
+      .finally(() => {
+        if (!cancelled) setIsEntityGroupDataLoading(false);
       });
     return () => {
       cancelled = true;
@@ -602,37 +613,55 @@ export function App() {
       .catch((requestError: Error) => setError(requestError.message));
   }
 
-  function createCableGroup(name: string, description: string) {
-    if (!canManageGroups) return;
-    setError(null);
-    createEntityGroup({ name, description, entity_type: "cable" })
-      .then((group) => refreshEntityGroups(group.uid))
-      .catch((requestError: Error) => setError(requestError.message));
+  function showCreatedGroupsImmediately(groups: EntityGroupRecord[]) {
+    if (!groups.length) return;
+    const createdUids = new Set(groups.map((group) => group.uid));
+    setEntityGroups((current) => [...current.filter((group) => !createdUids.has(group.uid)), ...groups].sort((left, right) => left.name.localeCompare(right.name)));
+    const activeUid = groups.at(-1)?.uid ?? null;
+    setActiveEntityGroupUid(activeUid);
+    setSelectedEntityGroupUids(activeUid ? [activeUid] : []);
   }
 
-  function createCableGroupFromSourceGroup(sourceGroup: string) {
-    if (!canManageGroups) return;
+  function createCableGroup(name: string, description: string) {
+    if (!canManageGroups || isCreatingFromCableGroup || isCreatingMissingCableGroups) return;
     setError(null);
-    setGroupActionMessage(null);
-    createEntityGroupFromCableGroup(sourceGroup)
+    createEntityGroup({ name, description, entity_type: "cable" })
       .then((group) => {
-        setGroupActionMessage(`Created ${group.name} with ${group.member_count} cables from GROUP ${sourceGroup}.`);
+        showCreatedGroupsImmediately([group]);
         refreshEntityGroups(group.uid);
       })
       .catch((requestError: Error) => setError(requestError.message));
   }
 
-  function createCableGroupsFromSourceGroups(sourceGroups: string[]) {
-    if (!canManageGroups || sourceGroups.length === 0) return;
+  function createCableGroupFromSourceGroup(sourceGroup: string) {
+    if (!canManageGroups || isCreatingFromCableGroup || isCreatingMissingCableGroups) return;
     setError(null);
     setGroupActionMessage(null);
+    setIsCreatingFromCableGroup(true);
+    createEntityGroupFromCableGroup(sourceGroup)
+      .then((group) => {
+        showCreatedGroupsImmediately([group]);
+        setGroupActionMessage(`Created ${group.name} with ${group.member_count} cables from GROUP ${sourceGroup}.`);
+        refreshEntityGroups(group.uid);
+      })
+      .catch((requestError: Error) => setError(requestError.message))
+      .finally(() => setIsCreatingFromCableGroup(false));
+  }
+
+  function createCableGroupsFromSourceGroups(sourceGroups: string[]) {
+    if (!canManageGroups || sourceGroups.length === 0 || isCreatingFromCableGroup || isCreatingMissingCableGroups) return;
+    setError(null);
+    setGroupActionMessage(null);
+    setIsCreatingMissingCableGroups(true);
     Promise.all(sourceGroups.map(createEntityGroupFromCableGroup))
       .then((groups) => {
+        showCreatedGroupsImmediately(groups);
         const cableCount = groups.reduce((total, group) => total + group.member_count, 0);
         setGroupActionMessage(`Created ${groups.length} groups with ${cableCount} total cable memberships.`);
         refreshEntityGroups(groups.at(-1)?.uid ?? null);
       })
-      .catch((requestError: Error) => setError(requestError.message));
+      .catch((requestError: Error) => setError(requestError.message))
+      .finally(() => setIsCreatingMissingCableGroups(false));
   }
 
   function updateCableGroup(groupUid: string, payload: { name?: string; description?: string; member_uids?: string[] }) {
@@ -644,11 +673,18 @@ export function App() {
   }
 
   function removeCableGroup(groupUid: string) {
-    if (!canManageGroups) return;
+    if (!canManageGroups || removingEntityGroupUids.includes(groupUid)) return;
     setError(null);
+    setRemovingEntityGroupUids((current) => (current.includes(groupUid) ? current : [...current, groupUid]));
     deleteEntityGroup(groupUid)
-      .then(() => refreshEntityGroups())
-      .catch((requestError: Error) => setError(requestError.message));
+      .then(() => {
+        setEntityGroups((current) => current.filter((group) => group.uid !== groupUid));
+        setSelectedEntityGroupUids((current) => current.filter((uid) => uid !== groupUid));
+        setActiveEntityGroupUid((current) => (current === groupUid ? null : current));
+        refreshEntityGroups();
+      })
+      .catch((requestError: Error) => setError(requestError.message))
+      .finally(() => setRemovingEntityGroupUids((current) => current.filter((uid) => uid !== groupUid)));
   }
 
   function clearEntityGroupSelection() {
@@ -1353,6 +1389,10 @@ export function App() {
               selectionMode={selectionMode}
               canManage={canManageGroups}
               cableSourceGroups={cableSourceGroups}
+              isLoading={isEntityGroupDataLoading}
+              removingGroupUids={removingEntityGroupUids}
+              isCreatingFromCableGroup={isCreatingFromCableGroup}
+              isCreatingMissingCableGroups={isCreatingMissingCableGroups}
               onCreateGroup={createCableGroup}
               onUpdateGroup={updateCableGroup}
               onDeleteGroup={removeCableGroup}

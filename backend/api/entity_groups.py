@@ -139,20 +139,16 @@ def create_entity_group(request: EntityGroupCreateRequest, user: AuthUser = Depe
     with session_factory()() as session:
         with session.begin():
             _ensure_user(session, user)
-            group = db.EntityGroup(
-                uid=request.uid or f"eg-{uuid4().hex}",
+            group = _prepare_group_for_create(
+                session,
+                uid=request.uid,
                 project_uid=request.project_uid,
+                entity_type=entity_type,
                 name=name,
                 description=request.description.strip(),
-                entity_type=entity_type,
                 owner_user_uid=user.uid,
                 metadata_json=request.metadata_json,
             )
-            session.add(group)
-            try:
-                session.flush()
-            except IntegrityError as exc:
-                raise HTTPException(status_code=409, detail="A group with this name already exists.") from exc
             _replace_members(session, group, request.member_uids)
         return _record(session, group)
 
@@ -185,20 +181,16 @@ def create_entity_group_from_filter(
                 "source": "filter_import",
                 "filter_payload": filter_payload.model_dump(),
             }
-            group = db.EntityGroup(
-                uid=request.uid or f"eg-{uuid4().hex}",
+            group = _prepare_group_for_create(
+                session,
+                uid=request.uid,
                 project_uid=request.project_uid,
+                entity_type=entity_type,
                 name=name,
                 description=request.description.strip(),
-                entity_type=entity_type,
                 owner_user_uid=user.uid,
                 metadata_json=metadata,
             )
-            session.add(group)
-            try:
-                session.flush()
-            except IntegrityError as exc:
-                raise HTTPException(status_code=409, detail="A group with this name already exists.") from exc
             _replace_members(session, group, member_uids)
             group.updated_at = datetime.now(timezone.utc)
         return _record(session, group)
@@ -313,6 +305,51 @@ def delete_entity_group(group_uid: str, user: AuthUser = Depends(current_user)) 
             group.deleted_at = datetime.now(timezone.utc)
             group.updated_at = group.deleted_at
         return {"ok": True}
+
+
+def _prepare_group_for_create(
+    session,
+    *,
+    uid: str | None,
+    project_uid: str,
+    entity_type: str,
+    name: str,
+    description: str,
+    owner_user_uid: str | None,
+    metadata_json: dict[str, Any],
+) -> db.EntityGroup:
+    existing = session.execute(
+        select(db.EntityGroup).where(
+            db.EntityGroup.project_uid == project_uid,
+            db.EntityGroup.entity_type == entity_type,
+            db.EntityGroup.name == name,
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        if existing.deleted_at is None:
+            raise HTTPException(status_code=409, detail="A group with this name already exists.")
+        existing.description = description
+        existing.owner_user_uid = owner_user_uid
+        existing.metadata_json = metadata_json
+        existing.deleted_at = None
+        existing.updated_at = datetime.now(timezone.utc)
+        return existing
+
+    group = db.EntityGroup(
+        uid=uid or f"eg-{uuid4().hex}",
+        project_uid=project_uid,
+        name=name,
+        description=description,
+        entity_type=entity_type,
+        owner_user_uid=owner_user_uid,
+        metadata_json=metadata_json,
+    )
+    session.add(group)
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="A group with this name already exists.") from exc
+    return group
 
 
 def _record(session, group: db.EntityGroup) -> EntityGroupRecord:

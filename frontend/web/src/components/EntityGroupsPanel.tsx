@@ -10,6 +10,10 @@ type EntityGroupsPanelProps = {
   selectionMode: SelectionMode;
   canManage: boolean;
   cableSourceGroups: CableGroupSourceRecord[];
+  isLoading: boolean;
+  removingGroupUids: string[];
+  isCreatingFromCableGroup: boolean;
+  isCreatingMissingCableGroups: boolean;
   onCreateGroup: (name: string, description: string) => void;
   onUpdateGroup: (groupUid: string, payload: { name?: string; description?: string; member_uids?: string[] }) => void;
   onDeleteGroup: (groupUid: string) => void;
@@ -28,6 +32,10 @@ export function EntityGroupsPanel({
   selectionMode,
   canManage,
   cableSourceGroups,
+  isLoading,
+  removingGroupUids,
+  isCreatingFromCableGroup,
+  isCreatingMissingCableGroups,
   onCreateGroup,
   onUpdateGroup,
   onDeleteGroup,
@@ -62,6 +70,15 @@ export function EntityGroupsPanel({
     [cableSourceGroups, existingCableGroupNames],
   );
   const selectedSourceGroupExists = existingCableGroupNames.has(sourceGroupValue);
+  const isSourceImportBusy = isLoading || isCreatingFromCableGroup || isCreatingMissingCableGroups;
+  const isMutationBusy = isSourceImportBusy || removingGroupUids.length > 0;
+  const sourceImportMessage = isCreatingMissingCableGroups
+    ? "Creating missing groups..."
+    : isCreatingFromCableGroup
+      ? "Creating group..."
+      : isLoading
+        ? "loading group data..."
+        : null;
 
   useEffect(() => {
     if (selectedGroupUids.length > 0) setIsCreateExpanded(false);
@@ -76,7 +93,7 @@ export function EntityGroupsPanel({
 
   function submitCreate() {
     const name = draftName.trim();
-    if (!name || !canManage) return;
+    if (!name || !canManage || isMutationBusy) return;
     onCreateGroup(name, draftDescription.trim());
     setDraftName("");
     setDraftDescription("");
@@ -84,18 +101,19 @@ export function EntityGroupsPanel({
   }
 
   function openCreateCard() {
+    if (isMutationBusy) return;
     onClearGroupSelection();
     setIsCreateExpanded(true);
   }
 
   function submitCreateFromCableGroup() {
     const sourceGroup = sourceGroupValue.trim();
-    if (!sourceGroup || !canManage) return;
+    if (!sourceGroup || !canManage || isSourceImportBusy) return;
     onCreateFromCableGroup(sourceGroup);
   }
 
   function submitCreateMissingCableGroups() {
-    if (!missingSourceGroups.length || !canManage) return;
+    if (!missingSourceGroups.length || !canManage || isSourceImportBusy) return;
     onCreateFromCableGroups(missingSourceGroups.map((sourceGroup) => sourceGroup.group));
   }
 
@@ -107,7 +125,7 @@ export function EntityGroupsPanel({
 
   function saveEdit(group: EntityGroupRecord) {
     const name = editName.trim();
-    if (!name || !canManage) return;
+    if (!name || !canManage || isMutationBusy) return;
     onUpdateGroup(group.uid, { name, description: editDescription.trim() });
     setEditingUid(null);
   }
@@ -121,55 +139,68 @@ export function EntityGroupsPanel({
   }
 
   return (
-    <section className="side-pane entity-groups-panel">
+    <section className="side-pane entity-groups-panel" aria-busy={isLoading}>
       <span className="eyebrow">Shared Planning</span>
       <h1>Entity Groups</h1>
       {canManage ? (
         isCreateExpanded ? (
           <div className="entity-group-create entity-group-create-accent is-expanded" onClick={onClearGroupSelection}>
             <input
+              disabled={isMutationBusy}
               onChange={(event) => setDraftName(event.target.value)}
               placeholder="New cable group"
               value={draftName}
             />
             <textarea
+              disabled={isMutationBusy}
               onChange={(event) => setDraftDescription(event.target.value)}
               placeholder="Description"
               rows={2}
               value={draftDescription}
             />
             <div className="entity-group-actions">
-              <button disabled={!draftName.trim()} onClick={submitCreate} type="button">
+              <button disabled={!draftName.trim() || isMutationBusy} onClick={submitCreate} type="button">
                 Add Group
               </button>
-              <button onClick={() => setIsCreateExpanded(false)} type="button">
+              <button disabled={isMutationBusy} onClick={() => setIsCreateExpanded(false)} type="button">
                 Cancel
               </button>
             </div>
           </div>
         ) : (
           <div className="entity-group-create entity-group-create-accent is-collapsed" onClick={openCreateCard}>
-            <button onClick={openCreateCard} type="button">
+            <button disabled={isMutationBusy} onClick={openCreateCard} type="button">
               {draftName.trim() ? `Add ${draftName.trim()} Group` : "Add Group"}
             </button>
           </div>
         )
       ) : null}
-      {canManage && cableSourceGroups.length > 0 ? (
-        <div className="entity-group-create entity-group-source-import">
-          <select value={sourceGroupValue} onChange={(event) => setSourceGroupValue(event.target.value)}>
+      {canManage && (isLoading || cableSourceGroups.length > 0) ? (
+        <div className="entity-group-create entity-group-source-import" aria-busy={isSourceImportBusy}>
+          <select disabled={isSourceImportBusy || cableSourceGroups.length === 0} value={sourceGroupValue} onChange={(event) => setSourceGroupValue(event.target.value)}>
             {cableSourceGroups.map((sourceGroup) => (
               <option key={sourceGroup.group} value={sourceGroup.group}>
                 {sourceGroup.group} ({sourceGroup.cable_count})
               </option>
             ))}
           </select>
-          <button disabled={!sourceGroupValue.trim() || selectedSourceGroupExists} onClick={submitCreateFromCableGroup} type="button">
-            {selectedSourceGroupExists ? "Already Created" : "Create from GROUP"}
+          <button
+            className="entity-group-heavy-action"
+            disabled={!sourceGroupValue.trim() || selectedSourceGroupExists || isSourceImportBusy}
+            onClick={submitCreateFromCableGroup}
+            type="button"
+          >
+            {isCreatingFromCableGroup ? "Creating..." : selectedSourceGroupExists ? "Already Created" : "Create from GROUP"}
           </button>
-          <button disabled={!missingSourceGroups.length} onClick={submitCreateMissingCableGroups} type="button">
-            Create Missing ({missingSourceGroups.length})
+          <button
+            className="entity-group-heavy-action is-bulk"
+            disabled={!missingSourceGroups.length || isSourceImportBusy}
+            onClick={submitCreateMissingCableGroups}
+            type="button"
+          >
+            {isCreatingMissingCableGroups ? "Creating..." : `Create Missing (${missingSourceGroups.length})`}
           </button>
+          {sourceImportMessage ? <div className="entity-group-source-overlay">{sourceImportMessage}</div> : null}
         </div>
       ) : null}
       <div className="entity-group-list">
@@ -178,11 +209,16 @@ export function EntityGroupsPanel({
           const isSelected = selectedGroupSet.has(group.uid);
           const isEditing = editingUid === group.uid;
           const isExpanded = isSelected || isEditing;
+          const isRemoving = removingGroupUids.includes(group.uid);
           return (
             <article
-              className={`entity-group-card ${isActive ? "is-active" : ""} ${isSelected ? "is-selected" : ""}`}
+              aria-busy={isRemoving}
+              className={`entity-group-card ${isActive ? "is-active" : ""} ${isSelected ? "is-selected" : ""} ${isRemoving ? "is-removing" : ""}`}
               key={group.uid}
-              onClick={(event) => onSelectGroup(group.uid, event)}
+              onClick={(event) => {
+                if (isRemoving) return;
+                onSelectGroup(group.uid, event);
+              }}
               onMouseDown={(event) => {
                 if (shouldSuppressTextSelection(event)) event.preventDefault();
               }}
@@ -212,19 +248,20 @@ export function EntityGroupsPanel({
                       </div>
                       {canManage ? (
                         <div className="entity-group-actions" onClick={stopNestedClick}>
-                          <button onClick={() => startEdit(group)} type="button">Modify</button>
-                          <button onClick={() => onDeleteGroup(group.uid)} type="button">Remove</button>
+                          <button disabled={isRemoving || isMutationBusy} onClick={() => startEdit(group)} type="button">Modify</button>
+                          <button disabled={isRemoving || isMutationBusy} onClick={() => onDeleteGroup(group.uid)} type="button">Remove</button>
                         </div>
                       ) : null}
                     </>
                   ) : null}
                 </>
               )}
+              {isRemoving ? <div className="entity-group-card-overlay">Removing group...</div> : null}
               {isActive && canManage && selectedGroupUids.length > 0 ? (
                 <div className="entity-group-members" onClick={stopNestedClick}>
                   <div className="entity-group-members-header">
                     <span>Group actions</span>
-                    <button disabled={selectedActionCount === 0} onClick={onAddSelectedCables} type="button">
+                    <button disabled={selectedActionCount === 0 || isMutationBusy} onClick={onAddSelectedCables} type="button">
                       {selectionMode === "remove" ? "Remove Selected" : "Add Selected"} {selectedActionCount ? `(${selectedActionCount})` : ""}
                     </button>
                   </div>
@@ -235,6 +272,7 @@ export function EntityGroupsPanel({
         })}
         {!groups.length ? <div className="entity-group-empty">No shared groups yet.</div> : null}
       </div>
+      {isLoading ? <div className="entity-groups-loading-overlay">loading group data...</div> : null}
     </section>
   );
 }

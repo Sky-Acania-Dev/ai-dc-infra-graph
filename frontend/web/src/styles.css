@@ -2552,6 +2552,7 @@ button.change-order-diff {
 
 .entity-groups-panel {
   gap: 10px;
+  position: relative;
 }
 
 .entity-group-create,
@@ -2607,11 +2608,80 @@ button.change-order-diff {
   display: grid;
   gap: 7px;
   padding: 9px;
+  position: relative;
 }
 
 .entity-group-card.is-active {
   border-color: #2563eb;
   box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.entity-group-card.is-removing {
+  pointer-events: none;
+}
+
+.entity-group-card-overlay {
+  align-items: center;
+  background: rgba(248, 250, 252, 0.88);
+  color: #0f172a;
+  display: flex;
+  font-size: 12px;
+  font-weight: 900;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+  z-index: 2;
+}
+
+.entity-group-source-import {
+  background: #fff7ed;
+  border: 1px solid #fb923c;
+  box-shadow: inset 3px 0 0 #f97316;
+  padding: 8px;
+  position: relative;
+}
+
+.entity-group-create button.entity-group-heavy-action {
+  background: #ffedd5;
+  border-color: #ea580c;
+  color: #7c2d12;
+}
+
+.entity-group-create button.entity-group-heavy-action.is-bulk {
+  background: #fee2e2;
+  border-color: #dc2626;
+  color: #7f1d1d;
+}
+
+.entity-group-source-import[aria-busy="true"] {
+  opacity: 0.76;
+}
+
+.entity-group-source-overlay {
+  align-items: center;
+  background: rgba(255, 247, 237, 0.9);
+  color: #7c2d12;
+  display: flex;
+  font-size: 12px;
+  font-weight: 900;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+  z-index: 2;
+}
+
+.entity-groups-loading-overlay {
+  align-items: center;
+  background: rgba(248, 250, 252, 0.9);
+  color: #0f172a;
+  display: flex;
+  font-size: 12px;
+  font-weight: 900;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+  text-transform: lowercase;
+  z-index: 5;
 }
 
 .entity-group-main {
