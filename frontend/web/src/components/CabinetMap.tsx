@@ -12,9 +12,16 @@ type PositionedCabinet = CabinetLayoutItem & {
   col: number;
 };
 
+export type DataHallBadgeCounts = {
+  count: number;
+  added: number;
+  removed: number;
+};
+
 type CabinetMapProps = {
   cabinets: CabinetLayoutItem[];
   connectedDataHallCounts: Map<string, number>;
+  dataHallBadges?: Map<string, DataHallBadgeCounts>;
   dataHall: string;
   dataHalls: string[];
   selectedCabinetUid: string | null;
@@ -173,6 +180,7 @@ const MAP_SIZE_STEPS: Array<{ value: MapSize; labelKey: string }> = [
 export function CabinetMap({
   cabinets,
   connectedDataHallCounts,
+  dataHallBadges,
   dataHall,
   dataHalls,
   selectedCabinetUid,
@@ -233,14 +241,19 @@ export function CabinetMap({
           <div className="map-size-control" role="tablist" aria-label={t("dataHall.selector")}>
             {dataHalls.map((hall) => {
               const graphNeighborCount = hall === dataHall ? 0 : connectedDataHallCounts.get(hall) ?? 0;
+              const badgeCounts = dataHallBadges?.get(hall);
+              const badgeLabel = dataHallBadgeLabel(badgeCounts) ?? (graphNeighborCount > 0 ? String(graphNeighborCount) : null);
+              const hasBadge = Boolean(badgeLabel);
+              const hasPositiveDelta = (badgeCounts?.added ?? 0) > 0;
+              const hasNegativeDelta = (badgeCounts?.removed ?? 0) > 0;
               return (
                 <button
-                  className={`${hall === dataHall ? "is-active" : ""} ${graphNeighborCount > 0 ? "has-graph-neighbor" : ""}`}
+                  className={`${hall === dataHall ? "is-active" : ""} ${hasBadge ? "has-graph-neighbor" : ""} ${hasPositiveDelta ? "has-positive-delta" : ""} ${hasNegativeDelta ? "has-negative-delta" : ""}`}
                   key={hall}
                   onClick={() => onDataHallChange(hall)}
                 >
                   <span>{hall}</span>
-                  {graphNeighborCount > 0 ? <b className="data-hall-graph-count">{graphNeighborCount}</b> : null}
+                  {badgeLabel ? <b className="data-hall-graph-count">{badgeLabel}</b> : null}
                 </button>
               );
             })}
@@ -423,6 +436,15 @@ export function CabinetMap({
       </div>
     </section>
   );
+}
+
+function dataHallBadgeLabel(counts: DataHallBadgeCounts | undefined): string | null {
+  if (!counts) return null;
+  const parts: string[] = [];
+  if (counts.count > 0) parts.push(String(counts.count));
+  if (counts.added > 0) parts.push(`+${counts.added}`);
+  if (counts.removed > 0) parts.push(`-${counts.removed}`);
+  return parts.length ? parts.join("") : null;
 }
 
 function normalizeCabinets(cabinets: CabinetLayoutItem[]): PositionedCabinet[] {

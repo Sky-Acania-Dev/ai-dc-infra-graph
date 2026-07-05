@@ -423,6 +423,30 @@ button {
   color: #92400e;
 }
 
+.map-size-control button.has-positive-delta {
+  background: #ecfdf5;
+  box-shadow:
+    inset 0 0 0 2px #22c55e,
+    0 0 0 2px rgba(34, 197, 94, 0.16);
+  color: #14532d;
+}
+
+.map-size-control button.has-negative-delta {
+  background: #fef2f2;
+  box-shadow:
+    inset 0 0 0 2px #ef4444,
+    0 0 0 2px rgba(239, 68, 68, 0.16);
+  color: #7f1d1d;
+}
+
+.map-size-control button.has-positive-delta.has-negative-delta {
+  background: #fff7ed;
+  box-shadow:
+    inset 0 0 0 2px #f97316,
+    0 0 0 2px rgba(249, 115, 22, 0.16);
+  color: #7c2d12;
+}
+
 .map-size-control button > span {
   line-height: 1;
 }

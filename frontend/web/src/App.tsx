@@ -33,7 +33,7 @@ import { DevicePortLayout } from "./components/DevicePortLayout";
 import { EntityGroupsPanel } from "./components/EntityGroupsPanel";
 import { EntityGroupSummaryPanel } from "./components/EntityGroupSummaryPanel";
 import { ValidationView } from "./components/ValidationView";
-import type { MapProgressDisplay, MapSize } from "./components/CabinetMap";
+import type { DataHallBadgeCounts, MapProgressDisplay, MapSize } from "./components/CabinetMap";
 import type {
   CableDetailResponse,
   CabinetDetailResponse,
@@ -481,6 +481,14 @@ export function App() {
     }
     return counts;
   }, [connectedCabinetUids]);
+  const groupDataHallBadges = useMemo(() => {
+    if (mode !== "groups") return undefined;
+    const badges = new Map<string, DataHallBadgeCounts>();
+    addDataHallBadgeCounts(badges, groupSelectedCabinetUidSet, "count");
+    addDataHallBadgeCounts(badges, groupAddedCabinetUidSet, "added");
+    addDataHallBadgeCounts(badges, groupRemovedCabinetUidSet, "removed");
+    return badges;
+  }, [groupAddedCabinetUidSet, groupRemovedCabinetUidSet, groupSelectedCabinetUidSet, mode]);
   const connectedDeviceUids = useMemo(
     () => new Set(deviceDetail?.connected_devices.map((connection) => connection.target_device_uid) ?? []),
     [deviceDetail],
@@ -1449,6 +1457,7 @@ export function App() {
                 <CabinetMap
                   cabinets={cabinets}
                   connectedDataHallCounts={connectedDataHallCounts}
+                  dataHallBadges={groupDataHallBadges}
                   dataHall={dataHall}
                   dataHalls={DATA_HALLS}
                   selectedCabinetUid={mapSelectedCabinetUid}
@@ -1680,6 +1689,20 @@ function operationRecordPayloads(payload: Record<string, unknown>): Array<Record
   if (isRecord(newRecord)) records.push(newRecord);
   if (!records.length) records.push(payload);
   return records;
+}
+
+function addDataHallBadgeCounts(
+  badges: Map<string, DataHallBadgeCounts>,
+  cabinetUids: Set<string>,
+  field: keyof DataHallBadgeCounts,
+) {
+  for (const cabinetUid of cabinetUids) {
+    const hall = cabinetUid.split(":")[0]?.toUpperCase();
+    if (!hall) continue;
+    const current = badges.get(hall) ?? { count: 0, added: 0, removed: 0 };
+    current[field] += 1;
+    badges.set(hall, current);
+  }
 }
 
 function buildGroupCabinetNeighborCounts(
