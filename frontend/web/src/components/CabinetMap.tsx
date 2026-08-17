@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { categoryColor, labelColors } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -35,6 +37,7 @@ type CabinetMapProps = {
   reducedConnectedCabinetCounts: Map<string, number>;
   lostConnectedCabinetUids: Set<string>;
   isDeviceMode: boolean;
+  isDataLoading: boolean;
   mapSize: MapSize;
   progressDisplay: MapProgressDisplay;
   changeOrderStats: Map<string, ChangeOrderCabinetStats>;
@@ -43,6 +46,7 @@ type CabinetMapProps = {
   modeHint?: string | null;
   onChangeOrderSelectionChange: (changeOrderNumbers: number[]) => void;
   onSelectCabinet: (cabinetUid: string, gesture: SelectionGesture) => void;
+  onPrefetchCabinet: (cabinetUid: string) => void;
   onClearSelection: () => void;
   onDataHallChange: (dataHall: string) => void;
   onMapSizeChange: (mapSize: MapSize) => void;
@@ -169,6 +173,7 @@ const LANDSCAPE_MAP_SIZE_SETTINGS: Record<MapSize, (typeof MAP_SIZE_SETTINGS)[Ma
   },
 };
 const PADDING = 24;
+const PREFETCH_HOVER_DELAY_MS = 250;
 const MAP_SIZE_STEPS: Array<{ value: MapSize; labelKey: string }> = [
   { value: "xsmall", labelKey: "map.size.xsmall" },
   { value: "small", labelKey: "map.size.small" },
@@ -194,6 +199,7 @@ export function CabinetMap({
   reducedConnectedCabinetCounts,
   lostConnectedCabinetUids,
   isDeviceMode,
+  isDataLoading,
   mapSize,
   progressDisplay,
   changeOrderStats,
@@ -202,6 +208,7 @@ export function CabinetMap({
   modeHint,
   onChangeOrderSelectionChange,
   onSelectCabinet,
+  onPrefetchCabinet,
   onClearSelection,
   onDataHallChange,
   onMapSizeChange,
@@ -217,6 +224,7 @@ export function CabinetMap({
   const height = PADDING * 2 + rowY(maxRow, settings) + settings.cellHeight;
   const hasSelection = selectedCabinetUids.size > 0;
   const mapPan = useDragPan<HTMLDivElement>();
+  const prefetchTimeoutRef = useRef<number | null>(null);
   const primaryPositionedCabinet = selectedCabinetUid
     ? positioned.find((cabinet) => cabinet.cabinet_uid === selectedCabinetUid)
     : null;
@@ -229,6 +237,20 @@ export function CabinetMap({
         y: PADDING + rowY(primaryPositionedCabinet.row, settings),
       }
     : null;
+
+  function scheduleCabinetPrefetch(cabinetUid: string) {
+    clearCabinetPrefetch();
+    prefetchTimeoutRef.current = window.setTimeout(() => {
+      prefetchTimeoutRef.current = null;
+      onPrefetchCabinet(cabinetUid);
+    }, PREFETCH_HOVER_DELAY_MS);
+  }
+
+  function clearCabinetPrefetch() {
+    if (prefetchTimeoutRef.current === null) return;
+    window.clearTimeout(prefetchTimeoutRef.current);
+    prefetchTimeoutRef.current = null;
+  }
 
   return (
     <section className="map-pane">
@@ -284,6 +306,12 @@ export function CabinetMap({
           />
         </div>
       </div>
+      {isDataLoading ? (
+        <div className="map-loading-overlay" aria-live="polite" aria-atomic="true">
+          <span className="map-loading-spinner" aria-hidden="true" />
+          <span>{t("map.loadingData")}</span>
+        </div>
+      ) : null}
       <div className="map-scroll drag-pan-surface" {...mapPan}>
         <svg
           className="cabinet-map"
@@ -335,6 +363,9 @@ export function CabinetMap({
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") onSelectCabinet(cabinet.cabinet_uid, event);
                 }}
+                onFocus={() => onPrefetchCabinet(cabinet.cabinet_uid)}
+                onPointerEnter={() => scheduleCabinetPrefetch(cabinet.cabinet_uid)}
+                onPointerLeave={clearCabinetPrefetch}
               >
                 <rect className="cabinet-rect" x={x} y={y} width={settings.cellWidth - 2} height={settings.cellHeight - 2} fill={fill}>
                   <title>{`${cabinet.cabinet_uid}\n${cabinet.category}\n${cabinet.cabinet_group}`}</title>

@@ -93,6 +93,7 @@ export function App() {
   const [selectedDeviceDetails, setSelectedDeviceDetails] = useState<DeviceConnectionResponse[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingCabinetDetailCount, setPendingCabinetDetailCount] = useState(0);
   const [mapSize, setMapSize] = useState<MapSize>("medium");
   const [mapProgressDisplay, setMapProgressDisplay] = useState<MapProgressDisplay>("text");
   const [centerViewMode, setCenterViewMode] = useState<CenterViewMode>("cabinet_map");
@@ -123,6 +124,7 @@ export function App() {
   const [redoStack, setRedoStack] = useState<Operation[]>([]);
   const cabinetLayoutCacheRef = useRef<Record<string, CabinetLayoutItem[]>>({});
   const cabinetDetailCacheRef = useRef<Record<string, CabinetDetailResponse>>({});
+  const cabinetDetailRequestCacheRef = useRef<Partial<Record<string, Promise<CabinetDetailResponse>>>>({});
   const dataHallCableSummaryCacheRef = useRef<Record<string, DataHallCableSummaryResponse>>({});
   const deviceDetailCacheRef = useRef<Record<string, DeviceConnectionResponse>>({});
   const cableDetailRequestRef = useRef(0);
@@ -230,7 +232,7 @@ export function App() {
       current.filter((selectedDetail) => selectedCabinetUids.includes(selectedDetail.cabinet.cabinet_uid)),
     );
     setError(null);
-    Promise.all(selectedCabinetUids.map(loadCabinetDetail))
+    Promise.all(selectedCabinetUids.map((cabinetUid) => loadCabinetDetail(cabinetUid)))
       .then((details) => {
         if (!cancelled) setSelectedCabinetDetails(details);
       })
@@ -520,12 +522,29 @@ export function App() {
     clearDeviceSelection();
   }
 
-  function loadCabinetDetail(cabinetUid: string): Promise<CabinetDetailResponse> {
+  function loadCabinetDetail(cabinetUid: string, options: { showLoading?: boolean } = {}): Promise<CabinetDetailResponse> {
     const cachedDetail = cabinetDetailCacheRef.current[cabinetUid];
     if (cachedDetail) return Promise.resolve(cachedDetail);
-    return fetchCabinetDetail(cabinetUid).then((nextDetail) => {
-      cabinetDetailCacheRef.current[cabinetUid] = nextDetail;
-      return nextDetail;
+    const showLoading = options.showLoading ?? true;
+    const pendingRequest = cabinetDetailRequestCacheRef.current[cabinetUid];
+    if (pendingRequest) return showLoading ? trackCabinetDetailLoading(pendingRequest) : pendingRequest;
+
+    const request = fetchCabinetDetail(cabinetUid)
+      .then((nextDetail) => {
+        cabinetDetailCacheRef.current[cabinetUid] = nextDetail;
+        return nextDetail;
+      })
+      .finally(() => {
+        delete cabinetDetailRequestCacheRef.current[cabinetUid];
+      });
+    cabinetDetailRequestCacheRef.current[cabinetUid] = request;
+    return showLoading ? trackCabinetDetailLoading(request) : request;
+  }
+
+  function trackCabinetDetailLoading(request: Promise<CabinetDetailResponse>): Promise<CabinetDetailResponse> {
+    setPendingCabinetDetailCount((count) => count + 1);
+    return request.finally(() => {
+      setPendingCabinetDetailCount((count) => Math.max(0, count - 1));
     });
   }
 
@@ -933,6 +952,7 @@ export function App() {
   function refreshTopologyContext() {
     cabinetLayoutCacheRef.current = {};
     cabinetDetailCacheRef.current = {};
+    cabinetDetailRequestCacheRef.current = {};
     dataHallCableSummaryCacheRef.current = {};
     deviceDetailCacheRef.current = {};
     if (selectedCabinetUid) {
@@ -941,7 +961,7 @@ export function App() {
         .catch((requestError: Error) => setError(requestError.message));
     }
     if (selectedCabinetUids.length > 1) {
-      Promise.all(selectedCabinetUids.map(loadCabinetDetail))
+      Promise.all(selectedCabinetUids.map((cabinetUid) => loadCabinetDetail(cabinetUid)))
         .then(setSelectedCabinetDetails)
         .catch((requestError: Error) => setError(requestError.message));
     }
@@ -996,6 +1016,13 @@ export function App() {
     setSelectedCabinetUid(cabinetUid);
     closeCableDetail();
     clearDeviceSelection();
+  }
+
+  function prefetchCabinet(cabinetUid: string) {
+    if (cabinetDetailCacheRef.current[cabinetUid] || cabinetDetailRequestCacheRef.current[cabinetUid]) return;
+    loadCabinetDetail(cabinetUid, { showLoading: false }).catch(() => {
+      // Background prefetch should not interrupt the active workflow.
+    });
   }
 
   function selectDeviceWithGesture(device: Device, gesture: SelectionGesture) {
@@ -1471,6 +1498,7 @@ export function App() {
                   reducedConnectedCabinetCounts={groupReducedConnectionCounts}
                   lostConnectedCabinetUids={groupLostNeighborUids}
                   isDeviceMode={Boolean(selectedDeviceUid)}
+                  isDataLoading={pendingCabinetDetailCount > 0}
                   mapSize={mapSize}
                   progressDisplay={mapProgressDisplay}
                   changeOrderStats={changeOrderStatsByCabinet}
@@ -1478,6 +1506,7 @@ export function App() {
                   selectedChangeOrderNumbers={selectedChangeOrderNumberSet}
                   modeHint={mode === "groups" ? activeEntityGroup ? "Click cabinets to inspect candidate cables for this group" : "Select a group to view or edit its cable members" : null}
                   onSelectCabinet={selectCabinet}
+                  onPrefetchCabinet={prefetchCabinet}
                   onClearSelection={clearSelection}
                   onDataHallChange={setDataHall}
                   onMapSizeChange={setMapSize}

@@ -525,6 +525,43 @@ button {
 .map-pane {
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.map-loading-overlay {
+  align-items: center;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  color: #0f172a;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 8px;
+  left: 50%;
+  line-height: 1;
+  min-height: 34px;
+  padding: 9px 12px;
+  pointer-events: none;
+  position: absolute;
+  text-transform: lowercase;
+  top: 74px;
+  transform: translateX(-50%);
+  z-index: 8;
+}
+
+.map-loading-spinner {
+  animation: map-loading-spin 800ms linear infinite;
+  border: 2px solid rgba(15, 23, 42, 0.22);
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  height: 14px;
+  width: 14px;
+}
+
+@keyframes map-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .cabinet-map {
