@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import type { BulkOperationResponse, CabinetDetailResponse, CabinetLayoutItem, ChangeOrderCabinetStats, Device, Operation, OperationResponse } from "../types";
+import type { BulkOperationResponse, CabinetDetailResponse, CabinetLayoutItem, ChangeOrderCabinetStats, Device, DeviceConnectionResponse, Operation, OperationResponse } from "../types";
 import { CabinetDeviceLayout } from "./CabinetDeviceLayout";
 import { ProgressCircle } from "./ProgressCircle";
 import { useI18n } from "../i18n";
@@ -9,6 +9,10 @@ import { useDragPan } from "../hooks/useDragPan";
 import type { SelectionGesture } from "../App";
 
 type ChangeOrderCableStatus = "red" | "yellow" | "cyan" | "replaced";
+type DeviceCableRoute = {
+  sourceDeviceUid: string;
+  targetDeviceUid: string;
+};
 
 type CabinetDetailsPanelProps = {
   detail: CabinetDetailResponse | null;
@@ -17,10 +21,13 @@ type CabinetDetailsPanelProps = {
   selectedCabinetUids: string[];
   selectedDeviceUid: string | null;
   selectedDeviceUids: string[];
+  deviceDetail: DeviceConnectionResponse | null;
+  selectedDeviceDetails: DeviceConnectionResponse[];
   deviceScrollRequest: number;
   connectedDeviceUids: Set<string>;
   onSelectDevice: (device: Device, gesture: SelectionGesture) => void;
   onViewPortLayout: (device: Device) => void;
+  onViewDeviceCables: (routes: DeviceCableRoute[]) => void;
   activePortLayoutDeviceUid: string | null;
   onShowCabinetMap: () => void;
   onClearDeviceSelection: () => void;
@@ -54,10 +61,13 @@ export function CabinetDetailsPanel({
   selectedCabinetUids,
   selectedDeviceUid,
   selectedDeviceUids,
+  deviceDetail,
+  selectedDeviceDetails,
   deviceScrollRequest,
   connectedDeviceUids,
   onSelectDevice,
   onViewPortLayout,
+  onViewDeviceCables,
   activePortLayoutDeviceUid,
   onShowCabinetMap,
   onClearDeviceSelection,
@@ -219,6 +229,8 @@ export function CabinetDetailsPanel({
           formatNumber={formatNumber}
           lifecycleStatuses={lifecycleStatuses}
           onBulkStatusChanged={onBulkStatusChanged}
+          onViewDeviceCables={onViewDeviceCables}
+          selectedDeviceDetails={selectedDeviceDetails}
           setBulkStatusDraft={setBulkStatusDraft}
           setWriteFeedback={setWriteFeedback}
           statusDraft={bulkStatusDraft}
@@ -235,6 +247,8 @@ export function CabinetDetailsPanel({
           formatNumber={formatNumber}
           lifecycleStatuses={lifecycleStatuses}
           onStatusChanged={onStatusChanged}
+          onViewDeviceCables={onViewDeviceCables}
+          deviceDetail={deviceDetail}
           setDeviceStatusDrafts={setDeviceStatusDrafts}
           setWriteFeedback={setWriteFeedback}
           writeFeedback={writeFeedback}
@@ -421,6 +435,7 @@ function emptyChangeOrderStats(): ChangeOrderCabinetStats {
 function DeviceDetailSummary({
   canEdit,
   device,
+  deviceDetail,
   deviceStatusDraft,
   expectedVersion,
   formatConstructionPhase,
@@ -428,12 +443,14 @@ function DeviceDetailSummary({
   formatNumber,
   lifecycleStatuses,
   onStatusChanged,
+  onViewDeviceCables,
   setDeviceStatusDrafts,
   setWriteFeedback,
   writeFeedback,
 }: {
   canEdit: boolean;
   device: Device;
+  deviceDetail: DeviceConnectionResponse | null;
   deviceStatusDraft?: string;
   expectedVersion: number | null;
   formatConstructionPhase: (value: string) => string;
@@ -441,11 +458,19 @@ function DeviceDetailSummary({
   formatNumber: (value: number) => string;
   lifecycleStatuses: string[];
   onStatusChanged: CabinetDetailsPanelProps["onStatusChanged"];
+  onViewDeviceCables: (routes: DeviceCableRoute[]) => void;
   setDeviceStatusDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   setWriteFeedback: Dispatch<SetStateAction<Record<string, "success" | "error">>>;
   writeFeedback: Record<string, "success" | "error">;
 }) {
   const deviceUid = `${device.cabinet_id}:${device.rack_unit}`;
+  const cableRoutes =
+    deviceDetail?.source_device_uid === deviceUid
+      ? deviceDetail.connected_devices.map((connection) => ({
+          sourceDeviceUid: deviceUid,
+          targetDeviceUid: connection.target_device_uid,
+        }))
+      : [];
   const portCount = Object.values(device.ports_by_type).reduce((total, ports) => total + (ports?.length ?? 0), 0);
   const aliasCount = device.aliases.length + device.model_aliases.length;
 
@@ -453,6 +478,18 @@ function DeviceDetailSummary({
     <>
       <h1>{deviceUid}</h1>
       <ChangeOperationSummary operations={device.change_operations ?? []} title="Device changes" />
+      {cableRoutes.length > 0 ? (
+        <button
+          className="detail-button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onViewDeviceCables(cableRoutes);
+          }}
+          type="button"
+        >
+          View cables
+        </button>
+      ) : null}
       <dl className="facts">
         <div>
           <dt>Model</dt>
@@ -626,6 +663,8 @@ function DeviceSelectionSummary({
   formatNumber,
   lifecycleStatuses,
   onBulkStatusChanged,
+  onViewDeviceCables,
+  selectedDeviceDetails,
   setBulkStatusDraft,
   setWriteFeedback,
   statusDraft,
@@ -639,6 +678,8 @@ function DeviceSelectionSummary({
   formatNumber: (value: number) => string;
   lifecycleStatuses: string[];
   onBulkStatusChanged: CabinetDetailsPanelProps["onBulkStatusChanged"];
+  onViewDeviceCables: (routes: DeviceCableRoute[]) => void;
+  selectedDeviceDetails: DeviceConnectionResponse[];
   setBulkStatusDraft: Dispatch<SetStateAction<string>>;
   setWriteFeedback: Dispatch<SetStateAction<Record<string, "success" | "error">>>;
   statusDraft: string;
@@ -647,6 +688,12 @@ function DeviceSelectionSummary({
   const statusCounts = countBy(devices, (device) => device.lifecycle_status);
   const phaseCounts = countBy(devices, (device) => device.construction_phase);
   const modelCounts = countBy(devices, (device) => device.device_model);
+  const cableRoutes = selectedDeviceDetails.flatMap((detail) =>
+    detail.connected_devices.map((connection) => ({
+      sourceDeviceUid: detail.source_device_uid,
+      targetDeviceUid: connection.target_device_uid,
+    })),
+  );
   const portTotal = devices.reduce(
     (total, device) => total + Object.values(device.ports_by_type).reduce((portCount, ports) => portCount + (ports?.length ?? 0), 0),
     0,
@@ -683,6 +730,18 @@ function DeviceSelectionSummary({
         onWriteFeedback={(feedback) => flashWriteFeedback(setWriteFeedback, "bulkStatus", feedback)}
       />
       <AggregateRows title="Phase" rows={phaseCounts} formatValue={formatConstructionPhase} formatNumber={formatNumber} />
+      {cableRoutes.length > 0 ? (
+        <button
+          className="detail-button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onViewDeviceCables(cableRoutes);
+          }}
+          type="button"
+        >
+          View cables
+        </button>
+      ) : null}
     </section>
   );
 }

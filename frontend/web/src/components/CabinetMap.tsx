@@ -14,6 +14,11 @@ type PositionedCabinet = CabinetLayoutItem & {
   col: number;
 };
 
+type NormalizedCabinetLayout = {
+  cabinets: PositionedCabinet[];
+  sourceRows: number[];
+};
+
 export type DataHallBadgeCounts = {
   count: number;
   added: number;
@@ -217,11 +222,12 @@ export function CabinetMap({
   const { t } = useI18n();
   const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (min-width: 760px) and (orientation: landscape)");
   const settings = isPhoneLandscape ? LANDSCAPE_MAP_SIZE_SETTINGS[mapSize] : MAP_SIZE_SETTINGS[mapSize];
-  const positioned = normalizeCabinets(cabinets);
+  const normalizedLayout = normalizeCabinets(cabinets);
+  const positioned = normalizedLayout.cabinets;
   const maxBlock = Math.max(...positioned.map((cabinet) => cabinet.block), 0);
   const maxRow = Math.max(...positioned.map((cabinet) => cabinet.row), 0);
   const width = PADDING * 2 + (maxBlock + 1) * 10 * settings.cellWidth + maxBlock * settings.blockGap;
-  const height = PADDING * 2 + rowY(maxRow, settings) + settings.cellHeight;
+  const height = PADDING * 2 + rowY(maxRow, normalizedLayout.sourceRows, settings) + settings.cellHeight;
   const hasSelection = selectedCabinetUids.size > 0;
   const mapPan = useDragPan<HTMLDivElement>();
   const prefetchTimeoutRef = useRef<number | null>(null);
@@ -234,7 +240,7 @@ export function CabinetMap({
           PADDING +
           primaryPositionedCabinet.block * (10 * settings.cellWidth + settings.blockGap) +
           primaryPositionedCabinet.col * settings.cellWidth,
-        y: PADDING + rowY(primaryPositionedCabinet.row, settings),
+        y: PADDING + rowY(primaryPositionedCabinet.row, normalizedLayout.sourceRows, settings),
       }
     : null;
 
@@ -328,7 +334,7 @@ export function CabinetMap({
               PADDING +
               cabinet.block * (10 * settings.cellWidth + settings.blockGap) +
               cabinet.col * settings.cellWidth;
-            const y = PADDING + rowY(cabinet.row, settings);
+            const y = PADDING + rowY(cabinet.row, normalizedLayout.sourceRows, settings);
             const isSelected = selectedCabinetUids.has(cabinet.cabinet_uid);
             const isDeviceSource = isDeviceMode && cabinet.cabinet_uid === selectedDeviceCabinetUid;
             const isAdded = addedCabinetUids.has(cabinet.cabinet_uid);
@@ -443,7 +449,7 @@ export function CabinetMap({
               PADDING +
               cabinet.block * (10 * settings.cellWidth + settings.blockGap) +
               cabinet.col * settings.cellWidth;
-            const y = PADDING + rowY(cabinet.row, settings);
+            const y = PADDING + rowY(cabinet.row, normalizedLayout.sourceRows, settings);
             const reducedConnectionCount = reducedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
             const isReducedConnection = reducedConnectionCount > 0;
             const connectedSourceCount = connectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
@@ -478,9 +484,9 @@ function dataHallBadgeLabel(counts: DataHallBadgeCounts | undefined): string | n
   return parts.length ? parts.join("") : null;
 }
 
-function normalizeCabinets(cabinets: CabinetLayoutItem[]): PositionedCabinet[] {
+function normalizeCabinets(cabinets: CabinetLayoutItem[]): NormalizedCabinetLayout {
   const rows = [...new Set(cabinets.map((cabinet) => cabinet.source_row ?? 0))].sort((a, b) => a - b);
-  return rows.flatMap((sourceRow, rowIndex) => {
+  const positioned = rows.flatMap((sourceRow, rowIndex) => {
     const rowCabinets = cabinets
       .filter((cabinet) => (cabinet.source_row ?? 0) === sourceRow)
       .sort((a, b) => (a.source_col ?? 0) - (b.source_col ?? 0));
@@ -492,15 +498,21 @@ function normalizeCabinets(cabinets: CabinetLayoutItem[]): PositionedCabinet[] {
       col: index % 10,
     }));
   });
+  return { cabinets: positioned, sourceRows: rows };
 }
 
-function rowY(rowIndex: number, settings: (typeof MAP_SIZE_SETTINGS)[MapSize]): number {
+function rowY(rowIndex: number, sourceRows: number[], settings: (typeof MAP_SIZE_SETTINGS)[MapSize]): number {
   let y = 0;
   for (let row = 0; row < rowIndex; row += 1) {
     y += settings.cellHeight;
-    y += row % 2 === 0 ? settings.hotAisleGap : settings.coldAisleGap;
+    y += isSharedHotAisleRowPair(sourceRows[row], sourceRows[row + 1]) ? settings.hotAisleGap : settings.coldAisleGap;
   }
   return y;
+}
+
+function isSharedHotAisleRowPair(currentSourceRow: number | undefined, nextSourceRow: number | undefined): boolean {
+  if (currentSourceRow === undefined || nextSourceRow === undefined) return false;
+  return nextSourceRow - currentSourceRow <= 2;
 }
 
 function fitSvgText(text: string, fontSize: number, maxWidth: number): { fontSize: number; textLength?: number } {

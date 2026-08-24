@@ -38,6 +38,7 @@ def replace_project_topology(
     topology_version_uid = _topology_version_uid(project_uid, version_name)
     source_import_uid = f"{topology_version_uid}:source-import"
     existing_entities = _current_entity_keys(session, project_uid)
+    imported_cable_uids = _imported_cable_uids(session, project_uid, database)
 
     _delete_project_topology(session, project_uid)
 
@@ -106,30 +107,72 @@ def replace_project_topology(
                 construction_phase=_enum_value(room.construction_phase),
             )
         )
+    for room_id in _inferred_room_ids(database):
+        session.add(
+            db.Room(
+                uid=_room_uid(project_uid, database.building_id, room_id),
+                project_uid=project_uid,
+                building_uid=building_uid,
+                room_id=room_id,
+                room_type="data_hall",
+                lifecycle_status="unknown",
+                construction_phase="Management & Ethernet",
+            )
+        )
     session.flush()
 
     for model in database.device_models:
+        device_model = session.get(db.DeviceModel, model.uid)
+        if device_model is None:
+            device_model = db.DeviceModel(uid=model.uid, model_name=model.model_name)
+            session.add(device_model)
+        device_model.model_name = model.model_name
+        device_model.manufacturer = model.manufacturer
+        device_model.rack_units = model.rack_units
+        device_model.front_panel_svg = model.front_panel_svg
+        device_model.back_panel_svg = model.back_panel_svg
+        device_model.port_layout = _payload_list(model.port_layout)
+        device_model.note = model.note
+    session.flush()
+
+    for cabinet in database.cabinets:
+        session.add(_cabinet_record(database, building_uid, cabinet))
+    for room_id, cabinet_id in _inferred_cabinet_keys(database):
         session.add(
-            db.DeviceModel(
-                uid=model.uid,
-                model_name=model.model_name,
-                manufacturer=model.manufacturer,
-                rack_units=model.rack_units,
-                front_panel_svg=model.front_panel_svg,
-                back_panel_svg=model.back_panel_svg,
-                port_layout=_payload_list(model.port_layout),
-                note=model.note,
+            db.Cabinet(
+                uid=f"{room_id}:{cabinet_id}".upper(),
+                project_uid=project_uid,
+                building_uid=building_uid,
+                room_uid=_room_uid(project_uid, database.building_id, room_id),
+                cabinet_id=cabinet_id,
+                category="INFERRED",
+                lifecycle_status="unknown",
+                construction_phase="Management & Ethernet",
+                note="Inferred from port references during import.",
             )
         )
     session.flush()
 
     for cabinet in database.cabinets:
-        session.add(_cabinet_record(database, building_uid, cabinet))
-    session.flush()
-
-    for cabinet in database.cabinets:
         for device in cabinet.devices:
             session.add(_device_record(database, building_uid, cabinet, device))
+    for room_id, cabinet_id, rack_unit in _inferred_device_keys(database):
+        cabinet_uid = f"{room_id}:{cabinet_id}".upper()
+        session.add(
+            db.Device(
+                uid=_device_uid(cabinet_uid, rack_unit),
+                project_uid=project_uid,
+                building_uid=building_uid,
+                room_uid=_room_uid(project_uid, database.building_id, room_id),
+                cabinet_uid=cabinet_uid,
+                rack_unit=rack_unit,
+                device_model_name="Unknown",
+                rack_units=1,
+                lifecycle_status="unknown",
+                construction_phase="Management & Ethernet",
+                note="Inferred from port references during import.",
+            )
+        )
     session.flush()
 
     ports_by_uid = _ports_by_uid(database)
@@ -137,12 +180,12 @@ def replace_project_topology(
         session.add(_port_record(database, building_uid, port))
     session.flush()
 
-    for cable in database.cables:
-        session.add(_cable_record(database, building_uid, cable))
+    for cable_index, cable in enumerate(database.cables):
+        session.add(_cable_record(database, building_uid, cable, cable_uid=imported_cable_uids[cable_index]))
     session.flush()
 
     for index, row in enumerate(database.rows, start=1):
-        cable_uid = database.cables[index - 1].uid if index <= len(database.cables) else None
+        cable_uid = imported_cable_uids[index - 1] if index <= len(imported_cable_uids) else None
         session.add(
             db.SourceCableRow(
                 uid=f"{source_import_uid}:row:{index}",
@@ -192,7 +235,7 @@ def replace_project_topology(
         project_uid=project_uid,
         topology_version_uid=topology_version_uid,
         existing_entities=existing_entities,
-        current_entities=_database_entity_keys(database),
+        current_entities=_database_entity_keys(database, imported_cable_uids=imported_cable_uids),
     )
 
 
@@ -216,7 +259,6 @@ def _delete_project_topology(session: Session, project_uid: str) -> None:
     ):
         if "project_uid" in table_model.__table__.columns:
             session.execute(delete(table_model).where(table_model.__table__.c.project_uid == project_uid))
-    session.execute(delete(db.DeviceModel))
 
 
 def _sync_entity_history(
@@ -272,15 +314,78 @@ def _current_entity_keys(session: Session, project_uid: str) -> set[tuple[str, s
     return keys
 
 
-def _database_entity_keys(database: TopologyDatabase) -> set[tuple[str, str]]:
+def _imported_cable_uids(session: Session, project_uid: str, database: TopologyDatabase) -> list[str]:
+    existing_other_project_uids = set(
+        session.execute(select(db.Cable.uid).where(db.Cable.project_uid != project_uid)).scalars()
+    )
+    imported_uids: list[str] = []
+    used_uids: set[str] = set()
+    for cable in database.cables:
+        base_uid = _scoped_import_uid(project_uid, cable.uid) if cable.uid in existing_other_project_uids else cable.uid
+        imported_uid = base_uid
+        duplicate_index = 2
+        while imported_uid in used_uids or imported_uid in existing_other_project_uids:
+            imported_uid = f"{base_uid}:{duplicate_index}"
+            duplicate_index += 1
+        used_uids.add(imported_uid)
+        imported_uids.append(imported_uid)
+    return imported_uids
+
+
+def _scoped_import_uid(project_uid: str, uid: str) -> str:
+    return f"{project_uid}:{uid}".upper()
+
+
+def _database_entity_keys(database: TopologyDatabase, *, imported_cable_uids: list[str]) -> set[tuple[str, str]]:
     keys: set[tuple[str, str]] = {("building", _building_uid(database.project_uid, database.building_id))}
     keys.update(("room", _room_uid(database.project_uid, database.building_id, room.room_id)) for room in database.data_halls)
+    keys.update(("room", _room_uid(database.project_uid, database.building_id, room_id)) for room_id in _inferred_room_ids(database))
     keys.update(("cabinet", _cabinet_uid(cabinet)) for cabinet in database.cabinets)
+    keys.update(("cabinet", f"{room_id}:{cabinet_id}".upper()) for room_id, cabinet_id in _inferred_cabinet_keys(database))
     for cabinet in database.cabinets:
         keys.update(("device", _device_uid(_cabinet_uid(cabinet), device.rack_unit)) for device in cabinet.devices)
+    keys.update(
+        ("device", _device_uid(f"{room_id}:{cabinet_id}".upper(), rack_unit))
+        for room_id, cabinet_id, rack_unit in _inferred_device_keys(database)
+    )
     keys.update(("port", port.uid) for port in _ports_by_uid(database).values())
-    keys.update(("cable", cable.uid) for cable in database.cables)
+    keys.update(("cable", cable_uid) for cable_uid in imported_cable_uids)
     return keys
+
+
+def _inferred_room_ids(database: TopologyDatabase) -> list[str]:
+    known_rooms = {room.room_id.upper() for room in database.data_halls}
+    referenced_rooms = {_parse_port_uid(port.uid)[0] for port in _ports_by_uid(database).values()}
+    return sorted(referenced_rooms - known_rooms)
+
+
+def _inferred_cabinet_keys(database: TopologyDatabase) -> list[tuple[str, str]]:
+    known_cabinets = {_cabinet_uid(cabinet) for cabinet in database.cabinets}
+    referenced_cabinets = {
+        f"{room_id}:{cabinet_id}".upper()
+        for room_id, cabinet_id, _, _ in (_parse_port_uid(port.uid) for port in _ports_by_uid(database).values())
+    }
+    missing_cabinets = referenced_cabinets - known_cabinets
+    return sorted(tuple(cabinet_uid.split(":", 1)) for cabinet_uid in missing_cabinets)
+
+
+def _inferred_device_keys(database: TopologyDatabase) -> list[tuple[str, str, int]]:
+    known_devices = {
+        _device_uid(_cabinet_uid(cabinet), device.rack_unit)
+        for cabinet in database.cabinets
+        for device in cabinet.devices
+    }
+    referenced_devices = {
+        _device_uid(f"{room_id}:{cabinet_id}".upper(), rack_unit)
+        for room_id, cabinet_id, rack_unit, _ in (_parse_port_uid(port.uid) for port in _ports_by_uid(database).values())
+    }
+    missing_devices = referenced_devices - known_devices
+    inferred: list[tuple[str, str, int]] = []
+    for device_uid in missing_devices:
+        cabinet_uid, rack_unit = device_uid.rsplit(":", 1)
+        room_id, cabinet_id = cabinet_uid.split(":", 1)
+        inferred.append((room_id, cabinet_id, int(rack_unit)))
+    return sorted(inferred)
 
 
 def _entity_history_uid(project_uid: str, entity_type: str, entity_uid: str) -> str:
@@ -358,12 +463,12 @@ def _port_record(database: TopologyDatabase, building_uid: str, port: PortConnec
     )
 
 
-def _cable_record(database: TopologyDatabase, building_uid: str, cable: DomainCable) -> db.Cable:
+def _cable_record(database: TopologyDatabase, building_uid: str, cable: DomainCable, *, cable_uid: str | None = None) -> db.Cable:
     a_room_id = _parse_port_uid(cable.a_side.uid)[0]
     z_room_id = _parse_port_uid(cable.z_side.uid)[0]
     room_uid = _room_uid(database.project_uid, database.building_id, a_room_id) if a_room_id == z_room_id else None
     return db.Cable(
-        uid=cable.uid,
+        uid=cable_uid or cable.uid,
         project_uid=database.project_uid,
         building_uid=building_uid,
         room_uid=room_uid,

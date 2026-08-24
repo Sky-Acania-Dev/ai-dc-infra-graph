@@ -1,0 +1,81 @@
+{
+  "default_project_uid": "LBB01",
+  "projects": [
+    {
+      "uid": "MSK01",
+      "name": "MSK01",
+      "campus": "Existing topology",
+      "owner": "Megawatt",
+      "status": "active",
+      "location": {
+        "city": "Unknown",
+        "state": "US",
+        "country": "USA",
+        "latitude": 39.5,
+        "longitude": -98.35
+      },
+      "address": "",
+      "building_id": "A",
+      "data_halls": ["DH1", "DH2"],
+      "runtime_database_path": "data/runtime/current_database.json",
+      "source_files": [],
+      "loading_instructions": [
+        "Legacy default project. Uses the current runtime topology database."
+      ]
+    },
+    {
+      "uid": "LBB01",
+      "name": "LBB01",
+      "campus": "US-CENTRAL-09A",
+      "owner": "Megawatt",
+      "status": "active",
+      "location": {
+        "city": "Lubbock",
+        "state": "TX",
+        "country": "USA",
+        "latitude": 33.5779,
+        "longitude": -101.8552
+      },
+      "address": "Lubbock, TX",
+      "building_id": "A",
+      "data_halls": ["DH1-1", "DH1-2", "DH1-3", "DH1-4", "DH1-5"],
+      "runtime_database_path": "data/runtime/lbb01_database.json",
+      "source_files": [
+        {
+          "kind": "roce_sample",
+          "path": "C:\\Personal Folder\\Work\\Megawatt\\003. TX Lubbock\\1. Data\\LBB01- IB sketch (1).xlsx",
+          "sheets": [
+            "OVERHEAD",
+            "DH3 Row 35",
+            "x8 rack DH3 Rack 349 Leaf Pull ",
+            "x4 rack DH3 Rack 349 Leaf Pull ",
+            "DH3 Node to Leaf Pull Schedule"
+          ]
+        },
+        {
+          "kind": "non_roce_cutsheet",
+          "path": "C:\\Personal Folder\\Work\\Megawatt\\003. TX Lubbock\\1. Data\\Lubbanon 8.16.xlsx",
+          "sheets": [
+            "OVERHEAD",
+            "Copy of CUTSHEET"
+          ]
+        },
+        {
+          "kind": "vr_roce_cutsheet",
+          "path": "C:\\Personal Folder\\Work\\Megawatt\\003. TX Lubbock\\1. Data\\lubbanon vr room roce label.xlsx.ods",
+          "sheets": [
+            "DH1-VR_PS NODE to TIER-0",
+            "DH1-VR_PS TIER-0 to TIER-1"
+          ]
+        }
+      ],
+      "loading_instructions": [
+        "Use the OVERHEAD tab from the main Lubbanon workbook for cabinet inventory; the older sample OVERHEAD is not authoritative.",
+        "OVERHEAD is one physical data hall divided into project sections DH1-1 through DH1-5.",
+        "Non-RoCE cutsheet locations use dh1 for the physical hall; the Lubbock parser maps cabinet numbers to DH1 section IDs.",
+        "VR RoCE imports only the current non-suffixed ODS sheets; _orig and _old sheets are retained as source history but not loaded.",
+        "DH3 Node to Leaf Pull Schedule contains formula-generated node-to-leaf rows."
+      ]
+    }
+  ]
+}

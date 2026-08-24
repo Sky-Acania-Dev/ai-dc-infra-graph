@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.core.config import DEFAULT_BUILDING_ID, DEFAULT_MAX_RACK_UNIT, DEFAULT_PROJECT_UID
+from backend.ingest.cleaners.lbb01 import LBB01_PROJECT_UID, apply_lbb01_rack_unit_rule
 from backend.persistence.postgresql.importer import replace_project_topology
 from backend.persistence.postgresql.session import session_factory
 from backend.services import build_topology_database_from_sources
@@ -53,6 +54,8 @@ def main() -> None:
         status_overrides_path=args.status_overrides_path,
         default_max_rack_unit=args.default_max_rack_unit,
     )
+    if database.project_uid.upper() == LBB01_PROJECT_UID:
+        apply_lbb01_rack_unit_rule(database.cabinets, database.rows)
 
     factory = session_factory(args.database_url)
     with factory() as session:

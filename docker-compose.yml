@@ -16,5 +16,33 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: ai-dc-infra-graph-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://ai_dc_infra_graph:ai_dc_infra_graph_dev@postgres:5432/ai_dc_infra_graph
+      ACTIVE_PROJECT_UID: ${ACTIVE_PROJECT_UID:-MSK01}
+      PROJECT_RUNTIME_DATABASE_PATH: ${PROJECT_RUNTIME_DATABASE_PATH:-data/runtime/current_database.json}
+      TOPOLOGY_STORAGE_BACKEND: ${TOPOLOGY_STORAGE_BACKEND:-postgresql}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend/web
+      dockerfile: Dockerfile
+    container_name: ai-dc-infra-graph-frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
 volumes:
   postgres-data:

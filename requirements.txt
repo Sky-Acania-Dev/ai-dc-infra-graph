@@ -7,3 +7,4 @@ matplotlib
 sqlalchemy
 psycopg[binary]
 alembic
+openpyxl

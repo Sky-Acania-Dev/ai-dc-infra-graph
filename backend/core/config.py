@@ -6,9 +6,9 @@ from pathlib import Path
 
 
 SCHEMA_VERSION = 2
-DEFAULT_PROJECT_UID = "MSK01"
+DEFAULT_PROJECT_UID = os.environ.get("ACTIVE_PROJECT_UID", "LBB01").strip().upper() or "LBB01"
 DEFAULT_BUILDING_ID = "A"
-DEFAULT_RUNTIME_DATABASE_PATH = Path("data/runtime/current_database.json")
+DEFAULT_RUNTIME_DATABASE_PATH = Path(os.environ.get("PROJECT_RUNTIME_DATABASE_PATH", "data/runtime/lbb01_database.json"))
 DEFAULT_STATUS_OVERRIDES_PATH = Path("data/status_overrides.json")
 DEFAULT_MAX_RACK_UNIT = 48
 DEFAULT_TOPOLOGY_STORAGE_BACKEND = "postgresql"

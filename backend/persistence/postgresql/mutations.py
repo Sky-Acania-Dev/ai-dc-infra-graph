@@ -15,6 +15,12 @@ from backend.models import CableProgressPhase, CableProgressTask
 from backend.persistence.postgresql import models as db
 
 
+CASCADE_CABINET_DEVICE_STATUSES = {
+    LifecycleStatus.NOT_INSTALLED.value,
+    LifecycleStatus.NOT_PLANNED.value,
+}
+
+
 class MutationUser(BaseModel):
     uid: str
     role: str
@@ -98,7 +104,7 @@ def update_cabinet_status(
     before = {"lifecycle_status": cabinet.lifecycle_status}
     after = {"lifecycle_status": next_status}
     cabinet.lifecycle_status = next_status
-    return _append_operation(
+    operation = _append_operation(
         session,
         project_uid=cabinet.project_uid,
         entity_type="cabinet",
@@ -111,6 +117,18 @@ def update_cabinet_status(
         source_uid=source_uid,
         source_operator=source_operator,
     )
+    if next_status in CASCADE_CABINET_DEVICE_STATUSES:
+        _cascade_cabinet_device_statuses(
+            session,
+            cabinet=cabinet,
+            lifecycle_status=next_status,
+            user=user,
+            operation_group_uid=operation_group_uid,
+            source_type=source_type,
+            source_uid=source_uid,
+            source_operator=source_operator,
+        )
+    return operation
 
 
 def update_device_status(
@@ -153,6 +171,50 @@ def update_device_status(
         source_uid=source_uid,
         source_operator=source_operator,
     )
+
+
+def _cascade_cabinet_device_statuses(
+    session: Session,
+    *,
+    cabinet: db.Cabinet,
+    lifecycle_status: str,
+    user: MutationUser | None,
+    operation_group_uid: str | None,
+    source_type: str | None,
+    source_uid: str | None,
+    source_operator: str | None,
+) -> None:
+    try:
+        devices = session.execute(
+            select(db.Device)
+            .where(db.Device.cabinet_uid == cabinet.uid, db.Device.deleted_at.is_(None))
+            .order_by(db.Device.rack_unit, db.Device.uid)
+            .with_for_update(nowait=True)
+        ).scalars().all()
+    except OperationalError as exc:
+        if _is_lock_not_available(exc):
+            raise RowLockedConflict(entity_type="cabinet devices", entity_uid=cabinet.uid) from exc
+        raise
+    for device in devices:
+        if device.lifecycle_status == lifecycle_status:
+            continue
+        _acquire_write_gate(session, entity_type="device", entity_uid=device.uid, user=user)
+        before = {"lifecycle_status": device.lifecycle_status}
+        after = {"lifecycle_status": lifecycle_status}
+        device.lifecycle_status = lifecycle_status
+        _append_operation(
+            session,
+            project_uid=device.project_uid,
+            entity_type="device",
+            entity_uid=device.uid,
+            before=before,
+            after=after,
+            user=user,
+            operation_group_uid=operation_group_uid,
+            source_type=source_type,
+            source_uid=source_uid,
+            source_operator=source_operator,
+        )
 
 
 def update_cable(

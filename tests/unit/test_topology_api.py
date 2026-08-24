@@ -3,6 +3,7 @@ import unittest
 
 from backend.api.auth import AuthUser, UserRole
 from backend.api.topology import (
+    _operations_path,
     cabinet_connection_cables,
     cabinet_detail,
     cabinet_layout,
@@ -129,6 +130,16 @@ class TopologyApiTests(unittest.TestCase):
         self.assertEqual(validation.summary.port_collision_findings, 0)
         self.assertEqual(validation.summary.device_model_mismatches, 0)
         self.assertEqual(validation.summary.device_model_format_issues, 0)
+
+    def test_project_runtime_uses_project_specific_operation_log(self) -> None:
+        self.assertEqual(
+            _operations_path("data/runtime/current_database.json").name,
+            "operations.jsonl",
+        )
+        self.assertEqual(
+            _operations_path("data/runtime/lbb01_database.json").name,
+            "lbb01_database.operations.jsonl",
+        )
 
     def test_data_hall_external_cables_filter_to_target_hall(self) -> None:
         _, runtime_path = _test_paths()
@@ -384,6 +395,143 @@ class TopologyApiTests(unittest.TestCase):
         self.assertEqual([task.name for task in termination.tasks], ["routing_dress", "a_side", "z_side"])
         self.assertEqual(termination.tasks[0].task_type, "percent")
         self.assertEqual(termination.tasks[1].enum_values, ["not_terminated", "terminated", "dressed"])
+
+    def test_cabinet_not_planned_status_cascades_to_devices(self) -> None:
+        _, runtime_path = _test_paths()
+        database = build_topology_database_from_results(
+            cutsheet_result=ingest_cutsheet_rows(
+                [
+                    {
+                        "STATUS": "Cable Not Run",
+                        "A-LOC:CAB:RU": "dh1:001:10",
+                        "A-PORT": "swp1",
+                        "A_MODEL": "Switch",
+                        "Z-LOC:CAB:RU": "dh1:001:20",
+                        "Z-PORT": "swp2",
+                        "Z_MODEL": "Patch Panel",
+                        "CABLE": "LC",
+                    },
+                ]
+            ),
+            overhead_result=OverheadIngestionResult(
+                summary=OverheadIngestionSummary(cabinets=1, data_halls=1, unknown_category_cabinets=0),
+                cabinets=[
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:001",
+                        data_hall_id="DH1",
+                        cabinet_id="001",
+                        category="DPR-H1",
+                        cabinet_group="Fabric Core",
+                        source_row=7,
+                        source_col=5,
+                    ),
+                ],
+            ),
+        )
+        save_topology_database(database, runtime_path)
+        editor = AuthUser(uid="editor", display_name="Editor", role=UserRole.EDITOR)
+
+        update_device_status(
+            "DH1:001:10",
+            UpdateLifecycleStatusRequest(lifecycle_status=LifecycleStatus.INSTALLED),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+        update_device_status(
+            "DH1:001:20",
+            UpdateLifecycleStatusRequest(lifecycle_status=LifecycleStatus.POWERED),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+
+        response = update_cabinet_status(
+            "DH1:001",
+            UpdateLifecycleStatusRequest(lifecycle_status=LifecycleStatus.NOT_PLANNED),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+        detail = cabinet_detail("DH1:001", database_path=str(runtime_path))
+
+        self.assertTrue(response.ok)
+        self.assertEqual(response.operation.after["lifecycle_status"], LifecycleStatus.NOT_PLANNED.value)
+        self.assertEqual(
+            response.operation.before["device_lifecycle_statuses"],
+            {"DH1:001:10": LifecycleStatus.INSTALLED.value, "DH1:001:20": LifecycleStatus.POWERED.value},
+        )
+        self.assertEqual({device.lifecycle_status for device in detail.devices}, {LifecycleStatus.NOT_PLANNED})
+
+        update_device_status(
+            "DH1:001:10",
+            UpdateLifecycleStatusRequest(lifecycle_status=LifecycleStatus.INSTALLED),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+        update_device_status(
+            "DH1:001:20",
+            UpdateLifecycleStatusRequest(lifecycle_status=LifecycleStatus.POWERED),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+
+        response = update_cabinet_status(
+            "DH1:001",
+            UpdateLifecycleStatusRequest(lifecycle_status=LifecycleStatus.NOT_INSTALLED),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+        detail = cabinet_detail("DH1:001", database_path=str(runtime_path))
+
+        self.assertTrue(response.ok)
+        self.assertEqual(response.operation.after["lifecycle_status"], LifecycleStatus.NOT_INSTALLED.value)
+        self.assertEqual({device.lifecycle_status for device in detail.devices}, {LifecycleStatus.NOT_INSTALLED})
+
+    def test_cabinet_installed_status_does_not_cascade_to_devices(self) -> None:
+        _, runtime_path = _test_paths()
+        database = build_topology_database_from_results(
+            cutsheet_result=ingest_cutsheet_rows(
+                [
+                    {
+                        "STATUS": "Cable Not Run",
+                        "A-LOC:CAB:RU": "dh1:001:10",
+                        "A-PORT": "swp1",
+                        "A_MODEL": "Switch",
+                        "Z-LOC:CAB:RU": "dh1:001:20",
+                        "Z-PORT": "swp2",
+                        "Z_MODEL": "Patch Panel",
+                        "CABLE": "LC",
+                    },
+                ]
+            ),
+            overhead_result=OverheadIngestionResult(
+                summary=OverheadIngestionSummary(cabinets=1, data_halls=1, unknown_category_cabinets=0),
+                cabinets=[
+                    CabinetInventoryRecord(
+                        cabinet_uid="DH1:001",
+                        data_hall_id="DH1",
+                        cabinet_id="001",
+                        category="DPR-H1",
+                        cabinet_group="Fabric Core",
+                        source_row=7,
+                        source_col=5,
+                    ),
+                ],
+            ),
+        )
+        save_topology_database(database, runtime_path)
+        editor = AuthUser(uid="editor", display_name="Editor", role=UserRole.EDITOR)
+
+        response = update_cabinet_status(
+            "DH1:001",
+            UpdateLifecycleStatusRequest(lifecycle_status=LifecycleStatus.INSTALLED),
+            database_path=str(runtime_path),
+            user=editor,
+        )
+        detail = cabinet_detail("DH1:001", database_path=str(runtime_path))
+
+        self.assertTrue(response.ok)
+        self.assertEqual(response.operation.after["lifecycle_status"], LifecycleStatus.INSTALLED.value)
+        self.assertNotIn("device_lifecycle_statuses", response.operation.after)
+        self.assertEqual({device.lifecycle_status for device in detail.devices}, {LifecycleStatus.NOT_INSTALLED})
 
     def test_stale_json_write_is_rejected(self) -> None:
         _, runtime_path = _test_paths()

@@ -8,6 +8,40 @@ export type AuthUser = {
   is_dev_default: boolean;
 };
 
+export type ProjectLocation = {
+  city: string;
+  state: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+};
+
+export type ProjectSourceFile = {
+  kind: string;
+  path: string;
+  sheets: string[];
+};
+
+export type ProjectMetadata = {
+  uid: string;
+  name: string;
+  campus: string;
+  owner: string;
+  status: string;
+  location: ProjectLocation;
+  address: string;
+  building_id: string;
+  data_halls: string[];
+  runtime_database_path: string;
+  source_files: ProjectSourceFile[];
+  loading_instructions: string[];
+};
+
+export type ProjectCatalog = {
+  default_project_uid: string;
+  projects: ProjectMetadata[];
+};
+
 export type TopologyEnums = {
   lifecycle_statuses: string[];
   construction_phases: string[];

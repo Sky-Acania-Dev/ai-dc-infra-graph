@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import re
 from typing import Any, Iterable
 
 from pydantic import BaseModel
@@ -30,22 +31,24 @@ def detect_port_collisions(
     breakout_rules: list[BreakoutFanoutRule] | None = None,
 ) -> list[PortConnectionFinding]:
     connection_counts: Counter[str] = Counter()
-    shuffle_2x2_counts: Counter[str] = Counter()
+    shuffle_counts: Counter[str] = Counter()
+    shuffle_fanout_limits: dict[str, int] = {}
     breakout_ports: dict[str, BreakoutFanoutRule] = {}
     breakout_slot_ports: dict[str, set[str]] = {}
     rules = breakout_rules or DEFAULT_BREAKOUT_RULES
 
     for row in rows:
-        is_shuffle_2x2 = _is_shuffle_2x2_cable(row)
+        shuffle_fanout_limit = _shuffle_fanout_limit(row)
         _track_side(
             row=row,
             side_prefix="a",
             port_uid=_row_value(row, "a_port_uid"),
             breakout_loc_cab_ru=_row_value(row, "a_breakout_loc_cab_ru"),
             breakout_slot_port=_row_value(row, "a_breakout_slot_port"),
-            is_shuffle_2x2=is_shuffle_2x2,
+            shuffle_fanout_limit=shuffle_fanout_limit,
             connection_counts=connection_counts,
-            shuffle_2x2_counts=shuffle_2x2_counts,
+            shuffle_counts=shuffle_counts,
+            shuffle_fanout_limits=shuffle_fanout_limits,
             breakout_ports=breakout_ports,
             breakout_slot_ports=breakout_slot_ports,
             breakout_rules=rules,
@@ -56,15 +59,22 @@ def detect_port_collisions(
             port_uid=_row_value(row, "z_port_uid"),
             breakout_loc_cab_ru=_row_value(row, "z_breakout_loc_cab_ru"),
             breakout_slot_port=_row_value(row, "z_breakout_slot_port"),
-            is_shuffle_2x2=is_shuffle_2x2,
+            shuffle_fanout_limit=shuffle_fanout_limit,
             connection_counts=connection_counts,
-            shuffle_2x2_counts=shuffle_2x2_counts,
+            shuffle_counts=shuffle_counts,
+            shuffle_fanout_limits=shuffle_fanout_limits,
             breakout_ports=breakout_ports,
             breakout_slot_ports=breakout_slot_ports,
             breakout_rules=rules,
         )
 
-    return _connection_findings(connection_counts, shuffle_2x2_counts, breakout_ports, breakout_slot_ports)
+    return _connection_findings(
+        connection_counts,
+        shuffle_counts,
+        shuffle_fanout_limits,
+        breakout_ports,
+        breakout_slot_ports,
+    )
 
 
 def _track_side(
@@ -73,9 +83,10 @@ def _track_side(
     port_uid: str,
     breakout_loc_cab_ru: str,
     breakout_slot_port: str,
-    is_shuffle_2x2: bool,
+    shuffle_fanout_limit: int | None,
     connection_counts: Counter[str],
-    shuffle_2x2_counts: Counter[str],
+    shuffle_counts: Counter[str],
+    shuffle_fanout_limits: dict[str, int],
     breakout_ports: dict[str, BreakoutFanoutRule],
     breakout_slot_ports: dict[str, set[str]],
     breakout_rules: list[BreakoutFanoutRule],
@@ -84,8 +95,12 @@ def _track_side(
         return
 
     connection_counts[port_uid] += 1
-    if is_shuffle_2x2:
-        shuffle_2x2_counts[port_uid] += 1
+    if shuffle_fanout_limit is not None:
+        shuffle_counts[port_uid] += 1
+        current_limit = shuffle_fanout_limits.get(port_uid)
+        shuffle_fanout_limits[port_uid] = (
+            shuffle_fanout_limit if current_limit is None else min(current_limit, shuffle_fanout_limit)
+        )
     if not breakout_loc_cab_ru and not breakout_slot_port:
         return
 
@@ -100,7 +115,8 @@ def _track_side(
 
 def _connection_findings(
     connection_counts: Counter[str],
-    shuffle_2x2_counts: Counter[str],
+    shuffle_counts: Counter[str],
+    shuffle_fanout_limits: dict[str, int],
     breakout_ports: dict[str, BreakoutFanoutRule],
     breakout_slot_ports: dict[str, set[str]],
 ) -> list[PortConnectionFinding]:
@@ -134,15 +150,18 @@ def _connection_findings(
             continue
 
         if count > 1:
-            shuffle_2x2_count = shuffle_2x2_counts.get(port_uid, 0)
-            if shuffle_2x2_count == count and count <= 2:
+            shuffle_count = shuffle_counts.get(port_uid, 0)
+            shuffle_fanout_limit = shuffle_fanout_limits.get(port_uid, 0)
+            if shuffle_count == count and count <= shuffle_fanout_limit:
                 continue
 
             findings.append(
                 PortConnectionFinding(
                     port_uid=port_uid,
                     count=count,
-                    message=f"Port has {count} cable connections; only breakout or 2x2 shuffle rows may fan out.",
+                    message=(
+                        f"Port has {count} cable connections; only breakout or MPO 2x2/4x4 shuffle rows may fan out."
+                    ),
                 )
             )
     return findings
@@ -167,8 +186,18 @@ def _contains_if_configured(value: str, expected: str) -> bool:
     return expected.upper() in value.upper()
 
 
-def _is_shuffle_2x2_cable(row: Any) -> bool:
-    return "2X2" in _row_value(row, "cable_type").upper().replace(" ", "")
+def _shuffle_fanout_limit(row: Any) -> int | None:
+    cable_type = _row_value(row, "cable_type")
+    if _matches_mpo_shuffle(cable_type, "2", "2"):
+        return 2
+    if _matches_mpo_shuffle(cable_type, "4", "4"):
+        return 16
+    return None
+
+
+def _matches_mpo_shuffle(cable_type: str, source_count: str, destination_count: str) -> bool:
+    pattern = rf"\bMPO\w*\b.*\b{source_count}\s*[Xx]\s*{destination_count}\b"
+    return re.search(pattern, cable_type, flags=re.IGNORECASE) is not None
 
 
 def _row_value(row: Any, key: str) -> str:

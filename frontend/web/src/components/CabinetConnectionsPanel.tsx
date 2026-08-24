@@ -72,6 +72,19 @@ export function CabinetConnectionsPanel({
         <div className="connection-list drag-pan-surface" {...connectionListPan}>
           <ConnectionSummaryCard
             headingMetric={t("connections.deviceCount", { count: formatNumber(internalConnections.length) })}
+            onViewCables={
+              internalConnections.length > 0
+                ? () =>
+                    onViewDeviceCables(
+                      internalConnections.flatMap((connection) =>
+                        connection.source_device_uids.map((sourceDeviceUid) => ({
+                          sourceDeviceUid,
+                          targetDeviceUid: connection.target_device_uid,
+                        })),
+                      ),
+                    )
+                : undefined
+            }
             summary={aggregateConnectionSummaries(internalConnections)}
             title={t("connections.selectedDevices", { count: formatNumber(selectedDeviceDetails.length) })}
             subtitle={t("connections.intraDeviceSelection")}
@@ -111,6 +124,17 @@ export function CabinetConnectionsPanel({
         <div className="connection-list drag-pan-surface" {...connectionListPan}>
           <ConnectionSummaryCard
             headingMetric={t("connections.deviceCount", { count: formatNumber(internalConnections.length) })}
+            onViewCables={
+              internalConnections.length > 0
+                ? () =>
+                    onViewDeviceCables(
+                      internalConnections.map((connection) => ({
+                        sourceDeviceUid: deviceDetail.source_device_uid,
+                        targetDeviceUid: connection.target_device_uid,
+                      })),
+                    )
+                : undefined
+            }
             summary={aggregateConnectionSummaries(internalConnections)}
             title={t("connections.insideCabinet", { cabinetUid: deviceDetail.source_cabinet_uid })}
             subtitle={t("connections.intraDevice")}

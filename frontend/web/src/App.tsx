@@ -18,6 +18,7 @@ import {
   fetchDeviceConnectionCables,
   fetchDeviceConnections,
   fetchOperations,
+  fetchProjectCatalog,
   fetchTopologyEnums,
   updateCabinetStatus,
   updateCable,
@@ -54,13 +55,15 @@ import type {
   BulkOperationResponse,
   OperationListResponse,
   OperationResponse,
+  ProjectCatalog,
+  ProjectMetadata,
   TopologyEnums,
 } from "./types";
 import { useI18n, type Locale } from "./i18n";
 
-const DATA_HALLS = ["DH1", "DH2"];
+const FALLBACK_DATA_HALLS = ["DH1", "DH2"];
 const OPERATION_POLL_INTERVAL_MS = 5000;
-type AppMode = "topology" | "groups" | "validation" | "operations";
+type AppMode = "projects" | "topology" | "groups" | "validation" | "operations";
 type ChangeOrderCableStatus = "red" | "yellow" | "cyan" | "replaced";
 type CenterViewMode = "cabinet_map" | "port_layout";
 type CableDetailPageLoader = (offset: number, limit: number) => Promise<CableDetailResponse>;
@@ -99,6 +102,8 @@ export function App() {
   const [centerViewMode, setCenterViewMode] = useState<CenterViewMode>("cabinet_map");
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("single");
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [projectCatalog, setProjectCatalog] = useState<ProjectCatalog | null>(null);
+  const [selectedProjectUid, setSelectedProjectUid] = useState<string | null>(null);
   const [topologyEnums, setTopologyEnums] = useState<TopologyEnums | null>(null);
   const [dataHallCableSummary, setDataHallCableSummary] = useState<DataHallCableSummaryResponse | null>(null);
   const [operationList, setOperationList] = useState<OperationListResponse | null>(null);
@@ -132,15 +137,34 @@ export function App() {
   const isPollingOperationsRef = useRef(false);
   const canEdit = currentUser?.role === "manager" || currentUser?.role === "editor";
   const canManageGroups = currentUser?.role === "manager";
+  const selectedProject = useMemo(
+    () => projectCatalog?.projects.find((project) => project.uid === selectedProjectUid) ?? projectCatalog?.projects[0] ?? null,
+    [projectCatalog, selectedProjectUid],
+  );
+  const dataHalls = selectedProject?.data_halls.length ? selectedProject.data_halls : FALLBACK_DATA_HALLS;
+  const isProjectTopologyAvailable = !selectedProject || selectedProject.status === "active";
 
   useEffect(() => {
     fetchCurrentUser()
       .then(setCurrentUser)
       .catch((requestError: Error) => setError(requestError.message));
+    fetchProjectCatalog()
+      .then((catalog) => {
+        setProjectCatalog(catalog);
+        setSelectedProjectUid(catalog.default_project_uid);
+      })
+      .catch((requestError: Error) => setError(requestError.message));
     fetchTopologyEnums()
       .then(setTopologyEnums)
       .catch((requestError: Error) => setError(requestError.message));
   }, []);
+
+  useEffect(() => {
+    if (!dataHalls.includes(dataHall)) {
+      setDataHall(dataHalls[0] ?? FALLBACK_DATA_HALLS[0]);
+      clearSelection();
+    }
+  }, [dataHall, dataHalls]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -163,6 +187,13 @@ export function App() {
   });
 
   useEffect(() => {
+    if (!isProjectTopologyAvailable) {
+      setCabinets([]);
+      setIsLoading(false);
+      setDataHallCableSummary(null);
+      return;
+    }
+
     const cachedLayout = cabinetLayoutCacheRef.current[dataHall];
     if (cachedLayout) {
       setCabinets(cachedLayout);
@@ -173,6 +204,7 @@ export function App() {
 
     let cancelled = false;
     setIsLoading(true);
+    setCabinets([]);
     setError(null);
     fetchCabinetLayout(dataHall)
       .then((layout) => {
@@ -189,9 +221,14 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [dataHall]);
+  }, [dataHall, isProjectTopologyAvailable, selectedProjectUid]);
 
   useEffect(() => {
+    if (!isProjectTopologyAvailable) {
+      setDataHallCableSummary(null);
+      return;
+    }
+
     const cachedSummary = dataHallCableSummaryCacheRef.current[dataHall];
     if (cachedSummary) {
       setDataHallCableSummary(cachedSummary);
@@ -199,6 +236,7 @@ export function App() {
     }
 
     let cancelled = false;
+    setDataHallCableSummary(null);
     fetchDataHallCableSummary(dataHall)
       .then((summary) => {
         if (cancelled) return;
@@ -211,7 +249,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [dataHall]);
+  }, [dataHall, isProjectTopologyAvailable, selectedProjectUid]);
 
   useEffect(() => {
     if (!selectedCabinetUid) return;
@@ -1018,6 +1056,24 @@ export function App() {
     clearDeviceSelection();
   }
 
+  function selectProject(projectUid: string) {
+    const nextProject = projectCatalog?.projects.find((project) => project.uid === projectUid);
+    setSelectedProjectUid(projectUid);
+    const nextDataHall = nextProject?.data_halls[0] ?? FALLBACK_DATA_HALLS[0];
+    setDataHall(nextDataHall);
+    clearSelection();
+    setError(null);
+    setIsLoading(nextProject?.status === "active");
+    setCabinets([]);
+    setDataHallCableSummary(null);
+    cabinetLayoutCacheRef.current = {};
+    cabinetDetailCacheRef.current = {};
+    cabinetDetailRequestCacheRef.current = {};
+    dataHallCableSummaryCacheRef.current = {};
+    deviceDetailCacheRef.current = {};
+    setMode("topology");
+  }
+
   function prefetchCabinet(cabinetUid: string) {
     if (cabinetDetailCacheRef.current[cabinetUid] || cabinetDetailRequestCacheRef.current[cabinetUid]) return;
     loadCabinetDetail(cabinetUid, { showLoading: false }).catch(() => {
@@ -1357,9 +1413,13 @@ export function App() {
       <header className="topbar">
         <div>
           <span className="eyebrow">{t("app.name")}</span>
-          <h1>{mode === "groups" ? "Entity Groups" : mode === "topology" ? t("app.topologyTitle") : mode === "operations" ? "Operation Log" : t("app.validationTitle")}</h1>
+          <h1>{mode === "projects" ? "Select Project" : mode === "groups" ? "Entity Groups" : mode === "topology" ? t("app.topologyTitle") : mode === "operations" ? "Operation Log" : t("app.validationTitle")}</h1>
         </div>
         <div className="topbar-controls">
+          <button className="project-select-button" onClick={() => setMode("projects")} type="button">
+            <span>Select Project</span>
+            <b>{selectedProject?.uid ?? "Project"}</b>
+          </button>
           <div className="segmented-control" role="tablist" aria-label={t("settings.label")}>
             <button className={mode === "topology" ? "is-active" : ""} onClick={() => setMode("topology")}>
               {t("view.topology")}
@@ -1409,13 +1469,38 @@ export function App() {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      {mode === "validation" ? (
+      {mode === "projects" ? (
+        projectCatalog ? (
+          <ProjectSelectionPage
+            projects={projectCatalog.projects}
+            selectedProjectUid={selectedProject?.uid ?? projectCatalog.default_project_uid}
+            onSelectProject={selectProject}
+          />
+        ) : (
+          <section className="project-page loading-pane">Loading projects</section>
+        )
+      ) : mode === "validation" ? (
         <ValidationView canValidate={currentUser?.role === "manager"} onJumpToDevice={jumpToDevice} onJumpToPort={jumpToPort} />
       ) : mode === "operations" ? (
         <OperationDebugView initialOperationList={operationList} />
       ) : (
         <div className="workspace">
-          {mode === "groups" ? (
+          {!isProjectTopologyAvailable ? (
+            <section className="side-pane unavailable-side-pane">
+              <span className="eyebrow">Project Status</span>
+              <h1>{selectedProject?.name ?? "Project"}</h1>
+              <p className="empty-state">
+                Unable to connect to a topology database or service for this project.
+              </p>
+              {selectedProject?.loading_instructions.length ? (
+                <ul className="project-instruction-list">
+                  {selectedProject.loading_instructions.map((instruction) => (
+                    <li key={instruction}>{instruction}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+          ) : mode === "groups" ? (
             <EntityGroupsPanel
               groups={entityGroups}
               activeGroupUid={activeEntityGroupUid}
@@ -1445,10 +1530,13 @@ export function App() {
               selectedCabinetUids={selectedCabinetUids}
               selectedDeviceUid={selectedDeviceUid}
               selectedDeviceUids={selectedDeviceUids}
+              deviceDetail={deviceDetail}
+              selectedDeviceDetails={selectedDeviceDetails}
               deviceScrollRequest={deviceScrollRequest}
               connectedDeviceUids={connectedDeviceUids}
               onSelectDevice={selectDeviceWithGesture}
               onViewPortLayout={viewPortLayout}
+              onViewDeviceCables={viewDeviceConnectionCables}
               activePortLayoutDeviceUid={centerViewMode === "port_layout" ? selectedDeviceUid : null}
               onShowCabinetMap={() => setCenterViewMode("cabinet_map")}
               onClearDeviceSelection={clearDeviceSelection}
@@ -1461,7 +1549,9 @@ export function App() {
               onViewChangeOrderCables={viewCabinetChangeOrderCables}
             />
           )}
-          {isLoading ? (
+          {!isProjectTopologyAvailable ? (
+            <ProjectUnavailablePane project={selectedProject} />
+          ) : isLoading ? (
             <section className="map-pane loading-pane">{t("common.loading", { target: dataHall })}</section>
           ) : (
             <div className={`map-stack ${selectedDevice ? "has-center-toggle" : ""}`}>
@@ -1486,7 +1576,7 @@ export function App() {
                   connectedDataHallCounts={connectedDataHallCounts}
                   dataHallBadges={groupDataHallBadges}
                   dataHall={dataHall}
-                  dataHalls={DATA_HALLS}
+                  dataHalls={dataHalls}
                   selectedCabinetUid={mapSelectedCabinetUid}
                   selectedCabinetUids={mapSelectedCabinetUidSet}
                   selectedDeviceCabinetUid={deviceDetail?.source_cabinet_uid ?? null}
@@ -1540,7 +1630,17 @@ export function App() {
               />
             </div>
           )}
-          {mode === "groups" && selectedEntityGroups.length > 0 && selectedCabinetUids.length === 0 ? (
+          {!isProjectTopologyAvailable ? (
+            <section className="side-pane unavailable-side-pane">
+              <span className="eyebrow">Database</span>
+              <h2>Service unavailable</h2>
+              <p className="empty-state">
+                {selectedProject?.runtime_database_path
+                  ? `No active topology service is connected for ${selectedProject.name}. Expected runtime: ${selectedProject.runtime_database_path}.`
+                  : "No active topology service is connected for this project."}
+              </p>
+            </section>
+          ) : mode === "groups" && selectedEntityGroups.length > 0 && selectedCabinetUids.length === 0 ? (
             <EntityGroupSummaryPanel
               groups={entityGroups}
               selectedGroups={selectedEntityGroups}
@@ -1566,6 +1666,217 @@ export function App() {
       )}
     </main>
   );
+}
+
+
+function ProjectUnavailablePane({ project }: { project: ProjectMetadata | null }) {
+  return (
+    <section className="map-pane project-unavailable-pane">
+      <div>
+        <span className="eyebrow">Topology</span>
+        <h2>Unable to connect to database/service</h2>
+        <p>
+          {project
+            ? `${project.name} is configured in the project catalog, but its topology runtime is not available yet.`
+            : "The selected project does not have an active topology runtime."}
+        </p>
+        {project?.source_files.length ? (
+          <dl>
+            <div>
+              <dt>Configured source</dt>
+              <dd>{project.source_files[0].path}</dd>
+            </div>
+            <div>
+              <dt>Expected runtime</dt>
+              <dd>{project.runtime_database_path}</dd>
+            </div>
+          </dl>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+
+function ProjectSelectionPage({
+  projects,
+  selectedProjectUid,
+  onSelectProject,
+}: {
+  projects: ProjectMetadata[];
+  selectedProjectUid: string;
+  onSelectProject: (projectUid: string) => void;
+}) {
+  const selectedProject = projects.find((project) => project.uid === selectedProjectUid) ?? projects[0];
+  if (!selectedProject) return null;
+
+  return (
+    <section className="project-page" aria-label="Project selection">
+      <div className="project-map-panel">
+        <svg className="project-state-map" viewBox="0 0 960 560" role="img" aria-label="United States project map">
+          <rect className="project-map-water" x="0" y="0" width="960" height="560" />
+          {US_STATE_BOXES.map((state) => {
+            const rect = stateMapRect(state);
+            return (
+              <g className="project-state" key={state.code}>
+                <rect x={rect.x} y={rect.y} width={rect.width} height={rect.height} />
+                <text x={rect.x + rect.width / 2} y={rect.y + rect.height / 2 + 4}>{state.code}</text>
+              </g>
+            );
+          })}
+          {projects.map((project) => {
+            const point = projectMapPoint(project.location.longitude, project.location.latitude);
+            const isSelected = project.uid === selectedProject.uid;
+            return (
+              <g
+                aria-label={`Select ${project.name}`}
+                className={`project-map-pin ${isSelected ? "is-selected" : ""}`}
+                key={project.uid}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelectProject(project.uid);
+                  }
+                }}
+                onClick={() => onSelectProject(project.uid)}
+                role="button"
+                tabIndex={0}
+              >
+                <title>{`${project.name} - ${project.location.city}, ${project.location.state}`}</title>
+                <circle cx={point.x} cy={point.y} r={isSelected ? 12 : 9} />
+                <circle className="project-map-pin-core" cx={point.x} cy={point.y} r={3.5} />
+                <text x={point.x + 14} y={point.y - 10}>{project.uid}</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      <div className="project-page-sidebar">
+        <div className="project-list" role="list">
+          {projects.map((project) => (
+            <button
+              className={`project-card ${project.uid === selectedProject.uid ? "is-selected" : ""}`}
+              key={project.uid}
+              onClick={() => onSelectProject(project.uid)}
+              type="button"
+            >
+              <span className="project-card-title">{project.name}</span>
+              <span>{project.location.city || project.location.state ? `${project.location.city}, ${project.location.state}` : project.campus}</span>
+              <b>{project.status.replaceAll("_", " ")}</b>
+            </button>
+          ))}
+        </div>
+        <div className="project-meta">
+          <span className="eyebrow">Selected Project</span>
+          <h2>{selectedProject.name}</h2>
+          <dl>
+            <div>
+              <dt>Owner</dt>
+              <dd>{selectedProject.owner || "Unknown"}</dd>
+            </div>
+            <div>
+              <dt>Campus</dt>
+              <dd>{selectedProject.campus || "Unassigned"}</dd>
+            </div>
+            <div>
+              <dt>Location</dt>
+              <dd>{selectedProject.address || `${selectedProject.location.city}, ${selectedProject.location.state}`}</dd>
+            </div>
+            <div>
+              <dt>Sections</dt>
+              <dd>{selectedProject.data_halls.join(", ") || "None"}</dd>
+            </div>
+            <div>
+              <dt>Runtime</dt>
+              <dd>{selectedProject.runtime_database_path}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+type StateBox = {
+  code: string;
+  minLon: number;
+  maxLon: number;
+  minLat: number;
+  maxLat: number;
+};
+
+const US_STATE_BOXES: StateBox[] = [
+  { code: "WA", minLon: -124.8, maxLon: -116.9, minLat: 45.5, maxLat: 49.1 },
+  { code: "OR", minLon: -124.6, maxLon: -116.5, minLat: 42, maxLat: 46.3 },
+  { code: "CA", minLon: -124.5, maxLon: -114.1, minLat: 32.5, maxLat: 42 },
+  { code: "ID", minLon: -117.3, maxLon: -111, minLat: 42, maxLat: 49 },
+  { code: "NV", minLon: -120, maxLon: -114, minLat: 35, maxLat: 42 },
+  { code: "AZ", minLon: -114.9, maxLon: -109, minLat: 31.3, maxLat: 37 },
+  { code: "MT", minLon: -116.1, maxLon: -104, minLat: 44.4, maxLat: 49 },
+  { code: "WY", minLon: -111.1, maxLon: -104, minLat: 41, maxLat: 45 },
+  { code: "UT", minLon: -114.1, maxLon: -109, minLat: 37, maxLat: 42 },
+  { code: "CO", minLon: -109.1, maxLon: -102, minLat: 37, maxLat: 41 },
+  { code: "NM", minLon: -109.1, maxLon: -103, minLat: 31.3, maxLat: 37 },
+  { code: "ND", minLon: -104.1, maxLon: -96.5, minLat: 45.9, maxLat: 49 },
+  { code: "SD", minLon: -104.1, maxLon: -96.4, minLat: 42.5, maxLat: 45.9 },
+  { code: "NE", minLon: -104.1, maxLon: -95.3, minLat: 40, maxLat: 43.1 },
+  { code: "KS", minLon: -102.1, maxLon: -94.6, minLat: 37, maxLat: 40.1 },
+  { code: "OK", minLon: -103, maxLon: -94.4, minLat: 33.6, maxLat: 37.1 },
+  { code: "TX", minLon: -106.7, maxLon: -93.5, minLat: 25.8, maxLat: 36.6 },
+  { code: "MN", minLon: -97.3, maxLon: -89.5, minLat: 43.5, maxLat: 49.4 },
+  { code: "IA", minLon: -96.7, maxLon: -90.1, minLat: 40.4, maxLat: 43.6 },
+  { code: "MO", minLon: -95.8, maxLon: -89.1, minLat: 36, maxLat: 40.7 },
+  { code: "AR", minLon: -94.7, maxLon: -89.6, minLat: 33, maxLat: 36.5 },
+  { code: "LA", minLon: -94.1, maxLon: -88.8, minLat: 29, maxLat: 33.1 },
+  { code: "WI", minLon: -92.9, maxLon: -86.8, minLat: 42.5, maxLat: 47.1 },
+  { code: "IL", minLon: -91.6, maxLon: -87.5, minLat: 37, maxLat: 42.5 },
+  { code: "MS", minLon: -91.7, maxLon: -88.1, minLat: 30.1, maxLat: 35.1 },
+  { code: "MI", minLon: -90.5, maxLon: -82.1, minLat: 41.7, maxLat: 47.6 },
+  { code: "IN", minLon: -88.1, maxLon: -84.7, minLat: 37.8, maxLat: 41.8 },
+  { code: "KY", minLon: -89.6, maxLon: -81.9, minLat: 36.5, maxLat: 39.2 },
+  { code: "TN", minLon: -90.4, maxLon: -81.6, minLat: 34.9, maxLat: 36.7 },
+  { code: "AL", minLon: -88.5, maxLon: -84.9, minLat: 30.2, maxLat: 35.1 },
+  { code: "OH", minLon: -84.9, maxLon: -80.5, minLat: 38.4, maxLat: 42.1 },
+  { code: "WV", minLon: -82.7, maxLon: -77.7, minLat: 37.2, maxLat: 40.7 },
+  { code: "VA", minLon: -83.7, maxLon: -75.2, minLat: 36.5, maxLat: 39.5 },
+  { code: "NC", minLon: -84.4, maxLon: -75.4, minLat: 33.8, maxLat: 36.6 },
+  { code: "SC", minLon: -83.4, maxLon: -78.5, minLat: 32, maxLat: 35.3 },
+  { code: "GA", minLon: -85.7, maxLon: -80.8, minLat: 30.4, maxLat: 35.1 },
+  { code: "FL", minLon: -87.8, maxLon: -80, minLat: 24.5, maxLat: 31.1 },
+  { code: "PA", minLon: -80.6, maxLon: -74.7, minLat: 39.7, maxLat: 42.3 },
+  { code: "NY", minLon: -79.8, maxLon: -71.8, minLat: 40.5, maxLat: 45.1 },
+  { code: "VT", minLon: -73.5, maxLon: -71.4, minLat: 42.7, maxLat: 45.1 },
+  { code: "NH", minLon: -72.6, maxLon: -70.6, minLat: 42.7, maxLat: 45.3 },
+  { code: "ME", minLon: -71.1, maxLon: -66.9, minLat: 43.1, maxLat: 47.5 },
+  { code: "MA", minLon: -73.5, maxLon: -69.9, minLat: 41.2, maxLat: 42.9 },
+  { code: "RI", minLon: -71.9, maxLon: -71.1, minLat: 41.1, maxLat: 42.1 },
+  { code: "CT", minLon: -73.8, maxLon: -71.8, minLat: 40.9, maxLat: 42.1 },
+  { code: "NJ", minLon: -75.6, maxLon: -73.9, minLat: 38.9, maxLat: 41.4 },
+  { code: "DE", minLon: -75.8, maxLon: -75, minLat: 38.4, maxLat: 39.9 },
+  { code: "MD", minLon: -79.5, maxLon: -75, minLat: 37.9, maxLat: 39.8 },
+  { code: "AK", minLon: -125, maxLon: -116, minLat: 25, maxLat: 30 },
+  { code: "HI", minLon: -114, maxLon: -108, minLat: 25, maxLat: 29 },
+];
+
+function stateMapRect(state: StateBox): { x: number; y: number; width: number; height: number } {
+  const northwest = projectMapPoint(state.minLon, state.maxLat);
+  const southeast = projectMapPoint(state.maxLon, state.minLat);
+  return {
+    x: Math.min(northwest.x, southeast.x),
+    y: Math.min(northwest.y, southeast.y),
+    width: Math.max(Math.abs(southeast.x - northwest.x), 16),
+    height: Math.max(Math.abs(southeast.y - northwest.y), 14),
+  };
+}
+
+function projectMapPoint(longitude: number, latitude: number): { x: number; y: number } {
+  const x = 42 + ((longitude + 125) / 59) * 850;
+  const y = 44 + ((49.5 - latitude) / 25) * 450;
+  return {
+    x: Math.max(28, Math.min(928, x)),
+    y: Math.max(28, Math.min(532, y)),
+  };
 }
 
 

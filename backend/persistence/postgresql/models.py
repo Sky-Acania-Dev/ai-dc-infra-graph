@@ -413,6 +413,27 @@ class FilterPreset(TimestampColumns, Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
 
 
+class LabelExtractionConfig(TimestampColumns, Base):
+    __tablename__ = "label_extraction_configs"
+    __table_args__ = (
+        UniqueConstraint("project_uid", "name", name="uq_label_extraction_configs_project_name"),
+        Index("ix_label_extraction_configs_project", "project_uid", "created_at"),
+        Index("ix_label_extraction_configs_owner", "owner_user_uid"),
+    )
+
+    uid: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_uid: Mapped[str] = mapped_column(ForeignKey("projects.uid"), nullable=False)
+    owner_user_uid: Mapped[str | None] = mapped_column(ForeignKey("users.uid"))
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    source_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    pair_scope_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    cable_filter_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    label_fields_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    output_layout_payload: Mapped[dict[str, Any]] = jsonb_dict()
+    validation_payload: Mapped[dict[str, Any]] = jsonb_dict()
+
+
 class EntityGroup(TimestampColumns, Base):
     __tablename__ = "entity_groups"
     __table_args__ = (

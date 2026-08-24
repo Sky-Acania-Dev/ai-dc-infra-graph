@@ -13,16 +13,25 @@ import type {
   EntityGroupRecord,
   OperationListResponse,
   OperationResponse,
+  ProjectCatalog,
   TopologyEnums,
   ValidationResponse,
 } from "./types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://100.121.214.15:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export async function fetchCurrentUser(): Promise<AuthUser> {
   const response = await fetch(`${API_BASE_URL}/auth/me`);
   if (!response.ok) {
     throw new Error(`Failed to load current user: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchProjectCatalog(): Promise<ProjectCatalog> {
+  const response = await fetch(`${API_BASE_URL}/projects`);
+  if (!response.ok) {
+    throw new Error(`Failed to load project catalog: ${response.status}`);
   }
   return response.json();
 }
@@ -40,7 +49,7 @@ export type UpdateEntityGroupPayload = Partial<Omit<SaveEntityGroupPayload, "ent
 
 export async function fetchCableSourceGroups(): Promise<CableGroupSourceRecord[]> {
   const response = await fetch(`${API_BASE_URL}/entity-groups/source-cable-groups`);
-  if (response.status === 404) {
+  if (response.status === 404 || response.status === 400) {
     return [];
   }
   if (!response.ok) {
@@ -86,7 +95,7 @@ export async function createEntityGroupFromCableGroup(sourceGroup: string): Prom
 export async function fetchEntityGroups(entityType = "cable"): Promise<EntityGroupRecord[]> {
   const params = new URLSearchParams({ entity_type: entityType });
   const response = await fetch(`${API_BASE_URL}/entity-groups?${params.toString()}`);
-  if (response.status === 404) {
+  if (response.status === 404 || response.status === 400) {
     return [];
   }
   if (!response.ok) {

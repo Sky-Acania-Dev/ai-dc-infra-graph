@@ -9,6 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from backend.ingest.cleaners.lbb01 import LBB01_PROJECT_UID, apply_lbb01_rack_unit_rule
 from backend.persistence import load_topology_database
 from backend.persistence.postgresql.importer import replace_project_topology
 from backend.persistence.postgresql.session import session_factory
@@ -24,6 +25,8 @@ def main() -> None:
     args = parser.parse_args()
 
     database = load_topology_database(args.snapshot_path)
+    if database.project_uid.upper() == LBB01_PROJECT_UID:
+        apply_lbb01_rack_unit_rule(database.cabinets, database.rows)
     factory = session_factory(args.database_url)
     with factory() as session:
         with session.begin():

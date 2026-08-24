@@ -32,6 +32,7 @@ class PostgreSQLModelTests(unittest.TestCase):
             "entity_history",
             "source_imports",
             "filter_presets",
+            "label_extraction_configs",
             "change_orders",
             "change_order_items",
             "change_order_task_links",
@@ -62,6 +63,18 @@ class PostgreSQLModelTests(unittest.TestCase):
         self.assertIn("filter_payload", columns)
         self.assertIn("sort_payload", columns)
         self.assertIn("column_payload", columns)
+
+    def test_label_extraction_configs_have_project_scoped_config_payloads(self) -> None:
+        columns = Base.metadata.tables["label_extraction_configs"].columns
+
+        self.assertIn("project_uid", columns)
+        self.assertIn("owner_user_uid", columns)
+        self.assertIn("source_payload", columns)
+        self.assertIn("pair_scope_payload", columns)
+        self.assertIn("cable_filter_payload", columns)
+        self.assertIn("label_fields_payload", columns)
+        self.assertIn("output_layout_payload", columns)
+        self.assertIn("validation_payload", columns)
 
     def test_task_resource_tables_separate_iam_from_field_crews(self) -> None:
         personnel_columns = Base.metadata.tables["personnel"].columns

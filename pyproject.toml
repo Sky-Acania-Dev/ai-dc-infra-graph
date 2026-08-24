@@ -14,6 +14,7 @@ dependencies = [
     "sqlalchemy",
     "psycopg[binary]",
     "alembic",
+    "openpyxl",
 ]
 
 [build-system]

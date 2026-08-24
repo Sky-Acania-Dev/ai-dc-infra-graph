@@ -302,6 +302,11 @@ def _short_label(category: str) -> str:
 
 
 def _category_color(category: str) -> str:
+    normalized = category.upper()
+    if normalized.startswith("VR-NVL"):
+        return "#BE123C"
+    if normalized.startswith("HD-GB3") or "GB-3" in normalized or "GPU" in normalized:
+        return "#EF4444"
     if category.startswith("T1-FE-"):
         return "#06B6D4"
     if category.startswith("T2-"):
@@ -315,6 +320,7 @@ def _category_color(category: str) -> str:
         "DPR-H1": "#0F766E",
         "DPR-H2": "#14B8A6",
         "HD-GB3c": "#EF4444",
+        "HD-GB3e": "#DC2626",
         "RES": "#9CA3AF",
         "U": "#E5E7EB",
         "T0-RO-v1a": "#2563EB",

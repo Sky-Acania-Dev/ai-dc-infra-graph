@@ -34,7 +34,13 @@ from backend.models import Cabinet, Cable, CableProgressPhase, CableProgressTask
 from backend.persistence import DEFAULT_RUNTIME_DATABASE_PATH, TopologyDatabase, load_topology_database, save_topology_database
 from backend.persistence.postgresql import models as db
 from backend.persistence.postgresql import queries as pg_queries
-from backend.persistence.postgresql.mutations import MutationUser, PersistedOperation, RowLockedConflict, StaleWriteConflict
+from backend.persistence.postgresql.mutations import (
+    CASCADE_CABINET_DEVICE_STATUSES,
+    MutationUser,
+    PersistedOperation,
+    RowLockedConflict,
+    StaleWriteConflict,
+)
 from backend.persistence.postgresql.repository import PostgresTopologyRepository
 from backend.persistence.postgresql.session import session_factory
 from backend.validation import detect_port_collisions
@@ -467,6 +473,12 @@ def update_cabinet_status(
     _reject_stale_json_write(database_path, entity_type="cabinet", entity_id=cabinet_uid, expected_version=request.expected_version, user=user)
     before = {"lifecycle_status": cabinet.lifecycle_status.value}
     after = {"lifecycle_status": request.lifecycle_status.value}
+    if request.lifecycle_status.value in CASCADE_CABINET_DEVICE_STATUSES:
+        before["device_lifecycle_statuses"] = _cabinet_device_statuses(cabinet)
+        after["device_lifecycle_statuses"] = {
+            device_uid: request.lifecycle_status.value
+            for device_uid in before["device_lifecycle_statuses"]
+        }
     operation = _commit_operation(
         database_path=database_path,
         database=database,
@@ -1027,6 +1039,9 @@ def _apply_operation(database: TopologyDatabase, operation: Operation, *, use_be
             status = LifecycleStatus(values["lifecycle_status"])
             cabinet.lifecycle_status = status
             _update_room_cabinet_status(database, operation.entityId, status)
+        if "device_lifecycle_statuses" in values:
+            for device_uid, lifecycle_status in values["device_lifecycle_statuses"].items():
+                _update_room_device_status(database, device_uid, LifecycleStatus(lifecycle_status))
         return
 
     if operation.entityType == "device":
@@ -1147,7 +1162,7 @@ def _schedule_snapshot_save(database: TopologyDatabase, database_path: str) -> N
 
 def _operations_path(database_path: str) -> Path:
     path = Path(database_path)
-    if path.name == DEFAULT_RUNTIME_DATABASE_PATH.name:
+    if path.name == "current_database.json":
         return path.with_name("operations.jsonl")
     return path.with_name(f"{path.stem}.operations.jsonl")
 
@@ -2546,11 +2561,22 @@ def _update_room_device_status(
     lifecycle_status: LifecycleStatus,
 ) -> None:
     normalized_device_uid = _normalize_device_uid(device_uid)
+    for cabinet in database.cabinets:
+        for device in cabinet.devices:
+            if _normalize_device_uid(f"{device.cabinet_id}:{device.rack_unit}") == normalized_device_uid:
+                device.lifecycle_status = lifecycle_status
     for room in database.data_halls:
         for cabinet in room.cabinets:
             for device in cabinet.devices:
                 if _normalize_device_uid(f"{device.cabinet_id}:{device.rack_unit}") == normalized_device_uid:
                     device.lifecycle_status = lifecycle_status
+
+
+def _cabinet_device_statuses(cabinet: Cabinet) -> dict[str, str]:
+    return {
+        _normalize_device_uid(f"{device.cabinet_id}:{device.rack_unit}"): device.lifecycle_status.value
+        for device in cabinet.devices
+    }
 
 
 def _cabinet_connections(database: TopologyDatabase, cabinet_uid: str, graph) -> list[CabinetConnection]:

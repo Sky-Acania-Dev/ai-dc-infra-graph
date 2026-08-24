@@ -1,4 +1,7 @@
 export function categoryColor(category: string): string {
+  const normalized = category.toUpperCase();
+  if (normalized.startsWith("VR-NVL")) return "#BE123C";
+  if (normalized.startsWith("HD-GB3") || normalized.includes("GB-3") || normalized.includes("GPU")) return "#EF4444";
   if (category.startsWith("T1-FE-")) return "#06B6D4";
   if (category.startsWith("T2-")) return "#FACC15";
   if (category.startsWith("T3-")) return "#F97316";
@@ -8,6 +11,7 @@ export function categoryColor(category: string): string {
     "DPR-H1": "#0F766E",
     "DPR-H2": "#14B8A6",
     "HD-GB3c": "#EF4444",
+    "HD-GB3e": "#DC2626",
     RES: "#9CA3AF",
     U: "#E5E7EB",
     "T0-RO-v1a": "#2563EB",

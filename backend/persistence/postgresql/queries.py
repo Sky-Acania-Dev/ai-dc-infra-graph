@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 from pydantic import BaseModel, Field
@@ -101,9 +102,10 @@ def search_topology(
     query: str,
     limit: int = 50,
 ) -> list[SearchResult]:
-    pattern = f"%{query.strip()}%"
-    if not query.strip():
+    search_term = query.strip()
+    if not search_term:
         return []
+    patterns = _search_patterns(search_term)
 
     cabinet_rows = session.execute(
         select(db.Cabinet.uid, db.Cabinet.category, db.Cabinet.cabinet_group)
@@ -111,10 +113,10 @@ def search_topology(
             db.Cabinet.project_uid == project_uid,
             db.Cabinet.deleted_at.is_(None),
             or_(
-                db.Cabinet.uid.ilike(pattern),
-                db.Cabinet.cabinet_id.ilike(pattern),
-                db.Cabinet.category.ilike(pattern),
-                db.Cabinet.cabinet_group.ilike(pattern),
+                *[db.Cabinet.uid.ilike(pattern) for pattern in patterns],
+                *[db.Cabinet.cabinet_id.ilike(pattern) for pattern in patterns],
+                *[db.Cabinet.category.ilike(pattern) for pattern in patterns],
+                *[db.Cabinet.cabinet_group.ilike(pattern) for pattern in patterns],
             ),
         )
         .order_by(db.Cabinet.uid)
@@ -129,9 +131,9 @@ def search_topology(
             db.Device.deleted_at.is_(None),
             remaining > 0,
             or_(
-                db.Device.uid.ilike(pattern),
-                db.Device.device_model_name.ilike(pattern),
-                db.Device.note.ilike(pattern),
+                *[db.Device.uid.ilike(pattern) for pattern in patterns],
+                *[db.Device.device_model_name.ilike(pattern) for pattern in patterns],
+                *[db.Device.note.ilike(pattern) for pattern in patterns],
             ),
         )
         .order_by(db.Device.uid)
@@ -139,18 +141,20 @@ def search_topology(
     ).all()
 
     remaining = max(0, limit - len(cabinet_rows) - len(device_rows))
+    cable_search_uid = _cable_search_uid_expression()
     cable_rows = session.execute(
-        select(db.Cable.uid, db.Cable.cable_type, db.Cable.import_status)
+        select(db.Cable.uid, cable_search_uid.label("search_uid"), db.Cable.cable_type, db.Cable.import_status)
         .where(
             db.Cable.project_uid == project_uid,
             db.Cable.deleted_at.is_(None),
             remaining > 0,
             or_(
-                db.Cable.uid.ilike(pattern),
-                db.Cable.cable_type.ilike(pattern),
-                db.Cable.import_status.ilike(pattern),
-                db.Cable.a_port_uid.ilike(pattern),
-                db.Cable.z_port_uid.ilike(pattern),
+                *[db.Cable.uid.ilike(pattern) for pattern in patterns],
+                *[cable_search_uid.ilike(pattern) for pattern in patterns],
+                *[db.Cable.cable_type.ilike(pattern) for pattern in patterns],
+                *[db.Cable.import_status.ilike(pattern) for pattern in patterns],
+                *[db.Cable.a_port_uid.ilike(pattern) for pattern in patterns],
+                *[db.Cable.z_port_uid.ilike(pattern) for pattern in patterns],
             ),
         )
         .order_by(db.Cable.uid)
@@ -164,9 +168,26 @@ def search_topology(
         SearchResult(entity_type="device", uid=row.uid, label=row.uid, description=row.device_model_name or row.note or "")
         for row in device_rows
     ] + [
-        SearchResult(entity_type="cable", uid=row.uid, label=row.uid, description=" / ".join(part for part in (row.cable_type, row.import_status) if part))
+        SearchResult(entity_type="cable", uid=row.uid, label=row.search_uid, description=" / ".join(part for part in (row.cable_type, row.import_status) if part))
         for row in cable_rows
     ]
+
+
+def _cable_search_uid_expression():
+    scoped_prefix = db.Cable.project_uid + ":"
+    return func.concat(
+        db.Cable.project_uid,
+        ":",
+        func.regexp_replace(db.Cable.uid, "^" + scoped_prefix, ""),
+    )
+
+
+def _search_patterns(search_term: str) -> list[str]:
+    normalized_terms = {
+        search_term,
+        re.sub(r"[\s+]+", ":", search_term),
+    }
+    return [f"%{term}%" for term in sorted(normalized_terms) if term]
 
 
 def filter_cabinets(session: Session, filters: CabinetFilter) -> list[CabinetSummary]:
