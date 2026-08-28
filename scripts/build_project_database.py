@@ -28,6 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build a topology database for a configured project.")
     parser.add_argument("--project-uid", required=True)
     parser.add_argument("--source-path", default=None, help="Override the source workbook path from data/projects.json.")
+    parser.add_argument("--vr-roce-path", default=None, help="Override the VR RoCE cutsheet path from data/projects.json.")
     parser.add_argument("--runtime-path", default=None, help="Override the runtime database output path from data/projects.json.")
     parser.add_argument("--default-max-rack-unit", type=int, default=LBB01_DEFAULT_MAX_RACK_UNIT)
     args = parser.parse_args()
@@ -60,7 +61,7 @@ def main() -> None:
         if non_roce_path
         else None
     )
-    vr_roce_path = _source_path_by_kind(project, "vr_roce_cutsheet")
+    vr_roce_path = args.vr_roce_path or _source_path_by_kind(project, "vr_roce_cutsheet")
     vr_roce = (
         ingest_lbb01_vr_roce_cutsheets(
             vr_roce_path,

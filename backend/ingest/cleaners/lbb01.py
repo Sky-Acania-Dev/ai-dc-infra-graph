@@ -310,7 +310,7 @@ def ingest_lbb01_vr_roce_cutsheets(
 ) -> CutsheetIngestionResult:
     results = [
         ingest_cutsheet_rows(
-            [_normalize_lbb_non_roce_row(row) for row in _dict_rows_from_ods_sheet(path, sheet_name)],
+            [_normalize_lbb_non_roce_row(row) for row in _dict_rows_from_vr_roce_sheet(path, sheet_name)],
             project_uid=project_uid,
             building_id=building_id,
         )
@@ -491,7 +491,7 @@ def _row_dedupe_key(row: CutsheetCableRow, result_index: int, row_index: int) ->
 
 
 def _cable_dedupe_key(cable: Cable, result_index: int, cable_index: int) -> str:
-    if cable.uid:
+    if cable.uid and not re.fullmatch(r"CBL-\d{6}", cable.uid):
         return f"uid:{cable.uid}"
     return f"cable:{result_index}|{cable.a_side.uid}|{cable.z_side.uid}|{cable.cable_type}|{cable.status}|{cable_index}"
 
@@ -552,6 +552,17 @@ def _normalize_lbb_loc_cab_ru(value: str) -> str:
 
 def _dict_rows_from_ods_sheet(path: str | Path, sheet_name: str) -> list[dict[str, str]]:
     rows = read_ods_sheet_rows(path, sheet_name)
+    return _dict_rows_from_matrix(rows)
+
+
+def _dict_rows_from_vr_roce_sheet(path: str | Path, sheet_name: str) -> list[dict[str, Any]]:
+    path = Path(path)
+    if path.suffix.lower() == ".ods":
+        return _dict_rows_from_matrix(read_ods_sheet_rows(path, sheet_name))
+    return _dict_rows_from_matrix(read_xlsx_sheet_rows(path, sheet_name))
+
+
+def _dict_rows_from_matrix(rows: list[list[Any]]) -> list[dict[str, Any]]:
     if not rows:
         return []
     headers = rows[0]

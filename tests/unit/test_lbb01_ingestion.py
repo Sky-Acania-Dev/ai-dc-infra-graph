@@ -14,7 +14,7 @@ from backend.models import Cabinet
 
 LBB_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\LBB01- IB sketch (1).xlsx")
 LBB_NON_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\Lubbanon 8.16.xlsx")
-LBB_VR_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\lubbanon vr room roce label.xlsx.ods")
+LBB_VR_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\Updated VR RoCe.xlsx")
 
 
 class Lbb01RackUnitTests(unittest.TestCase):
@@ -79,6 +79,7 @@ class Lbb01IngestionTests(unittest.TestCase):
         result = ingest_lbb01_vr_roce_cutsheets(LBB_VR_ROCE_WORKBOOK)
 
         self.assertEqual(len(result.rows), 4352)
+        self.assertEqual(len(result.cables), 4352)
         self.assertEqual(result.rows[0].a_port_uid, "DH1-3:1142:36:gpu0")
         self.assertEqual(result.rows[0].z_port_uid, "DH1-3:1149:38:swp1")
 
