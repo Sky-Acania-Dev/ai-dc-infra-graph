@@ -226,6 +226,7 @@ data/runtime/*
 !data/runtime/.gitkeep
 data/snapshots/*
 !data/snapshots/.gitkeep
+tmp/
 
 # Sensitive topology exports
 *.sqlite
