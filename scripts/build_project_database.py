@@ -16,6 +16,7 @@ from backend.ingest.cleaners.lbb01 import (
     apply_lbb01_rack_unit_rule,
     ingest_lbb01_non_roce_cutsheet,
     ingest_lbb01_overhead,
+    ingest_lbb01_roce_cutsheets,
     ingest_lbb01_vr_roce_cutsheets,
     ingest_lbb01_workbook,
 )
@@ -71,6 +72,7 @@ def main() -> None:
         if vr_roce_path
         else None
     )
+    configured_roce_sources = _sources_by_kind(project, "roce_cutsheet")
     sources = [
         CutsheetSourceResult(
             source_name="lbb01:roce_sample",
@@ -86,6 +88,20 @@ def main() -> None:
                 path=str(non_roce_path),
                 construction_phase=ConstructionPhase.MANAGEMENT_ETHERNET,
                 result=non_roce,
+            )
+        )
+    for roce_source in configured_roce_sources:
+        sources.append(
+            CutsheetSourceResult(
+                source_name=f"lbb01:roce:{Path(roce_source.path).stem}",
+                path=str(roce_source.path),
+                construction_phase=ConstructionPhase.ROCE,
+                result=ingest_lbb01_roce_cutsheets(
+                    roce_source.path,
+                    project_uid=project.uid,
+                    building_id=project.building_id,
+                    sheet_names=roce_source.sheets,
+                ),
             )
         )
     if vr_roce and vr_roce_path:
@@ -147,6 +163,10 @@ def _source_path_by_kind(project, kind: str) -> str | None:
         if source.kind == kind:
             return source.path
     return None
+
+
+def _sources_by_kind(project, kind: str):
+    return [source for source in project.source_files if source.kind == kind]
 
 
 if __name__ == "__main__":

@@ -31,8 +31,13 @@ DEFAULT_VR_ROCE_SHEETS = (
     "DH1-VR_PS NODE to TIER-0",
     "DH1-VR_PS TIER-0 to TIER-1",
 )
+DEFAULT_ROCE_CUTSHEET_SHEETS = (
+    "SP2 DH1 NODE TO TIER-0",
+    "SP2 DH1 TIER-0 TO TIER-1",
+)
 NODE_TO_LEAF_GROUP = "DH1-3 Node to Leaf"
 LEAF_TO_SPINE_GROUP = "DH1-3 Leaf to Spine"
+ROCE_CUTSHEET_GROUP = "LBB01 RoCE"
 LEAF_RACK_UNIT_BY_INDEX = {
     1: 45,
     2: 40,
@@ -319,6 +324,27 @@ def ingest_lbb01_vr_roce_cutsheets(
     return _combine_cutsheet_results(results, project_uid=project_uid, building_id=building_id)
 
 
+def ingest_lbb01_roce_cutsheets(
+    path: str | Path,
+    project_uid: str = LBB01_PROJECT_UID,
+    building_id: str = DEFAULT_BUILDING_ID,
+    sheet_names: Sequence[str] = DEFAULT_ROCE_CUTSHEET_SHEETS,
+) -> CutsheetIngestionResult:
+    sheet_names = sheet_names or DEFAULT_ROCE_CUTSHEET_SHEETS
+    results = [
+        ingest_cutsheet_rows(
+            [_normalize_lbb_non_roce_row(row) for row in _dict_rows_from_vr_roce_sheet(path, sheet_name)],
+            project_uid=project_uid,
+            building_id=building_id,
+        )
+        for sheet_name in sheet_names
+    ]
+    return _with_default_group(
+        _combine_cutsheet_results(results, project_uid=project_uid, building_id=building_id),
+        ROCE_CUTSHEET_GROUP,
+    )
+
+
 def _node_to_leaf_row(row: dict[str, Any], row_number: int) -> CutsheetCableRow:
     rack_number = _int_value(row.get("rack_number"), f"rack number at row {row_number}")
     data_hall_id = _section_for_lbb_cabinet(rack_number)
@@ -482,6 +508,16 @@ def _combine_cutsheet_results(
         cables=cables,
         findings=detect_port_collisions(rows),
     )
+
+
+def _with_default_group(result: CutsheetIngestionResult, group: str) -> CutsheetIngestionResult:
+    for row in result.rows:
+        if not row.group:
+            row.group = group
+    for cable in result.cables:
+        if not cable.group:
+            cable.group = group
+    return result
 
 
 def _row_dedupe_key(row: CutsheetCableRow, result_index: int, row_index: int) -> str:

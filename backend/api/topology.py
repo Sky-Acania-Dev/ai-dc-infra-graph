@@ -1962,15 +1962,6 @@ def _source_update_record_peer_cabinet_uid(record: dict[str, Any], cabinet_uid: 
     return None
 
 
-def _cabinet_uid_from_port_uid(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    parts = value.split(":")
-    if len(parts) < 2:
-        return None
-    return f"{parts[0].upper()}:{parts[1].zfill(3)}"
-
-
 def _postgres_source_update_counts_for_cabinet_pair(
     session,
     *,
@@ -2768,7 +2759,9 @@ def _cabinet_uid_from_device_uid(device_uid: str) -> str:
     return f"{data_hall_id}:{cabinet_id}".upper()
 
 
-def _cabinet_uid_from_port_uid(port_uid: str) -> str | None:
+def _cabinet_uid_from_port_uid(port_uid: Any) -> str | None:
+    if not isinstance(port_uid, str):
+        return None
     parts = port_uid.split(":", 2)
     if len(parts) < 2:
         return None

@@ -728,6 +728,7 @@ class SourceCableRow(Base):
     __tablename__ = "source_cable_rows"
     __table_args__ = (
         Index("ix_source_cable_rows_import_row", "source_import_uid", "row_number"),
+        Index("ix_source_cable_rows_cable", "cable_uid"),
     )
 
     uid: Mapped[str] = mapped_column(Text, primary_key=True)

@@ -5,7 +5,7 @@ from datetime import date
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from backend.models import Cabinet as DomainCabinet
@@ -241,7 +241,11 @@ def replace_project_topology(
 
 def _delete_project_topology(session: Session, project_uid: str) -> None:
     source_import_uids = select(db.SourceImport.uid).where(db.SourceImport.project_uid == project_uid)
-    session.execute(delete(db.SourceCableRow).where(db.SourceCableRow.source_import_uid.in_(source_import_uids)))
+    session.execute(
+        delete(db.SourceCableRow)
+        .where(db.SourceCableRow.source_import_uid.in_(source_import_uids))
+        .execution_options(synchronize_session=False)
+    )
     for table_model in (
         db.CableBundleCable,
         db.CableBundleLadderRackSegment,
@@ -258,7 +262,11 @@ def _delete_project_topology(session: Session, project_uid: str) -> None:
         db.Building,
     ):
         if "project_uid" in table_model.__table__.columns:
-            session.execute(delete(table_model).where(table_model.__table__.c.project_uid == project_uid))
+            session.execute(
+                delete(table_model)
+                .where(table_model.__table__.c.project_uid == project_uid)
+                .execution_options(synchronize_session=False)
+            )
 
 
 def _sync_entity_history(
@@ -269,11 +277,18 @@ def _sync_entity_history(
     existing_entities: set[tuple[str, str]],
     current_entities: set[tuple[str, str]],
 ) -> None:
+    history_rows = session.execute(
+        select(db.EntityHistory.uid, db.EntityHistory.last_version_uid)
+        .where(db.EntityHistory.project_uid == project_uid)
+    ).all()
+    history_by_uid = {uid: last_version_uid for uid, last_version_uid in history_rows}
+
+    new_histories = []
+    reactivated_uids = []
     for entity_type, entity_uid in sorted(current_entities):
         history_uid = _entity_history_uid(project_uid, entity_type, entity_uid)
-        history = session.get(db.EntityHistory, history_uid)
-        if history is None:
-            session.add(
+        if history_uid not in history_by_uid:
+            new_histories.append(
                 db.EntityHistory(
                     uid=history_uid,
                     project_uid=project_uid,
@@ -282,16 +297,36 @@ def _sync_entity_history(
                     first_version_uid=topology_version_uid,
                 )
             )
-            continue
-        if history.last_version_uid is not None:
-            history.last_version_uid = None
-            history.last_operation_id = None
+        elif history_by_uid[history_uid] is not None:
+            reactivated_uids.append(history_uid)
 
+    if new_histories:
+        session.bulk_save_objects(new_histories)
+    for uid_chunk in _chunks(reactivated_uids, 5000):
+        session.execute(
+            update(db.EntityHistory)
+            .where(db.EntityHistory.uid.in_(uid_chunk))
+            .values(last_version_uid=None, last_operation_id=None)
+            .execution_options(synchronize_session=False)
+        )
+
+    retired_uids = []
     for entity_type, entity_uid in sorted(existing_entities - current_entities):
         history_uid = _entity_history_uid(project_uid, entity_type, entity_uid)
-        history = session.get(db.EntityHistory, history_uid)
-        if history is not None and history.last_version_uid is None:
-            history.last_version_uid = topology_version_uid
+        if history_by_uid.get(history_uid) is None:
+            retired_uids.append(history_uid)
+    for uid_chunk in _chunks(retired_uids, 5000):
+        session.execute(
+            update(db.EntityHistory)
+            .where(db.EntityHistory.uid.in_(uid_chunk))
+            .values(last_version_uid=topology_version_uid)
+            .execution_options(synchronize_session=False)
+        )
+
+
+def _chunks(values: list[str], size: int):
+    for index in range(0, len(values), size):
+        yield values[index:index + size]
 
 
 def _current_entity_keys(session: Session, project_uid: str) -> set[tuple[str, str]]:

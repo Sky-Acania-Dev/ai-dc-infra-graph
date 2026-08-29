@@ -4,6 +4,8 @@ import unittest
 from backend.api.auth import AuthUser, UserRole
 from backend.api.topology import (
     _operations_path,
+    _cabinet_uid_from_port_uid,
+    _source_update_record_peer_cabinet_uid,
     cabinet_connection_cables,
     cabinet_detail,
     cabinet_layout,
@@ -39,6 +41,11 @@ class TopologyApiTests(unittest.TestCase):
             os.environ.pop("TOPOLOGY_STORAGE_BACKEND", None)
         else:
             os.environ["TOPOLOGY_STORAGE_BACKEND"] = self._previous_storage_backend
+
+    def test_source_update_peer_cabinet_ignores_missing_port_uids(self) -> None:
+        self.assertIsNone(_cabinet_uid_from_port_uid(None))
+        self.assertIsNone(_cabinet_uid_from_port_uid(""))
+        self.assertIsNone(_source_update_record_peer_cabinet_uid({"a_port_uid": None}, "DH1-4:500"))
 
     def test_cabinet_detail_includes_devices_and_connections(self) -> None:
         _, runtime_path = _test_paths()

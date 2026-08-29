@@ -6,6 +6,7 @@ from backend.ingest.cleaners.lbb01 import (
     apply_lbb01_rack_unit_rule,
     ingest_lbb01_non_roce_cutsheet,
     ingest_lbb01_overhead,
+    ingest_lbb01_roce_cutsheets,
     ingest_lbb01_vr_roce_cutsheets,
     ingest_lbb01_workbook,
 )
@@ -15,6 +16,7 @@ from backend.models import Cabinet
 LBB_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\LBB01- IB sketch (1).xlsx")
 LBB_NON_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\Lubbanon 8.16.xlsx")
 LBB_VR_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\Updated VR RoCe.xlsx")
+LBB_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\DH2 Leaf to Spine_Node.xlsx")
 
 
 class Lbb01RackUnitTests(unittest.TestCase):
@@ -82,6 +84,17 @@ class Lbb01IngestionTests(unittest.TestCase):
         self.assertEqual(len(result.cables), 4352)
         self.assertEqual(result.rows[0].a_port_uid, "DH1-3:1142:36:gpu0")
         self.assertEqual(result.rows[0].z_port_uid, "DH1-3:1149:38:swp1")
+
+    @unittest.skipUnless(LBB_ROCE_WORKBOOK.exists(), "LBB01 DH2 RoCE workbook is not available.")
+    def test_ingest_lbb01_roce_cutsheets_imports_dh2_source_without_vr_sheets(self) -> None:
+        result = ingest_lbb01_roce_cutsheets(LBB_ROCE_WORKBOOK)
+
+        self.assertEqual(len(result.rows), 112640)
+        self.assertEqual(len(result.cables), 112640)
+        self.assertEqual(len(result.findings), 0)
+        self.assertEqual(result.rows[0].group, "LBB01 RoCE")
+        self.assertEqual(result.rows[0].a_port_uid, "DH1-2:163:37:ibs0p0")
+        self.assertEqual(result.rows[0].z_port_uid, "DH1-2:170:38:swp1s0")
 
 
 def _vr_row(a_data_hall_id: str, a_cabinet_id: str, a_rack_unit: int, z_data_hall_id: str, z_cabinet_id: str, z_rack_unit: int) -> CutsheetCableRow:
