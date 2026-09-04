@@ -17,6 +17,8 @@ LBB_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\L
 LBB_NON_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\Lubbanon 8.16.xlsx")
 LBB_VR_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\Updated VR RoCe.xlsx")
 LBB_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\DH2 Leaf to Spine_Node.xlsx")
+LBB_DH4_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\RoCe DH4 9.2.xlsx")
+LBB_DH5_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\RoCe DH5 9.2.xlsx")
 
 
 class Lbb01RackUnitTests(unittest.TestCase):
@@ -95,6 +97,36 @@ class Lbb01IngestionTests(unittest.TestCase):
         self.assertEqual(result.rows[0].group, "LBB01 RoCE")
         self.assertEqual(result.rows[0].a_port_uid, "DH1-2:163:37:ibs0p0")
         self.assertEqual(result.rows[0].z_port_uid, "DH1-2:170:38:swp1s0")
+
+    @unittest.skipUnless(LBB_DH4_ROCE_WORKBOOK.exists(), "LBB01 DH4 RoCE workbook is not available.")
+    def test_ingest_lbb01_roce_cutsheets_imports_dh4_source(self) -> None:
+        result = ingest_lbb01_roce_cutsheets(
+            LBB_DH4_ROCE_WORKBOOK,
+            sheet_names=("SP3 DH1 NODE TO TIER-0", "SP3 DH1 TIER-0 TO TIER-1"),
+        )
+
+        self.assertEqual(len(result.rows), 112640)
+        self.assertEqual(len(result.cables), 112640)
+        self.assertEqual(len(result.findings), 0)
+        self.assertEqual(result.rows[0].a_port_uid, "DH1-4:483:37:ibs0p0")
+        self.assertEqual(result.rows[0].z_port_uid, "DH1-4:490:38:swp1s0")
+        self.assertEqual(
+            sum(1 for row in result.rows if row.a_cabinet_id == "1343" or row.z_cabinet_id == "1343"),
+            1792,
+        )
+
+    @unittest.skipUnless(LBB_DH5_ROCE_WORKBOOK.exists(), "LBB01 DH5 RoCE workbook is not available.")
+    def test_ingest_lbb01_roce_cutsheets_imports_dh5_source(self) -> None:
+        result = ingest_lbb01_roce_cutsheets(
+            LBB_DH5_ROCE_WORKBOOK,
+            sheet_names=("SP4 DH1 NODE TO TIER-0", "SP4 DH1 TIER-0 TO TIER-1"),
+        )
+
+        self.assertEqual(len(result.rows), 108288)
+        self.assertEqual(len(result.cables), 108288)
+        self.assertEqual(len(result.findings), 0)
+        self.assertEqual(result.rows[0].a_port_uid, "DH1-5:643:37:ibs0p0")
+        self.assertEqual(result.rows[0].z_port_uid, "DH1-5:650:38:swp1s0")
 
 
 def _vr_row(a_data_hall_id: str, a_cabinet_id: str, a_rack_unit: int, z_data_hall_id: str, z_cabinet_id: str, z_rack_unit: int) -> CutsheetCableRow:

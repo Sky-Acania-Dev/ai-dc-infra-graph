@@ -35,6 +35,35 @@ DEFAULT_ROCE_CUTSHEET_SHEETS = (
     "SP2 DH1 NODE TO TIER-0",
     "SP2 DH1 TIER-0 TO TIER-1",
 )
+ROCE_TIER_TO_TIER_HEADERS = (
+    "STATUS",
+    "A-LOCODE",
+    "A-LOC:CAB:RU",
+    "A-SIDE-DNS-NAME",
+    "A-MODEL",
+    "SHUFFLE-ID",
+    "A-CONNECTOR",
+    "A-MPO",
+    "A-PORT",
+    "A-BREAKOUT LOC:CAB:RU",
+    "A-BREAKOUT SLOT:PORT",
+    "A-OPTIC",
+    "A-PATCH-PANEL LOC:CAB:RU:PORT",
+    "A-SUPERPOD-ID",
+    "Z-LOCODE",
+    "Z-LOC:CAB:RU",
+    "Z-SIDE-DNS-NAME",
+    "Z-MODEL",
+    "Z-CONNECTOR",
+    "Z-MPO",
+    "Z-PORT",
+    "Z-BREAKOUT LOC:CAB:RU",
+    "Z-BREAKOUT SLOT:PORT",
+    "Z-PATCH-PANEL LOC:CAB:RU:PORT",
+    "Z-OPTIC",
+    "Z-SUPERPOD-ID",
+    "CABLE",
+)
 NODE_TO_LEAF_GROUP = "DH1-3 Node to Leaf"
 LEAF_TO_SPINE_GROUP = "DH1-3 Leaf to Spine"
 ROCE_CUTSHEET_GROUP = "LBB01 RoCE"
@@ -333,7 +362,7 @@ def ingest_lbb01_roce_cutsheets(
     sheet_names = sheet_names or DEFAULT_ROCE_CUTSHEET_SHEETS
     results = [
         ingest_cutsheet_rows(
-            [_normalize_lbb_non_roce_row(row) for row in _dict_rows_from_vr_roce_sheet(path, sheet_name)],
+            [_normalize_lbb_roce_row(row) for row in _dict_rows_from_lbb_roce_sheet(path, sheet_name)],
             project_uid=project_uid,
             building_id=building_id,
         )
@@ -342,6 +371,46 @@ def ingest_lbb01_roce_cutsheets(
     return _with_default_group(
         _combine_cutsheet_results(results, project_uid=project_uid, building_id=building_id),
         ROCE_CUTSHEET_GROUP,
+    )
+
+
+def _dict_rows_from_lbb_roce_sheet(path: str | Path, sheet_name: str) -> list[dict[str, Any]]:
+    path = Path(path)
+    rows = read_ods_sheet_rows(path, sheet_name) if path.suffix.lower() == ".ods" else read_xlsx_sheet_rows(path, sheet_name)
+    if not rows:
+        return []
+    if _has_bad_roce_tier_to_tier_header(sheet_name, rows[0]):
+        rows = [list(ROCE_TIER_TO_TIER_HEADERS), *rows[1:]]
+    return _dict_rows_from_matrix(rows)
+
+
+def _has_bad_roce_tier_to_tier_header(sheet_name: str, headers: Sequence[Any]) -> bool:
+    normalized_sheet_name = _normalize_non_roce_header(sheet_name)
+    normalized_headers = [_normalize_non_roce_header(header) for header in headers]
+    return (
+        "tier_0_to_tier_1" in normalized_sheet_name
+        and sum(1 for header in headers if row_text({"header": header}, "header")) < len(ROCE_TIER_TO_TIER_HEADERS)
+        and normalized_headers[:4] == ["status", "a_side_dns_name", "a_locode", "a_loc_cab_ru"]
+    )
+
+
+def _normalize_lbb_roce_row(row: dict[str, Any]) -> dict[str, str]:
+    normalized = _normalize_lbb_non_roce_row(row)
+    if not normalized.get("cable") and not _is_lbb_roce_node_to_tier_row(normalized) and _has_lbb_roce_endpoint_values(normalized):
+        normalized["cable"] = "MPO12 2x2"
+    return normalized
+
+
+def _is_lbb_roce_node_to_tier_row(row: dict[str, str]) -> bool:
+    return bool(row.get("a_interface") and row.get("z_interface"))
+
+
+def _has_lbb_roce_endpoint_values(row: dict[str, str]) -> bool:
+    return bool(
+        row.get("a_loc_cab_ru")
+        and row.get("a_port")
+        and row.get("z_loc_cab_ru")
+        and row.get("z_port")
     )
 
 

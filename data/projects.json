@@ -69,6 +69,22 @@
           ]
         },
         {
+          "kind": "roce_cutsheet",
+          "path": "C:\\Personal Folder\\Work\\Megawatt\\003. TX Lubbock\\1. Data\\RoCe DH4 9.2.xlsx",
+          "sheets": [
+            "SP3 DH1 NODE TO TIER-0",
+            "SP3 DH1 TIER-0 TO TIER-1"
+          ]
+        },
+        {
+          "kind": "roce_cutsheet",
+          "path": "C:\\Personal Folder\\Work\\Megawatt\\003. TX Lubbock\\1. Data\\RoCe DH5 9.2.xlsx",
+          "sheets": [
+            "SP4 DH1 NODE TO TIER-0",
+            "SP4 DH1 TIER-0 TO TIER-1"
+          ]
+        },
+        {
           "kind": "vr_roce_cutsheet",
           "path": "C:\\Personal Folder\\Work\\Megawatt\\003. TX Lubbock\\1. Data\\Updated VR RoCe.xlsx",
           "sheets": [
