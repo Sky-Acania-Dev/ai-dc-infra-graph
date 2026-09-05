@@ -19,7 +19,10 @@ class ProjectCatalogTests(unittest.TestCase):
         self.assertEqual(project.source_files[2].kind, "roce_cutsheet")
         self.assertEqual(project.source_files[3].kind, "roce_cutsheet")
         self.assertEqual(project.source_files[4].kind, "roce_cutsheet")
-        self.assertEqual(project.source_files[5].kind, "vr_roce_cutsheet")
+        self.assertEqual(project.source_files[5].kind, "roce_cutsheet")
+        self.assertEqual(project.source_files[6].kind, "vr_roce_cutsheet")
+        self.assertIn("DH1 RoCe 9.4.xlsx", project.source_files[2].path)
+        self.assertIn("DH2 RoCe 9.4.xlsx", project.source_files[3].path)
 
     def test_active_project_env_sets_single_active_project(self) -> None:
         with patch.dict("os.environ", {"ACTIVE_PROJECT_UID": "LBB01"}):

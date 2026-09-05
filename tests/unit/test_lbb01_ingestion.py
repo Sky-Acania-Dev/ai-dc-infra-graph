@@ -16,7 +16,8 @@ from backend.models import Cabinet
 LBB_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\LBB01- IB sketch (1).xlsx")
 LBB_NON_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\Lubbanon 8.16.xlsx")
 LBB_VR_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\Updated VR RoCe.xlsx")
-LBB_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\DH2 Leaf to Spine_Node.xlsx")
+LBB_DH1_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\DH1 RoCe 9.4.xlsx")
+LBB_DH2_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\DH2 RoCe 9.4.xlsx")
 LBB_DH4_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\RoCe DH4 9.2.xlsx")
 LBB_DH5_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\RoCe DH5 9.2.xlsx")
 
@@ -87,9 +88,26 @@ class Lbb01IngestionTests(unittest.TestCase):
         self.assertEqual(result.rows[0].a_port_uid, "DH1-3:1142:36:gpu0")
         self.assertEqual(result.rows[0].z_port_uid, "DH1-3:1149:38:swp1")
 
-    @unittest.skipUnless(LBB_ROCE_WORKBOOK.exists(), "LBB01 DH2 RoCE workbook is not available.")
+    @unittest.skipUnless(LBB_DH1_ROCE_WORKBOOK.exists(), "LBB01 DH1 RoCE workbook is not available.")
+    def test_ingest_lbb01_roce_cutsheets_imports_dh1_source(self) -> None:
+        result = ingest_lbb01_roce_cutsheets(
+            LBB_DH1_ROCE_WORKBOOK,
+            sheet_names=("SP1 DH1 NODE TO TIER-0", "SP1 DH1 TIER-0 TO TIER-1"),
+        )
+
+        self.assertEqual(len(result.rows), 108288)
+        self.assertEqual(len(result.cables), 108288)
+        self.assertEqual(len(result.findings), 0)
+        self.assertEqual(result.rows[0].group, "LBB01 RoCE")
+        self.assertEqual(result.rows[0].a_port_uid, "DH1-1:013:37:ibs0p0")
+        self.assertEqual(result.rows[0].z_port_uid, "DH1-1:020:38:swp1s0")
+
+    @unittest.skipUnless(LBB_DH2_ROCE_WORKBOOK.exists(), "LBB01 DH2 RoCE workbook is not available.")
     def test_ingest_lbb01_roce_cutsheets_imports_dh2_source_without_vr_sheets(self) -> None:
-        result = ingest_lbb01_roce_cutsheets(LBB_ROCE_WORKBOOK)
+        result = ingest_lbb01_roce_cutsheets(
+            LBB_DH2_ROCE_WORKBOOK,
+            sheet_names=("SP2 DH1 NODE TO TIER-0", "SP2 DH1 TIER-0 TO TIER-1"),
+        )
 
         self.assertEqual(len(result.rows), 112640)
         self.assertEqual(len(result.cables), 112640)

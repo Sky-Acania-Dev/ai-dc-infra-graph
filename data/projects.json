@@ -62,7 +62,15 @@
         },
         {
           "kind": "roce_cutsheet",
-          "path": "C:\\Personal Folder\\Work\\Megawatt\\003. TX Lubbock\\1. Data\\DH2 Leaf to Spine_Node.xlsx",
+          "path": "C:\\Personal Folder\\Work\\Megawatt\\003. TX Lubbock\\1. Data\\DH1 RoCe 9.4.xlsx",
+          "sheets": [
+            "SP1 DH1 NODE TO TIER-0",
+            "SP1 DH1 TIER-0 TO TIER-1"
+          ]
+        },
+        {
+          "kind": "roce_cutsheet",
+          "path": "C:\\Personal Folder\\Work\\Megawatt\\003. TX Lubbock\\1. Data\\DH2 RoCe 9.4.xlsx",
           "sheets": [
             "SP2 DH1 NODE TO TIER-0",
             "SP2 DH1 TIER-0 TO TIER-1"
