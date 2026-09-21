@@ -24,6 +24,7 @@ def main() -> None:
     parser.add_argument("--database-url", default=None)
     parser.add_argument("--project-uid", default=DEFAULT_PROJECT_UID)
     parser.add_argument("--operation-group-uid", required=True)
+    parser.add_argument("--operation-type", default="source_update")
     parser.add_argument("--source-uid", required=True)
     parser.add_argument("--source-operator", default="CUSTOMER")
     parser.add_argument("--source-type", default="topology_changelist")
@@ -56,11 +57,12 @@ def main() -> None:
             session.execute(
                 delete(db.OperationLog).where(
                     db.OperationLog.project_uid == args.project_uid,
-                    db.OperationLog.operation_type == "source_update",
+                    db.OperationLog.operation_type == args.operation_type,
                     db.OperationLog.operation_group_uid == args.operation_group_uid,
                     db.OperationLog.source_uid == args.source_uid,
                 )
             )
+            entity_resolver = _build_entity_resolver(session, args.project_uid, changes)
             for index, change in enumerate(changes, start=1):
                 if not isinstance(change, dict):
                     continue
@@ -68,8 +70,8 @@ def main() -> None:
                     db.OperationLog(
                         project_uid=args.project_uid,
                         entity_type="cable",
-                        entity_uid=_entity_uid(session, args.project_uid, change),
-                        operation_type="source_update",
+                        entity_uid=_entity_uid(entity_resolver, args.project_uid, change),
+                        operation_type=args.operation_type,
                         operation_group_uid=args.operation_group_uid,
                         source_type=args.source_type,
                         source_uid=args.source_uid,
@@ -80,15 +82,32 @@ def main() -> None:
                 )
 
     print(f"operation_group_uid={args.operation_group_uid}")
+    print(f"operation_type={args.operation_type}")
     print(f"source_uid={args.source_uid}")
     print(f"source_operator={args.source_operator.strip().upper()}")
     if args.version_name:
         print(f"version_name={args.version_name}")
         print(f"version_date={args.version_date.isoformat() if args.version_date else ''}")
-    print(f"source_update_operations={len(changes)}")
+    print(f"operations={len(changes)}")
 
 
-def _entity_uid(session, project_uid: str, change: dict) -> str:
+def _entity_uid(entity_resolver: dict[str, dict[tuple[str, ...], str]], project_uid: str, change: dict) -> str:
+    if change.get("change_type") == "removed":
+        return "|".join(
+            [
+                "REMOVED",
+                str(change.get("old_cable_uid") or ""),
+                str(change.get("old_row_number") or ""),
+                str(change.get("key") or ""),
+            ]
+        )
+    # Port-pair comparisons often contain generated CBL row IDs that shift when
+    # rows are inserted. Resolve the actual connection first whenever the
+    # changelist includes full records, then fall back to an authoritative UID.
+    matched = _entity_uid_from_records(entity_resolver, change)
+    if matched:
+        return matched
+
     raw_uid = str(
         change.get("authoritative_cable_uid")
         or change.get("new_cable_uid")
@@ -96,24 +115,51 @@ def _entity_uid(session, project_uid: str, change: dict) -> str:
         or change.get("key")
         or ""
     ).upper()
-    candidates = [raw_uid]
-    if raw_uid and not raw_uid.startswith(f"{project_uid.upper()}:"):
-        candidates.append(f"{project_uid.upper()}:{raw_uid}")
+    for candidate in (raw_uid, f"{project_uid.upper()}:{raw_uid}"):
+        if candidate in entity_resolver["uids"]:
+            return entity_resolver["uids"][candidate]
+    return str(change.get("key") or raw_uid)
+
+
+def _build_entity_resolver(session, project_uid: str, changes: list[dict]) -> dict[str, dict]:
+    wanted_exact: set[tuple[str, str, str, str]] = set()
+    wanted_loose: set[tuple[str, str, str]] = set()
+    for change in changes:
+        if not isinstance(change, dict):
+            continue
+        for record in (change.get("new_record"), change.get("old_record")):
+            if not isinstance(record, dict):
+                continue
+            a_port_uid = _clean(record.get("a_port_uid")).upper()
+            z_port_uid = _clean(record.get("z_port_uid")).upper()
+            cable_type = _clean(record.get("cable_type"))
+            cable_group = _clean(record.get("group") or record.get("cable_group"))
+            if a_port_uid and z_port_uid and cable_type:
+                wanted_exact.add((a_port_uid, z_port_uid, cable_type, cable_group))
+                wanted_loose.add((a_port_uid, z_port_uid, cable_type))
+
+    exact: dict[tuple[str, ...], str] = {}
+    loose: dict[tuple[str, ...], str] = {}
+    uids: dict[str, str] = {}
     rows = session.execute(
-        select(db.Cable).where(
-            db.Cable.project_uid == project_uid,
-            db.Cable.uid.in_(candidates),
-            db.Cable.deleted_at.is_(None),
-        )
-    ).scalars().all()
-    if rows:
-        return rows[0].uid
+        select(db.Cable.uid, db.Cable.a_port_uid, db.Cable.z_port_uid, db.Cable.cable_type, db.Cable.cable_group)
+        .where(db.Cable.project_uid == project_uid, db.Cable.deleted_at.is_(None))
+        .order_by(db.Cable.uid)
+        .execution_options(yield_per=10000)
+    )
+    for uid, a_port_uid, z_port_uid, cable_type, cable_group in rows:
+        uids[uid] = uid
+        loose_key = (a_port_uid.upper(), z_port_uid.upper(), cable_type)
+        if loose_key not in wanted_loose:
+            continue
+        exact_key = (*loose_key, cable_group or "")
+        if exact_key in wanted_exact:
+            exact.setdefault(exact_key, uid)
+        loose.setdefault(loose_key, uid)
+    return {"exact": exact, "loose": loose, "uids": uids}
 
-    matched = _entity_uid_from_records(session, project_uid, change)
-    return matched or raw_uid
 
-
-def _entity_uid_from_records(session, project_uid: str, change: dict) -> str:
+def _entity_uid_from_records(entity_resolver: dict[str, dict], change: dict) -> str:
     records = [
         record
         for record in (change.get("new_record"), change.get("old_record"))
@@ -125,24 +171,13 @@ def _entity_uid_from_records(session, project_uid: str, change: dict) -> str:
         cable_type = _clean(record.get("cable_type"))
         if not a_port_uid or not z_port_uid or not cable_type:
             continue
-        rows = session.execute(
-            select(db.Cable)
-            .where(
-                db.Cable.project_uid == project_uid,
-                db.Cable.a_port_uid == a_port_uid,
-                db.Cable.z_port_uid == z_port_uid,
-                db.Cable.cable_type == cable_type,
-                db.Cable.deleted_at.is_(None),
-            )
-            .order_by(db.Cable.uid)
-        ).scalars().all()
-        if not rows:
-            continue
         record_group = _clean(record.get("group") or record.get("cable_group"))
-        for row in rows:
-            if row.cable_group == record_group:
-                return row.uid
-        return rows[0].uid
+        exact_key = (a_port_uid, z_port_uid, cable_type, record_group)
+        if exact_key in entity_resolver["exact"]:
+            return entity_resolver["exact"][exact_key]
+        loose_key = (a_port_uid, z_port_uid, cable_type)
+        if loose_key in entity_resolver["loose"]:
+            return entity_resolver["loose"][loose_key]
     return ""
 
 

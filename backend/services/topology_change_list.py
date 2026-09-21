@@ -93,6 +93,8 @@ def compare_topology_databases(
                         old_cable_uid=old_record.get("cable_uid"),
                         new_cable_uid=new_record.get("cable_uid"),
                         fields=fields,
+                        old_record=old_record,
+                        new_record=new_record,
                     )
                 )
 

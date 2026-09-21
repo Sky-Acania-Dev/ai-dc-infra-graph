@@ -12,6 +12,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from backend.core.projects import get_project
 from backend.core.enums import ConstructionPhase
 from backend.ingest.cleaners.lbb01 import (
+    DEFAULT_NON_ROCE_SHEET,
     LBB01_DEFAULT_MAX_RACK_UNIT,
     apply_lbb01_rack_unit_rule,
     ingest_lbb01_non_roce_cutsheet,
@@ -45,7 +46,13 @@ def main() -> None:
     if project.uid.upper() != "LBB01":
         raise ValueError(f"No project-specific ingestion cleaner is registered for '{project.uid}'.")
 
-    non_roce_path = _source_path_by_kind(project, "non_roce_cutsheet")
+    non_roce_source = _source_by_kind(project, "non_roce_cutsheet")
+    non_roce_path = non_roce_source.path if non_roce_source else None
+    non_roce_sheet_name = (
+        non_roce_source.sheets[0]
+        if non_roce_source and non_roce_source.sheets
+        else DEFAULT_NON_ROCE_SHEET
+    )
     overhead_path = _source_path_by_kind(project, "overhead") or non_roce_path or source_path
     overhead = ingest_lbb01_overhead(overhead_path)
     roce_sample = ingest_lbb01_workbook(
@@ -58,6 +65,7 @@ def main() -> None:
             non_roce_path,
             project_uid=project.uid,
             building_id=project.building_id,
+            sheet_name=non_roce_sheet_name,
         )
         if non_roce_path
         else None
@@ -73,6 +81,7 @@ def main() -> None:
         else None
     )
     configured_roce_sources = _sources_by_kind(project, "roce_cutsheet")
+    configured_spine_to_core_sources = _sources_by_kind(project, "spine_to_core_cutsheet")
     sources = [
         CutsheetSourceResult(
             source_name="lbb01:roce_sample",
@@ -111,6 +120,22 @@ def main() -> None:
                 path=str(vr_roce_path),
                 construction_phase=ConstructionPhase.ROCE,
                 result=vr_roce,
+            )
+        )
+    # Keep newly added spine-to-core inputs after the existing sources so the
+    # importer's duplicate-UID suffixes remain stable for previously loaded cables.
+    for spine_source in configured_spine_to_core_sources:
+        sources.append(
+            CutsheetSourceResult(
+                source_name=f"lbb01:spine_to_core:{Path(spine_source.path).stem}",
+                path=str(spine_source.path),
+                construction_phase=ConstructionPhase.ROCE,
+                result=ingest_lbb01_roce_cutsheets(
+                    spine_source.path,
+                    project_uid=project.uid,
+                    building_id=project.building_id,
+                    sheet_names=spine_source.sheets,
+                ),
             )
         )
     pipeline_result = CutsheetIngestionPipelineResult(
@@ -159,9 +184,14 @@ def _model_to_payload(model) -> dict:
 
 
 def _source_path_by_kind(project, kind: str) -> str | None:
+    source = _source_by_kind(project, kind)
+    return source.path if source else None
+
+
+def _source_by_kind(project, kind: str):
     for source in project.source_files:
         if source.kind == kind:
-            return source.path
+            return source
     return None
 
 

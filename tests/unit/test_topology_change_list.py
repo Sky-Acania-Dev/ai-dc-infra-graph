@@ -94,6 +94,8 @@ class TopologyChangeListTests(unittest.TestCase):
         changed = [change for change in change_list.changes if change.change_type == "changed"][0]
         self.assertIn("status", changed.fields)
         self.assertIn("a_device_model", changed.fields)
+        self.assertEqual(changed.old_record["status"], "Cable Not Run")
+        self.assertEqual(changed.new_record["status"], "Cable Is Ran: Complete")
 
     def test_compares_topology_databases_by_cable_uid(self) -> None:
         overhead_result = OverheadIngestionResult(
