@@ -1,5 +1,7 @@
 import unittest
+from collections import Counter
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.ingest.cutsheet import CutsheetCableRow
 from backend.ingest.cleaners.lbb01 import (
@@ -20,6 +22,46 @@ LBB_DH1_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\
 LBB_DH2_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\DH2 RoCe 9.4.xlsx")
 LBB_DH4_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\RoCe DH4 9.2.xlsx")
 LBB_DH5_ROCE_WORKBOOK = Path(r"C:\Personal Folder\Work\Megawatt\003. TX Lubbock\1. Data\RoCe DH5 9.2.xlsx")
+
+
+class Lbb01SectionTests(unittest.TestCase):
+    def test_overhead_keeps_hot_aisle_groups_in_one_section(self) -> None:
+        with patch("backend.ingest.cleaners.lbb01.read_xlsx_sheet_rows", return_value=[list(range(1, 1601))]):
+            result = ingest_lbb01_overhead("overhead.xlsx")
+
+        cabinets = {int(cabinet.cabinet_id): cabinet for cabinet in result.cabinets}
+        self.assertEqual(set(cabinets), set(range(1, 1601)))
+        self.assertEqual(len(result.cabinets), 1600)
+        self.assertEqual(
+            Counter(cabinet.data_hall_id for cabinet in result.cabinets),
+            {"DH1-1": 320, "DH1-2": 320, "DH1-3": 280, "DH1-4": 320, "DH1-5": 360},
+        )
+        for start in range(1, 801, 20):
+            with self.subTest(group_start=start):
+                section = cabinets[start].data_hall_id
+                for rack in range(start, start + 20):
+                    self.assertEqual(cabinets[rack].data_hall_id, section)
+                    self.assertEqual(cabinets[rack + 800].data_hall_id, section)
+
+    def test_cutsheet_endpoints_use_new_section_boundaries(self) -> None:
+        boundaries = ((160, 161), (320, 321), (460, 461), (620, 621))
+        for section, (last, first) in enumerate(boundaries, start=1):
+            for offset in (0, 800):
+                with self.subTest(section=section, offset=offset):
+                    row = {
+                        "STATUS": "Cable Is Ran: Complete",
+                        "A-LOC:CAB:RU": f"dh1:{last + offset}:10",
+                        "A-PORT": "swp1",
+                        "Z-LOC:CAB:RU": f"dh1:{first + offset}:20",
+                        "Z-PORT": "swp2",
+                        "CABLE": "LC",
+                    }
+                    with patch("backend.ingest.cleaners.lbb01.dict_rows_from_header_sheet", return_value=[row]):
+                        result = ingest_lbb01_non_roce_cutsheet("cutsheet.xlsx")
+                    cable = result.cables[0]
+                    self.assertEqual(cable.a_side.uid, f"DH1-{section}:{last + offset:03d}:10:swp1")
+                    self.assertEqual(cable.z_side.uid, f"DH1-{section + 1}:{first + offset:03d}:20:swp2")
+                    self.assertEqual(result.rows[0].status, "Cable Is Ran: Complete")
 
 
 class Lbb01RackUnitTests(unittest.TestCase):
@@ -53,7 +95,7 @@ class Lbb01IngestionTests(unittest.TestCase):
         self.assertEqual(result.summary.port_collision_findings, 0)
         self.assertEqual(
             result.summary.data_halls,
-            {"DH1-1": 300, "DH1-2": 300, "DH1-3": 300, "DH1-4": 300, "DH1-5": 400},
+            {"DH1-1": 320, "DH1-2": 320, "DH1-3": 280, "DH1-4": 320, "DH1-5": 360},
         )
         self.assertEqual(result.summary.status_counts, {"Blocked": 288, "Cable Not Run": 864})
         self.assertEqual(result.cutsheet.rows[0].a_port_uid, "DH1-3:342:1:IBP3:P2")
