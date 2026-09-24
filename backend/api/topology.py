@@ -1301,37 +1301,45 @@ def _postgres_cabinet_layout(data_hall: str | None = None) -> list[CabinetLayout
 
 def _postgres_data_hall_cable_summary(data_hall_id: str) -> DataHallCableSummaryResponse:
     room_uid = _postgres_room_uid(data_hall_id)
+    port_prefix = f"{data_hall_id}:"
+    # Port UIDs start with the data-hall ID, so the summary can avoid joining both
+    # endpoint ports across the entire topology just to recover their room IDs.
+    a_data_hall = func.split_part(db.Cable.a_port_uid, ":", 1)
+    z_data_hall = func.split_part(db.Cable.z_port_uid, ":", 1)
     with session_factory()() as session:
-        a_port = aliased(db.Port)
-        z_port = aliased(db.Port)
+        if session.get(db.Room, room_uid) is None:
+            raise HTTPException(status_code=404, detail=f"Data hall '{data_hall_id}' was not found.")
         rows = session.execute(
             select(
-                a_port.room_uid.label("a_room_uid"),
-                z_port.room_uid.label("z_room_uid"),
+                a_data_hall.label("a_data_hall"),
+                z_data_hall.label("z_data_hall"),
                 db.Cable.cable_type,
                 db.Cable.import_status,
                 func.count().label("total_cables"),
             )
-            .join(a_port, db.Cable.a_port_uid == a_port.uid)
-            .join(z_port, db.Cable.z_port_uid == z_port.uid)
             .where(
                 db.Cable.project_uid == DEFAULT_PROJECT_UID,
                 db.Cable.deleted_at.is_(None),
-                or_(a_port.room_uid == room_uid, z_port.room_uid == room_uid),
+                or_(
+                    db.Cable.a_port_uid.like(f"{port_prefix}%"),
+                    db.Cable.z_port_uid.like(f"{port_prefix}%"),
+                ),
             )
-            .group_by(a_port.room_uid, z_port.room_uid, db.Cable.cable_type, db.Cable.import_status)
+            .group_by(a_data_hall, z_data_hall, db.Cable.cable_type, db.Cable.import_status)
         ).all()
 
-    internal_rows = [row for row in rows if row.a_room_uid == room_uid and row.z_room_uid == room_uid]
+    internal_rows = [
+        row for row in rows if row.a_data_hall == data_hall_id and row.z_data_hall == data_hall_id
+    ]
     external_by_hall: dict[str, list] = {}
     for row in rows:
-        other_room_uid = None
-        if row.a_room_uid == room_uid and row.z_room_uid != room_uid:
-            other_room_uid = row.z_room_uid
-        elif row.z_room_uid == room_uid and row.a_room_uid != room_uid:
-            other_room_uid = row.a_room_uid
-        if other_room_uid:
-            external_by_hall.setdefault(other_room_uid.rsplit(":", 1)[-1], []).append(row)
+        other_data_hall = None
+        if row.a_data_hall == data_hall_id and row.z_data_hall != data_hall_id:
+            other_data_hall = row.z_data_hall
+        elif row.z_data_hall == data_hall_id and row.a_data_hall != data_hall_id:
+            other_data_hall = row.a_data_hall
+        if other_data_hall:
+            external_by_hall.setdefault(other_data_hall, []).append(row)
 
     return DataHallCableSummaryResponse(
         data_hall_id=data_hall_id,

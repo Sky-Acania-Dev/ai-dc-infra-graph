@@ -143,6 +143,10 @@ export function App() {
   );
   const dataHalls = selectedProject?.data_halls.length ? selectedProject.data_halls : FALLBACK_DATA_HALLS;
   const isProjectTopologyAvailable = !selectedProject || selectedProject.status === "active";
+  // Do not issue topology requests using the generic fallback hall before the project catalog resolves.
+  const isProjectTopologyReady = Boolean(
+    selectedProjectUid && selectedProject && dataHalls.includes(dataHall),
+  );
 
   useEffect(() => {
     fetchCurrentUser()
@@ -193,6 +197,7 @@ export function App() {
       setDataHallCableSummary(null);
       return;
     }
+    if (!isProjectTopologyReady) return;
 
     const cachedLayout = cabinetLayoutCacheRef.current[dataHall];
     if (cachedLayout) {
@@ -221,13 +226,14 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [dataHall, isProjectTopologyAvailable, selectedProjectUid]);
+  }, [dataHall, isProjectTopologyAvailable, isProjectTopologyReady, selectedProjectUid]);
 
   useEffect(() => {
     if (!isProjectTopologyAvailable) {
       setDataHallCableSummary(null);
       return;
     }
+    if (!isProjectTopologyReady) return;
 
     const cachedSummary = dataHallCableSummaryCacheRef.current[dataHall];
     if (cachedSummary) {
@@ -249,7 +255,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [dataHall, isProjectTopologyAvailable, selectedProjectUid]);
+  }, [dataHall, isProjectTopologyAvailable, isProjectTopologyReady, selectedProjectUid]);
 
   useEffect(() => {
     if (!selectedCabinetUid) return;
