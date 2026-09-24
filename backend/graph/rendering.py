@@ -196,25 +196,94 @@ def _cabinet_svg(
 
 def _cabinet_grid_layout(cabinets: list) -> list[tuple[object, dict[str, int]]]:
     layout = []
-    source_rows = sorted({cabinet.source_row for cabinet in cabinets if cabinet.source_row is not None})
-    for row_index, source_row in enumerate(source_rows):
+    column_blocks = _source_column_blocks(cabinets)
+    source_row_groups = _source_row_groups(cabinets, column_blocks)
+    for row_index, source_rows in enumerate(source_row_groups):
         row_cabinets = sorted(
-            [cabinet for cabinet in cabinets if cabinet.source_row == source_row],
+            [cabinet for cabinet in cabinets if cabinet.source_row in source_rows],
             key=lambda cabinet: cabinet.source_col or 0,
         )
-        for block_index, start in enumerate(range(0, len(row_cabinets), 10)):
-            for col_index, cabinet in enumerate(row_cabinets[start : start + 10]):
-                layout.append(
-                    (
-                        cabinet,
-                        {
-                            "block": block_index,
-                            "row": row_index,
-                            "col": col_index,
-                        },
-                    )
+        for fallback_index, cabinet in enumerate(row_cabinets):
+            source_col = cabinet.source_col or 0
+            block_index = next(
+                (
+                    index
+                    for index, (block_start, block_end) in enumerate(column_blocks)
+                    if block_start <= source_col <= block_end
+                ),
+                fallback_index // 10,
+            )
+            block_start = column_blocks[block_index][0] if block_index < len(column_blocks) else 0
+            col_index = source_col - block_start if block_start else fallback_index % 10
+            layout.append(
+                (
+                    cabinet,
+                    {
+                        "block": block_index,
+                        "row": row_index,
+                        "col": col_index,
+                    },
                 )
+            )
     return layout
+
+
+def _source_column_blocks(cabinets: list) -> list[tuple[int, int]]:
+    source_columns = sorted(
+        {
+            cabinet.source_col
+            for cabinet in cabinets
+            if cabinet.source_col is not None and cabinet.source_col > 0
+        }
+    )
+    blocks: list[tuple[int, int]] = []
+    for source_col in source_columns:
+        if not blocks or source_col > blocks[-1][1]:
+            blocks.append((source_col, source_col + 9))
+    return blocks
+
+
+def _source_row_groups(cabinets: list, column_blocks: list[tuple[int, int]]) -> list[list[int]]:
+    blocks_by_row: dict[int, set[int]] = {}
+    for cabinet in cabinets:
+        if cabinet.source_row is None:
+            continue
+        source_col = cabinet.source_col or 0
+        block_index = next(
+            (
+                index
+                for index, (block_start, block_end) in enumerate(column_blocks)
+                if block_start <= source_col <= block_end
+            ),
+            -1,
+        )
+        row_blocks = blocks_by_row.setdefault(cabinet.source_row, set())
+        if block_index >= 0:
+            row_blocks.add(block_index)
+
+    row_groups: list[list[int]] = []
+    for source_row in sorted(blocks_by_row):
+        previous_group = row_groups[-1] if row_groups else None
+        previous_row = previous_group[-1] if previous_group else None
+        previous_blocks = blocks_by_row.get(previous_row, set())
+        current_blocks = blocks_by_row[source_row]
+        previous_is_left_only = previous_blocks == {0}
+        previous_is_right_only = bool(previous_blocks) and all(block > 0 for block in previous_blocks)
+        current_is_left_only = current_blocks == {0}
+        current_is_right_only = bool(current_blocks) and all(block > 0 for block in current_blocks)
+        is_adjacent_complement = (
+            previous_row is not None
+            and source_row == previous_row + 1
+            and (
+                (previous_is_left_only and current_is_right_only)
+                or (previous_is_right_only and current_is_left_only)
+            )
+        )
+        if is_adjacent_complement:
+            previous_group.append(source_row)
+        else:
+            row_groups.append([source_row])
+    return row_groups
 
 
 def _layout_y(row_index: int, cell_height: int, hot_aisle_gap: int, cold_aisle_gap: int) -> int:
@@ -307,14 +376,18 @@ def _category_color(category: str) -> str:
         return "#BE123C"
     if normalized.startswith("HD-GB3") or "GB-3" in normalized or "GPU" in normalized:
         return "#EF4444"
-    if category.startswith("T1-FE-"):
+    if normalized == "FDP-B1":
         return "#06B6D4"
-    if category.startswith("T2-"):
+    if normalized.startswith("T1-FE-"):
+        return "#06B6D4"
+    if normalized.startswith("T2-RO"):
+        return "#67E8F9"
+    if normalized.startswith("T2-"):
         return "#FACC15"
-    if category.startswith("T3-"):
+    if normalized.startswith("T3-"):
         return "#F97316"
-    if category.startswith("FCR-"):
-        return "#0D9488"
+    if normalized.startswith("FCR-"):
+        return "#FDBA74"
 
     palette = {
         "DPR-H1": "#0F766E",

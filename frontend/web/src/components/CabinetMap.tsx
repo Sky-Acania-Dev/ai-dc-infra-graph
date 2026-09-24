@@ -16,7 +16,6 @@ type PositionedCabinet = CabinetLayoutItem & {
 
 type NormalizedCabinetLayout = {
   cabinets: PositionedCabinet[];
-  sourceRows: number[];
 };
 
 export type DataHallBadgeCounts = {
@@ -227,7 +226,7 @@ export function CabinetMap({
   const maxBlock = Math.max(...positioned.map((cabinet) => cabinet.block), 0);
   const maxRow = Math.max(...positioned.map((cabinet) => cabinet.row), 0);
   const width = PADDING * 2 + (maxBlock + 1) * 10 * settings.cellWidth + maxBlock * settings.blockGap;
-  const height = PADDING * 2 + rowY(maxRow, normalizedLayout.sourceRows, settings) + settings.cellHeight;
+  const height = PADDING * 2 + rowY(maxRow, settings) + settings.cellHeight;
   const hasSelection = selectedCabinetUids.size > 0;
   const mapPan = useDragPan<HTMLDivElement>();
   const prefetchTimeoutRef = useRef<number | null>(null);
@@ -240,7 +239,7 @@ export function CabinetMap({
           PADDING +
           primaryPositionedCabinet.block * (10 * settings.cellWidth + settings.blockGap) +
           primaryPositionedCabinet.col * settings.cellWidth,
-        y: PADDING + rowY(primaryPositionedCabinet.row, normalizedLayout.sourceRows, settings),
+        y: PADDING + rowY(primaryPositionedCabinet.row, settings),
       }
     : null;
 
@@ -334,7 +333,7 @@ export function CabinetMap({
               PADDING +
               cabinet.block * (10 * settings.cellWidth + settings.blockGap) +
               cabinet.col * settings.cellWidth;
-            const y = PADDING + rowY(cabinet.row, normalizedLayout.sourceRows, settings);
+            const y = PADDING + rowY(cabinet.row, settings);
             const isSelected = selectedCabinetUids.has(cabinet.cabinet_uid);
             const isDeviceSource = isDeviceMode && cabinet.cabinet_uid === selectedDeviceCabinetUid;
             const isAdded = addedCabinetUids.has(cabinet.cabinet_uid);
@@ -449,7 +448,7 @@ export function CabinetMap({
               PADDING +
               cabinet.block * (10 * settings.cellWidth + settings.blockGap) +
               cabinet.col * settings.cellWidth;
-            const y = PADDING + rowY(cabinet.row, normalizedLayout.sourceRows, settings);
+            const y = PADDING + rowY(cabinet.row, settings);
             const reducedConnectionCount = reducedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
             const isReducedConnection = reducedConnectionCount > 0;
             const connectedSourceCount = connectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
@@ -485,34 +484,88 @@ function dataHallBadgeLabel(counts: DataHallBadgeCounts | undefined): string | n
 }
 
 function normalizeCabinets(cabinets: CabinetLayoutItem[]): NormalizedCabinetLayout {
-  const rows = [...new Set(cabinets.map((cabinet) => cabinet.source_row ?? 0))].sort((a, b) => a - b);
-  const positioned = rows.flatMap((sourceRow, rowIndex) => {
+  const columnBlocks = sourceColumnBlocks(cabinets);
+  const rowGroups = sourceRowGroups(cabinets, columnBlocks);
+  const positioned = rowGroups.flatMap((sourceRows, rowIndex) => {
     const rowCabinets = cabinets
-      .filter((cabinet) => (cabinet.source_row ?? 0) === sourceRow)
+      .filter((cabinet) => sourceRows.includes(cabinet.source_row ?? 0))
       .sort((a, b) => (a.source_col ?? 0) - (b.source_col ?? 0));
 
-    return rowCabinets.map((cabinet, index) => ({
-      ...cabinet,
-      block: Math.floor(index / 10),
-      row: rowIndex,
-      col: index % 10,
-    }));
+    return rowCabinets.map((cabinet, index) => {
+      const sourceCol = cabinet.source_col ?? 0;
+      const block = columnBlocks.findIndex(({ start, end }) => sourceCol >= start && sourceCol <= end);
+      const normalizedBlock = block >= 0 ? block : Math.floor(index / 10);
+      const normalizedCol = block >= 0 ? sourceCol - columnBlocks[block].start : index % 10;
+      return {
+        ...cabinet,
+        block: normalizedBlock,
+        row: rowIndex,
+        col: normalizedCol,
+      };
+    });
   });
-  return { cabinets: positioned, sourceRows: rows };
+  return { cabinets: positioned };
 }
 
-function rowY(rowIndex: number, sourceRows: number[], settings: (typeof MAP_SIZE_SETTINGS)[MapSize]): number {
+function sourceColumnBlocks(cabinets: CabinetLayoutItem[]): Array<{ start: number; end: number }> {
+  const columns = [...new Set(cabinets.map((cabinet) => cabinet.source_col).filter((column): column is number => column !== null && column !== undefined && column > 0))].sort(
+    (a, b) => a - b,
+  );
+  const blocks: Array<{ start: number; end: number }> = [];
+  for (const column of columns) {
+    const current = blocks.at(-1);
+    if (!current || column > current.end) {
+      blocks.push({ start: column, end: column + 9 });
+    }
+  }
+  return blocks;
+}
+
+function sourceRowGroups(
+  cabinets: CabinetLayoutItem[],
+  columnBlocks: Array<{ start: number; end: number }>,
+): number[][] {
+  const blocksByRow = new Map<number, Set<number>>();
+  for (const cabinet of cabinets) {
+    const sourceRow = cabinet.source_row ?? 0;
+    const sourceCol = cabinet.source_col ?? 0;
+    const block = columnBlocks.findIndex(({ start, end }) => sourceCol >= start && sourceCol <= end);
+    const rowBlocks = blocksByRow.get(sourceRow) ?? new Set<number>();
+    if (block >= 0) rowBlocks.add(block);
+    blocksByRow.set(sourceRow, rowBlocks);
+  }
+
+  const rowGroups: number[][] = [];
+  for (const sourceRow of [...blocksByRow.keys()].sort((a, b) => a - b)) {
+    const previousGroup = rowGroups.at(-1);
+    const previousRow = previousGroup?.at(-1);
+    const previousBlocks = previousRow === undefined ? undefined : blocksByRow.get(previousRow);
+    const currentBlocks = blocksByRow.get(sourceRow);
+    const previousIsLeftOnly = previousBlocks?.size === 1 && previousBlocks.has(0);
+    const previousIsRightOnly = previousBlocks !== undefined && previousBlocks.size > 0 && [...previousBlocks].every((block) => block > 0);
+    const currentIsLeftOnly = currentBlocks?.size === 1 && currentBlocks.has(0);
+    const currentIsRightOnly = currentBlocks !== undefined && currentBlocks.size > 0 && [...currentBlocks].every((block) => block > 0);
+    const isAdjacentComplement =
+      previousRow !== undefined &&
+      sourceRow === previousRow + 1 &&
+      ((previousIsLeftOnly && currentIsRightOnly) || (previousIsRightOnly && currentIsLeftOnly));
+
+    if (isAdjacentComplement && previousGroup) {
+      previousGroup.push(sourceRow);
+    } else {
+      rowGroups.push([sourceRow]);
+    }
+  }
+  return rowGroups;
+}
+
+function rowY(rowIndex: number, settings: (typeof MAP_SIZE_SETTINGS)[MapSize]): number {
   let y = 0;
   for (let row = 0; row < rowIndex; row += 1) {
     y += settings.cellHeight;
-    y += isSharedHotAisleRowPair(sourceRows[row], sourceRows[row + 1]) ? settings.hotAisleGap : settings.coldAisleGap;
+    y += row % 2 === 0 ? settings.hotAisleGap : settings.coldAisleGap;
   }
   return y;
-}
-
-function isSharedHotAisleRowPair(currentSourceRow: number | undefined, nextSourceRow: number | undefined): boolean {
-  if (currentSourceRow === undefined || nextSourceRow === undefined) return false;
-  return nextSourceRow - currentSourceRow <= 2;
 }
 
 function fitSvgText(text: string, fontSize: number, maxWidth: number): { fontSize: number; textLength?: number } {

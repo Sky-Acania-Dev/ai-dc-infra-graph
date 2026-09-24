@@ -2,10 +2,12 @@ export function categoryColor(category: string): string {
   const normalized = category.toUpperCase();
   if (normalized.startsWith("VR-NVL")) return "#BE123C";
   if (normalized.startsWith("HD-GB3") || normalized.includes("GB-3") || normalized.includes("GPU")) return "#EF4444";
-  if (category.startsWith("T1-FE-")) return "#06B6D4";
-  if (category.startsWith("T2-")) return "#FACC15";
-  if (category.startsWith("T3-")) return "#F97316";
-  if (category.startsWith("FCR-")) return "#0D9488";
+  if (normalized === "FDP-B1") return "#06B6D4";
+  if (normalized.startsWith("T1-FE-")) return "#06B6D4";
+  if (normalized.startsWith("T2-RO")) return "#67E8F9";
+  if (normalized.startsWith("T2-")) return "#FACC15";
+  if (normalized.startsWith("T3-")) return "#F97316";
+  if (normalized.startsWith("FCR-")) return "#FDBA74";
 
   const palette: Record<string, string> = {
     "DPR-H1": "#0F766E",

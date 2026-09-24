@@ -22,7 +22,7 @@ class ProjectCatalogTests(unittest.TestCase):
         self.assertEqual(project.source_files[5].kind, "roce_cutsheet")
         self.assertEqual(project.source_files[6].kind, "vr_roce_cutsheet")
         self.assertEqual(project.source_files[7].kind, "spine_to_core_cutsheet")
-        self.assertIn("Lubbanon 9.14.xlsx", project.source_files[1].path)
+        self.assertIn("Lubbanon 9.22.xlsx", project.source_files[1].path)
         self.assertEqual(project.source_files[1].sheets, ["CUTSHEET"])
         self.assertIn("DH1 RoCe 9.4.xlsx", project.source_files[2].path)
         self.assertIn("DH2 RoCe 9.4.xlsx", project.source_files[3].path)
