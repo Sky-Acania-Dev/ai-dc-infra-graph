@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type {
+  CabinetConnectionSummaryResponse,
   CabinetDetailResponse,
   CabinetConnection,
   CableStatusSummary,
@@ -23,7 +24,7 @@ export type DeviceCableRoute = {
 
 type CabinetConnectionsPanelProps = {
   detail: CabinetDetailResponse | null;
-  selectedCabinetDetails: CabinetDetailResponse[];
+  selectedCabinetDetails: CabinetConnectionSummaryResponse[];
   deviceDetail: DeviceConnectionResponse | null;
   selectedDeviceDetails: DeviceConnectionResponse[];
   dataHallCableSummary: DataHallCableSummaryResponse | null;
@@ -213,7 +214,7 @@ export function CabinetConnectionsPanel({
   }
 
   if (selectedCabinetDetails.length > 1) {
-    const sourceCabinetUids = new Set(selectedCabinetDetails.map((selectedDetail) => selectedDetail.cabinet.cabinet_uid));
+    const sourceCabinetUids = new Set(selectedCabinetDetails.map((selectedDetail) => selectedDetail.cabinet_uid));
     const intraCabinetConnections = selectedCabinetDetails
       .map((selectedDetail) => selectedDetail.intra_cabinet_connection)
       .filter((connection): connection is CabinetConnection => Boolean(connection));
@@ -237,8 +238,8 @@ export function CabinetConnectionsPanel({
                 ? () =>
                     onViewCables(
                       selectedCabinetDetails.map((selectedDetail) => ({
-                        sourceCabinetUid: selectedDetail.cabinet.cabinet_uid,
-                        targetCabinetUid: selectedDetail.cabinet.cabinet_uid,
+                        sourceCabinetUid: selectedDetail.cabinet_uid,
+                        targetCabinetUid: selectedDetail.cabinet_uid,
                       })),
                     )
                 : undefined
@@ -474,7 +475,7 @@ function aggregateConnectionSummaries(connections: Array<CabinetConnection | Dev
 }
 
 function aggregateCabinetConnections(
-  details: CabinetDetailResponse[],
+  details: CabinetConnectionSummaryResponse[],
   includeConnection: (connection: CabinetConnection) => boolean,
 ): AggregatedCabinetConnection[] {
   const byTarget = new Map<string, AggregatedCabinetConnection>();
@@ -484,11 +485,11 @@ function aggregateCabinetConnections(
       const existing = byTarget.get(connection.target_cabinet_uid);
       if (existing) {
         mergeConnectionSummary(existing, connection);
-        existing.source_cabinet_uids.push(detail.cabinet.cabinet_uid);
+        existing.source_cabinet_uids.push(detail.cabinet_uid);
       } else {
         byTarget.set(connection.target_cabinet_uid, {
           ...cloneCabinetConnection(connection),
-          source_cabinet_uids: [detail.cabinet.cabinet_uid],
+          source_cabinet_uids: [detail.cabinet_uid],
         });
       }
     }

@@ -130,6 +130,16 @@ class CabinetDetailResponse(BaseModel):
     change_operations: list[Operation] = Field(default_factory=list)
 
 
+class CabinetConnectionSummaryRequest(BaseModel):
+    cabinet_uids: list[str] = Field(min_length=1, max_length=100)
+
+
+class CabinetConnectionSummaryResponse(BaseModel):
+    cabinet_uid: str
+    intra_cabinet_connection: CabinetConnection | None = None
+    connections: list[CabinetConnection]
+
+
 class CabinetCableDetail(BaseModel):
     uid: str
     group: str
@@ -875,6 +885,31 @@ def device_connections(
     )
 
 
+@router.post(
+    "/cabinets/connection-summaries",
+    response_model=list[CabinetConnectionSummaryResponse],
+)
+def cabinet_connection_summaries(
+    request: CabinetConnectionSummaryRequest,
+    database_path: str = str(DEFAULT_RUNTIME_DATABASE_PATH),
+) -> list[CabinetConnectionSummaryResponse]:
+    cabinet_uids = list(dict.fromkeys(uid.upper() for uid in request.cabinet_uids))
+    if use_postgresql_topology_storage():
+        return _postgres_cabinet_connection_summaries(cabinet_uids)
+
+    summaries = []
+    for cabinet_uid in cabinet_uids:
+        detail = cabinet_detail(cabinet_uid, database_path=database_path)
+        summaries.append(
+            CabinetConnectionSummaryResponse(
+                cabinet_uid=cabinet_uid,
+                intra_cabinet_connection=detail.intra_cabinet_connection,
+                connections=detail.connections,
+            )
+        )
+    return summaries
+
+
 @router.get("/cabinets/{cabinet_uid}", response_model=CabinetDetailResponse)
 def cabinet_detail(
     cabinet_uid: str,
@@ -1388,6 +1423,114 @@ def _postgres_topology_enums() -> TopologyEnumResponse:
     )
 
 
+def _postgres_cabinet_connection_summaries(
+    cabinet_uids: list[str],
+) -> list[CabinetConnectionSummaryResponse]:
+    source_uids = set(cabinet_uids)
+    a_cabinet_uid = func.concat(
+        func.split_part(db.Cable.a_port_uid, ":", 1),
+        ":",
+        func.split_part(db.Cable.a_port_uid, ":", 2),
+    )
+    z_cabinet_uid = func.concat(
+        func.split_part(db.Cable.z_port_uid, ":", 1),
+        ":",
+        func.split_part(db.Cable.z_port_uid, ":", 2),
+    )
+
+    with session_factory()() as session:
+        cabinet_rows = {
+            row.uid: row
+            for row in session.execute(
+                select(db.Cabinet).where(
+                    db.Cabinet.uid.in_(source_uids),
+                    db.Cabinet.project_uid == DEFAULT_PROJECT_UID,
+                    db.Cabinet.deleted_at.is_(None),
+                )
+            ).scalars()
+        }
+        missing_uids = [uid for uid in cabinet_uids if uid not in cabinet_rows]
+        if missing_uids:
+            raise HTTPException(status_code=404, detail=f"Cabinet '{missing_uids[0]}' was not found.")
+
+        cable_rows = session.execute(
+            select(
+                a_cabinet_uid.label("a_cabinet_uid"),
+                z_cabinet_uid.label("z_cabinet_uid"),
+                db.Cable.cable_type,
+                db.Cable.import_status,
+                func.count().label("total_cables"),
+            )
+            .where(
+                db.Cable.project_uid == DEFAULT_PROJECT_UID,
+                db.Cable.deleted_at.is_(None),
+                or_(a_cabinet_uid.in_(source_uids), z_cabinet_uid.in_(source_uids)),
+            )
+            .group_by(a_cabinet_uid, z_cabinet_uid, db.Cable.cable_type, db.Cable.import_status)
+        ).all()
+
+        cables_by_pair: dict[tuple[str, str], list] = {}
+        for row in cable_rows:
+            if row.a_cabinet_uid in source_uids:
+                cables_by_pair.setdefault((row.a_cabinet_uid, row.z_cabinet_uid), []).append(row)
+            if row.z_cabinet_uid in source_uids and row.z_cabinet_uid != row.a_cabinet_uid:
+                cables_by_pair.setdefault((row.z_cabinet_uid, row.a_cabinet_uid), []).append(row)
+
+        change_order_stats_by_pair = _postgres_source_update_counts_by_cabinet_pair(session, source_uids)
+        target_uids = {
+            target_uid
+            for source_uid, target_uid in set(cables_by_pair) | set(change_order_stats_by_pair)
+            if source_uid in source_uids
+        }
+        target_rows = {
+            row.uid: row
+            for row in session.execute(
+                select(db.Cabinet).where(
+                    db.Cabinet.uid.in_(target_uids),
+                    db.Cabinet.deleted_at.is_(None),
+                )
+            ).scalars()
+        } if target_uids else {}
+
+        summaries = []
+        for cabinet_uid in cabinet_uids:
+            connection_target_uids = {
+                target_uid
+                for source_uid, target_uid in set(cables_by_pair) | set(change_order_stats_by_pair)
+                if source_uid == cabinet_uid
+            }
+            connections = []
+            intra_cabinet_connection = None
+            for target_uid in sorted(connection_target_uids):
+                target_cables = cables_by_pair.get((cabinet_uid, target_uid), [])
+                target = target_rows.get(target_uid)
+                connection = CabinetConnection(
+                    target_cabinet_uid=target_uid,
+                    target_category=target.category if target else "",
+                    target_cabinet_group=target.cabinet_group if target else "",
+                    total_cables=sum(_postgres_row_count(row) for row in target_cables),
+                    cable_type_counts=_postgres_count_by(target_cables, "cable_type"),
+                    status_summary=_postgres_status_summary(target_cables),
+                    change_order_stats=change_order_stats_by_pair.get((cabinet_uid, target_uid)),
+                )
+                if target_uid == cabinet_uid:
+                    intra_cabinet_connection = connection
+                else:
+                    connections.append(connection)
+
+            summaries.append(
+                CabinetConnectionSummaryResponse(
+                    cabinet_uid=cabinet_uid,
+                    intra_cabinet_connection=intra_cabinet_connection,
+                    connections=sorted(
+                        connections,
+                        key=lambda connection: (-connection.total_cables, connection.target_cabinet_uid),
+                    ),
+                )
+            )
+        return summaries
+
+
 def _postgres_cabinet_detail(cabinet_uid: str) -> CabinetDetailResponse:
     with session_factory()() as session:
         cabinet_row = session.get(db.Cabinet, cabinet_uid)
@@ -1459,7 +1602,12 @@ def _postgres_cabinet_detail(cabinet_uid: str) -> CabinetDetailResponse:
             _postgres_other_cabinet_uid(row.a_cabinet_uid, row.z_cabinet_uid, cabinet_uid)
             for row in cable_rows
         }
-        operation_target_uids = _postgres_source_update_target_cabinet_uids(session, cabinet_uid)
+        change_order_stats_by_pair = _postgres_source_update_counts_by_cabinet_pair(session, {cabinet_uid})
+        operation_target_uids = {
+            target_uid
+            for (source_uid, target_uid) in change_order_stats_by_pair
+            if source_uid == cabinet_uid
+        }
         all_connection_target_uids = connection_target_uids | operation_target_uids
         target_rows = {
             row.uid: row
@@ -1480,11 +1628,7 @@ def _postgres_cabinet_detail(cabinet_uid: str) -> CabinetDetailResponse:
                 total_cables=len(target_cables),
                 cable_type_counts=_postgres_count_by(target_cables, "cable_type"),
                 status_summary=_postgres_status_summary(target_cables),
-                change_order_stats=_postgres_source_update_counts_for_cabinet_pair(
-                    session,
-                    source_cabinet_uid=cabinet_uid,
-                    target_cabinet_uid=target_uid,
-                ),
+                change_order_stats=change_order_stats_by_pair.get((cabinet_uid, target_uid)),
             )
             if target_uid == cabinet_uid:
                 intra_cabinet_connection = connection
@@ -1929,6 +2073,61 @@ def _latest_source_update_operation_ids(session) -> dict[str, int]:
 
 def _operation_change_order_key(operation: db.OperationLog) -> str:
     return operation.source_uid or operation.source_operator or operation.operation_group_uid or ""
+
+
+def _postgres_source_update_counts_by_cabinet_pair(
+    session,
+    source_cabinet_uids: set[str],
+) -> dict[tuple[str, str], ChangeOrderDiffStats]:
+    operations = session.execute(
+        select(db.OperationLog)
+        .where(
+            db.OperationLog.project_uid == DEFAULT_PROJECT_UID,
+            db.OperationLog.entity_type == "cable",
+            db.OperationLog.operation_type == "source_update",
+        )
+        .order_by(db.OperationLog.id.desc())
+    ).scalars()
+    stats_by_pair: dict[tuple[str, str], ChangeOrderDiffStats] = {}
+    seen: set[str] = set()
+    for operation in operations:
+        if operation.entity_uid in seen:
+            continue
+        seen.add(operation.entity_uid)
+        change_status = _change_status_from_operation(operation)
+        if change_status == "red":
+            records = [_source_update_record(operation, "old_record", operation.before)]
+        elif change_status == "cyan":
+            records = [_source_update_record(operation, "new_record", operation.after)]
+        elif change_status == "yellow":
+            records = [
+                _source_update_record(operation, "old_record", operation.before),
+                _source_update_record(operation, "new_record", operation.after),
+            ]
+        else:
+            continue
+
+        matching_pairs: set[tuple[str, str]] = set()
+        for record in records:
+            a_cabinet_uid = _cabinet_uid_from_port_uid(record.get("a_port_uid"))
+            z_cabinet_uid = _cabinet_uid_from_port_uid(record.get("z_port_uid"))
+            if not a_cabinet_uid or not z_cabinet_uid:
+                continue
+            if a_cabinet_uid in source_cabinet_uids:
+                matching_pairs.add((a_cabinet_uid, z_cabinet_uid))
+            if z_cabinet_uid in source_cabinet_uids:
+                matching_pairs.add((z_cabinet_uid, a_cabinet_uid))
+
+        for pair in matching_pairs:
+            stats = stats_by_pair.setdefault(pair, ChangeOrderDiffStats())
+            if change_status == "red":
+                stats.removed += 1
+            elif change_status == "yellow":
+                stats.changed += 1
+            elif change_status == "cyan":
+                stats.added += 1
+    return stats_by_pair
+
 
 def _postgres_source_update_target_cabinet_uids(session, cabinet_uid: str) -> set[str]:
     operations = session.execute(

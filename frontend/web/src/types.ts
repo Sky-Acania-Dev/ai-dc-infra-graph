@@ -195,6 +195,12 @@ export type CabinetDetailResponse = {
   change_operations: Operation[];
 };
 
+export type CabinetConnectionSummaryResponse = {
+  cabinet_uid: string;
+  intra_cabinet_connection: CabinetConnection | null;
+  connections: CabinetConnection[];
+};
+
 export type CabinetCableDetail = {
   uid: string;
   group: string;

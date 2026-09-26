@@ -5,6 +5,7 @@ import {
   createEntityGroupFromCableGroup,
   deleteEntityGroup,
   fetchCabinetChangeOrderCables,
+  fetchCabinetConnectionSummaries,
   fetchCabinetConnectionCables,
   fetchCabinetDetail,
   fetchCabinetLayout,
@@ -37,6 +38,7 @@ import { ValidationView } from "./components/ValidationView";
 import type { DataHallBadgeCounts, MapProgressDisplay, MapSize } from "./components/CabinetMap";
 import type {
   CableDetailResponse,
+  CabinetConnectionSummaryResponse,
   CabinetDetailResponse,
   CabinetCableDetail,
   CabinetCableDetailResponse,
@@ -82,7 +84,7 @@ export function App() {
   const [selectedCabinetUid, setSelectedCabinetUid] = useState<string | null>(null);
   const [selectedCabinetUids, setSelectedCabinetUids] = useState<string[]>([]);
   const [detail, setDetail] = useState<CabinetDetailResponse | null>(null);
-  const [selectedCabinetDetails, setSelectedCabinetDetails] = useState<CabinetDetailResponse[]>([]);
+  const [selectedCabinetDetails, setSelectedCabinetDetails] = useState<CabinetConnectionSummaryResponse[]>([]);
   const [cableDetail, setCableDetail] = useState<CableDetailResponse | null>(null);
   const [selectedCableUid, setSelectedCableUid] = useState<string | null>(null);
   const [selectedCableUids, setSelectedCableUids] = useState<string[]>([]);
@@ -130,6 +132,10 @@ export function App() {
   const cabinetLayoutCacheRef = useRef<Record<string, CabinetLayoutItem[]>>({});
   const cabinetDetailCacheRef = useRef<Record<string, CabinetDetailResponse>>({});
   const cabinetDetailRequestCacheRef = useRef<Partial<Record<string, Promise<CabinetDetailResponse>>>>({});
+  const cabinetConnectionSummaryCacheRef = useRef<Record<string, CabinetConnectionSummaryResponse>>({});
+  const cabinetConnectionSummaryRequestCacheRef = useRef<
+    Partial<Record<string, Promise<CabinetConnectionSummaryResponse>>>
+  >({});
   const dataHallCableSummaryCacheRef = useRef<Record<string, DataHallCableSummaryResponse>>({});
   const deviceDetailCacheRef = useRef<Record<string, DeviceConnectionResponse>>({});
   const cableDetailRequestRef = useRef(0);
@@ -258,12 +264,12 @@ export function App() {
   }, [dataHall, isProjectTopologyAvailable, isProjectTopologyReady, selectedProjectUid]);
 
   useEffect(() => {
-    if (!selectedCabinetUid) return;
+    if (!selectedCabinetUid || selectedCabinetUids.length > 1) return;
     setError(null);
     loadCabinetDetail(selectedCabinetUid)
       .then(setDetail)
       .catch((requestError: Error) => setError(requestError.message));
-  }, [selectedCabinetUid]);
+  }, [selectedCabinetUid, selectedCabinetUids.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -272,11 +278,13 @@ export function App() {
       return;
     }
 
-    setSelectedCabinetDetails((current) =>
-      current.filter((selectedDetail) => selectedCabinetUids.includes(selectedDetail.cabinet.cabinet_uid)),
+    setSelectedCabinetDetails(
+      selectedCabinetUids
+        .map((cabinetUid) => cabinetConnectionSummaryCacheRef.current[cabinetUid])
+        .filter((summary): summary is CabinetConnectionSummaryResponse => Boolean(summary)),
     );
     setError(null);
-    Promise.all(selectedCabinetUids.map((cabinetUid) => loadCabinetDetail(cabinetUid)))
+    loadCabinetConnectionSummaries(selectedCabinetUids)
       .then((details) => {
         if (!cancelled) setSelectedCabinetDetails(details);
       })
@@ -418,10 +426,16 @@ export function App() {
   }, []);
 
   const selectedCabinetDetailRows = useMemo(() => {
-    const byUid = new Map<string, CabinetDetailResponse>();
-    if (detail) byUid.set(detail.cabinet.cabinet_uid, detail);
+    const byUid = new Map<string, CabinetConnectionSummaryResponse>();
+    if (detail) {
+      byUid.set(detail.cabinet.cabinet_uid, {
+        cabinet_uid: detail.cabinet.cabinet_uid,
+        intra_cabinet_connection: detail.intra_cabinet_connection,
+        connections: detail.connections,
+      });
+    }
     for (const selectedDetail of selectedCabinetDetails) {
-      byUid.set(selectedDetail.cabinet.cabinet_uid, selectedDetail);
+      byUid.set(selectedDetail.cabinet_uid, selectedDetail);
     }
     return [...byUid.values()];
   }, [detail, selectedCabinetDetails]);
@@ -498,7 +512,7 @@ export function App() {
       return counts;
     }
     for (const selectedDetail of selectedCabinetDetailRows) {
-      if (!selectedCabinetUidSet.has(selectedDetail.cabinet.cabinet_uid)) continue;
+      if (!selectedCabinetUidSet.has(selectedDetail.cabinet_uid)) continue;
       for (const connection of selectedDetail.connections) {
         counts.set(connection.target_cabinet_uid, (counts.get(connection.target_cabinet_uid) ?? 0) + 1);
       }
@@ -585,7 +599,46 @@ export function App() {
     return showLoading ? trackCabinetDetailLoading(request) : request;
   }
 
-  function trackCabinetDetailLoading(request: Promise<CabinetDetailResponse>): Promise<CabinetDetailResponse> {
+  function loadCabinetConnectionSummaries(cabinetUids: string[]): Promise<CabinetConnectionSummaryResponse[]> {
+    const normalizedUids = [...new Set(cabinetUids)];
+    const missingUids = normalizedUids.filter(
+      (cabinetUid) =>
+        !cabinetConnectionSummaryCacheRef.current[cabinetUid]
+        && !cabinetConnectionSummaryRequestCacheRef.current[cabinetUid],
+    );
+    if (missingUids.length > 0) {
+      const batchRequest = fetchCabinetConnectionSummaries(missingUids);
+      for (const cabinetUid of missingUids) {
+        const request = batchRequest
+          .then((summaries) => {
+            for (const summary of summaries) {
+              cabinetConnectionSummaryCacheRef.current[summary.cabinet_uid] = summary;
+            }
+            const summary = cabinetConnectionSummaryCacheRef.current[cabinetUid];
+            if (!summary) throw new Error(`Cabinet connection summary was not returned for ${cabinetUid}`);
+            return summary;
+          })
+          .finally(() => {
+            delete cabinetConnectionSummaryRequestCacheRef.current[cabinetUid];
+          });
+        cabinetConnectionSummaryRequestCacheRef.current[cabinetUid] = request;
+      }
+    }
+
+    return trackCabinetDetailLoading(
+      Promise.all(
+        normalizedUids.map((cabinetUid) => {
+          const cached = cabinetConnectionSummaryCacheRef.current[cabinetUid];
+          if (cached) return Promise.resolve(cached);
+          const pending = cabinetConnectionSummaryRequestCacheRef.current[cabinetUid];
+          if (pending) return pending;
+          return Promise.reject(new Error(`Cabinet connection summary request was not started for ${cabinetUid}`));
+        }),
+      ),
+    );
+  }
+
+  function trackCabinetDetailLoading<T>(request: Promise<T>): Promise<T> {
     setPendingCabinetDetailCount((count) => count + 1);
     return request.finally(() => {
       setPendingCabinetDetailCount((count) => Math.max(0, count - 1));
@@ -997,6 +1050,8 @@ export function App() {
     cabinetLayoutCacheRef.current = {};
     cabinetDetailCacheRef.current = {};
     cabinetDetailRequestCacheRef.current = {};
+    cabinetConnectionSummaryCacheRef.current = {};
+    cabinetConnectionSummaryRequestCacheRef.current = {};
     dataHallCableSummaryCacheRef.current = {};
     deviceDetailCacheRef.current = {};
     if (selectedCabinetUid) {
@@ -1005,7 +1060,7 @@ export function App() {
         .catch((requestError: Error) => setError(requestError.message));
     }
     if (selectedCabinetUids.length > 1) {
-      Promise.all(selectedCabinetUids.map((cabinetUid) => loadCabinetDetail(cabinetUid)))
+      loadCabinetConnectionSummaries(selectedCabinetUids)
         .then(setSelectedCabinetDetails)
         .catch((requestError: Error) => setError(requestError.message));
     }
@@ -1075,12 +1130,15 @@ export function App() {
     cabinetLayoutCacheRef.current = {};
     cabinetDetailCacheRef.current = {};
     cabinetDetailRequestCacheRef.current = {};
+    cabinetConnectionSummaryCacheRef.current = {};
+    cabinetConnectionSummaryRequestCacheRef.current = {};
     dataHallCableSummaryCacheRef.current = {};
     deviceDetailCacheRef.current = {};
     setMode("topology");
   }
 
   function prefetchCabinet(cabinetUid: string) {
+    if (selectionMode !== "single" || selectedCabinetUids.length > 0) return;
     if (cabinetDetailCacheRef.current[cabinetUid] || cabinetDetailRequestCacheRef.current[cabinetUid]) return;
     loadCabinetDetail(cabinetUid, { showLoading: false }).catch(() => {
       // Background prefetch should not interrupt the active workflow.
@@ -1343,13 +1401,6 @@ export function App() {
           ? { ...current, cabinet: { ...current.cabinet, lifecycle_status: lifecycleStatus } }
           : current,
       );
-      setSelectedCabinetDetails((current) =>
-        current.map((selectedDetail) =>
-          selectedDetail.cabinet.cabinet_uid === operation.entityId
-            ? { ...selectedDetail, cabinet: { ...selectedDetail.cabinet, lifecycle_status: lifecycleStatus } }
-            : selectedDetail,
-        ),
-      );
       cabinetDetailCacheRef.current = Object.fromEntries(
         Object.entries(cabinetDetailCacheRef.current).map(([cabinetUid, cachedDetail]) => [
           cabinetUid,
@@ -1377,9 +1428,6 @@ export function App() {
           devices: updateDevices(current.devices),
         };
       });
-      setSelectedCabinetDetails((current) =>
-        current.map((selectedDetail) => ({ ...selectedDetail, devices: updateDevices(selectedDetail.devices) })),
-      );
       cabinetDetailCacheRef.current = Object.fromEntries(
         Object.entries(cabinetDetailCacheRef.current).map(([cabinetUid, cachedDetail]) => [
           cabinetUid,
@@ -2072,12 +2120,12 @@ function buildGroupCabinetNeighborCounts(
 }
 
 function buildDetailNeighborCounts(
-  details: CabinetDetailResponse[],
+  details: CabinetConnectionSummaryResponse[],
   sourceCabinetUids: Set<string>,
 ): Map<string, number> {
   const counts = new Map<string, number>();
   for (const detail of details) {
-    if (!sourceCabinetUids.has(detail.cabinet.cabinet_uid)) continue;
+    if (!sourceCabinetUids.has(detail.cabinet_uid)) continue;
     for (const connection of detail.connections) {
       if (sourceCabinetUids.has(connection.target_cabinet_uid)) continue;
       counts.set(connection.target_cabinet_uid, (counts.get(connection.target_cabinet_uid) ?? 0) + 1);

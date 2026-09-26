@@ -1,5 +1,6 @@
 import type {
   CableDetailResponse,
+  CabinetConnectionSummaryResponse,
   CabinetDetailResponse,
   CabinetLayoutItem,
   AuthUser,
@@ -205,6 +206,20 @@ export async function fetchCabinetDetail(cabinetUid: string): Promise<CabinetDet
   const response = await fetch(`${API_BASE_URL}/topology/cabinets/${encodeURIComponent(cabinetUid)}`);
   if (!response.ok) {
     throw new Error(`Failed to load cabinet detail: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchCabinetConnectionSummaries(
+  cabinetUids: string[],
+): Promise<CabinetConnectionSummaryResponse[]> {
+  const response = await fetch(`${API_BASE_URL}/topology/cabinets/connection-summaries`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cabinet_uids: cabinetUids }),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load cabinet connection summaries: ${response.status}`);
   }
   return response.json();
 }

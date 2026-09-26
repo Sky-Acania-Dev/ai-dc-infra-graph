@@ -34,7 +34,7 @@ class Lbb01SectionTests(unittest.TestCase):
         self.assertEqual(len(result.cabinets), 1600)
         self.assertEqual(
             Counter(cabinet.data_hall_id for cabinet in result.cabinets),
-            {"DH1-1": 320, "DH1-2": 320, "DH1-3": 280, "DH1-4": 320, "DH1-5": 360},
+            {"DH1-1": 320, "DH1-2": 320, "DH1-3": 320, "DH1-4": 320, "DH1-5": 320},
         )
         for start in range(1, 801, 20):
             with self.subTest(group_start=start):
@@ -44,7 +44,7 @@ class Lbb01SectionTests(unittest.TestCase):
                     self.assertEqual(cabinets[rack + 800].data_hall_id, section)
 
     def test_cutsheet_endpoints_use_new_section_boundaries(self) -> None:
-        boundaries = ((160, 161), (320, 321), (460, 461), (620, 621))
+        boundaries = ((160, 161), (320, 321), (480, 481), (640, 641))
         for section, (last, first) in enumerate(boundaries, start=1):
             for offset in (0, 800):
                 with self.subTest(section=section, offset=offset):
@@ -95,7 +95,7 @@ class Lbb01IngestionTests(unittest.TestCase):
         self.assertEqual(result.summary.port_collision_findings, 0)
         self.assertEqual(
             result.summary.data_halls,
-            {"DH1-1": 320, "DH1-2": 320, "DH1-3": 280, "DH1-4": 320, "DH1-5": 360},
+            {"DH1-1": 320, "DH1-2": 320, "DH1-3": 320, "DH1-4": 320, "DH1-5": 320},
         )
         self.assertEqual(result.summary.status_counts, {"Blocked": 288, "Cable Not Run": 864})
         self.assertEqual(result.cutsheet.rows[0].a_port_uid, "DH1-3:342:1:IBP3:P2")

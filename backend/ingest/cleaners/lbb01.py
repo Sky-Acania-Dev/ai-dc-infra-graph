@@ -688,16 +688,17 @@ def _optic_or_none(model: str, side: str) -> OpticModule | None:
 
 
 def _section_for_lbb_cabinet(cabinet_number: int) -> str:
-    # Keep each physical hot-aisle group within one project section.
+    # Match each project section to the 320 cabinets served by its T1-RO racks:
+    # 160 cabinets on each side of the physical data hall.
     if 1 <= cabinet_number <= 160 or 801 <= cabinet_number <= 960:
         return "DH1-1"
     if 161 <= cabinet_number <= 320 or 961 <= cabinet_number <= 1120:
         return "DH1-2"
-    if 321 <= cabinet_number <= 460 or 1121 <= cabinet_number <= 1260:
+    if 321 <= cabinet_number <= 480 or 1121 <= cabinet_number <= 1280:
         return "DH1-3"
-    if 461 <= cabinet_number <= 620 or 1261 <= cabinet_number <= 1420:
+    if 481 <= cabinet_number <= 640 or 1281 <= cabinet_number <= 1440:
         return "DH1-4"
-    if 621 <= cabinet_number <= 800 or 1421 <= cabinet_number <= 1600:
+    if 641 <= cabinet_number <= 800 or 1441 <= cabinet_number <= 1600:
         return "DH1-5"
     raise ValueError(f"LBB01 cabinet number is outside expected range: {cabinet_number}")
 

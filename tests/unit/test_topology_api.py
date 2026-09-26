@@ -6,7 +6,9 @@ from backend.api.topology import (
     _operations_path,
     _cabinet_uid_from_port_uid,
     _source_update_record_peer_cabinet_uid,
+    CabinetConnectionSummaryRequest,
     cabinet_connection_cables,
+    cabinet_connection_summaries,
     cabinet_detail,
     cabinet_layout,
     data_hall_cable_summary,
@@ -103,6 +105,10 @@ class TopologyApiTests(unittest.TestCase):
 
         layout = cabinet_layout(data_hall="DH1", database_path=str(runtime_path))
         detail = cabinet_detail("DH1:001", database_path=str(runtime_path))
+        connection_summaries = cabinet_connection_summaries(
+            CabinetConnectionSummaryRequest(cabinet_uids=["DH1:001", "DH1:002"]),
+            database_path=str(runtime_path),
+        )
         cable_detail = cabinet_connection_cables("DH1:001", "DH1:002", database_path=str(runtime_path))
 
         self.assertEqual(len(layout), 2)
@@ -113,6 +119,8 @@ class TopologyApiTests(unittest.TestCase):
         self.assertEqual(detail.connections[0].status_summary.completed, 1)
         self.assertEqual(detail.connections[0].status_summary.total, 2)
         self.assertEqual(detail.connections[0].status_summary.status_counts["Cable Is Ran: Not Terminated"], 1)
+        self.assertEqual([summary.cabinet_uid for summary in connection_summaries], ["DH1:001", "DH1:002"])
+        self.assertEqual(connection_summaries[0].connections[0], detail.connections[0])
         self.assertEqual(len(cable_detail.cables), 2)
         self.assertEqual(cable_detail.cables[0].uid, "CBL-000001")
         self.assertEqual(cable_detail.cables[0].length_used_meters, 0)
