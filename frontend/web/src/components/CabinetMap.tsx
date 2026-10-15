@@ -25,6 +25,9 @@ export type DataHallBadgeCounts = {
 
 export type CabinetMapProps = {
   canManage: boolean;
+  routingInspectorHost: HTMLDivElement | null;
+  pathwayInspectorHost: HTMLDivElement | null;
+  onRoutingInspectorActiveChange: (active: boolean) => void;
   project: string;
   building: string;
   onOpenRouting: () => void;
@@ -278,6 +281,8 @@ export function CabinetMap(props: CabinetMapProps) {
         </div>
       ) : null}
       {showRoutes ? <CabinetRoutingMap project={project} building={building} hall={dataHall} selected={selectedCabinetUids} connected={connectedCabinetUids}
+        inspectorHost={props.routingInspectorHost} onInspectorActiveChange={props.onRoutingInspectorActiveChange}
+        pathwayInspectorHost={props.pathwayInspectorHost}
         canManage={props.canManage} cabinets={cabinets} settings={settings}
         renderCabinets={(positions, clearPath) => <CabinetGraphics {...props} positions={positions} settings={settings}
           onSelectCabinet={(uid, gesture) => { clearPath(); onSelectCabinet(uid, gesture); }} />}

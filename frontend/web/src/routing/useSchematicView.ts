@@ -50,5 +50,11 @@ export function useSchematicView(length: number, width: number, orientation: Sch
   const focusSection = (start: number, end: number) => setView(portrait
     ? { x: -95, y: start - 70, w: width + 190, h: end - start + 140 }
     : { x: start - 200, y: -80, w: end - start + 400, h: width + 160 });
-  return { svgRef, view, scale, zoom, point, focusSection, fit: () => setView(fitted), pointerDown, pointerMove, pointerUp, suppressClick };
+  const focusBounds = (points: Array<{ x: number; y: number }>, padding = 60) => {
+    if (!points.length) return;
+    const xs = points.map(p => p.x), ys = points.map(p => p.y);
+    setView({ x: Math.min(...xs) - padding, y: Math.min(...ys) - padding,
+      w: Math.max(...xs) - Math.min(...xs) + padding * 2, h: Math.max(...ys) - Math.min(...ys) + padding * 2 });
+  };
+  return { svgRef, view, scale, zoom, point, focusSection, focusBounds, fit: () => setView(fitted), pointerDown, pointerMove, pointerUp, suppressClick };
 }

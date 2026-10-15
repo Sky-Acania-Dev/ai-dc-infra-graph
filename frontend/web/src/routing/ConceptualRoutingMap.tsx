@@ -8,15 +8,20 @@ import { formatInches } from "./dimensions";
 import { ConceptualGraph } from "./ConceptualGraph";
 import { conceptualLayout } from "./conceptualLayout";
 import { useSchematicView } from "./useSchematicView";
+import { projectFixtureRun, type CabinetFixtureRun, type FixtureRunPart } from "./cabinetFixtureRun";
+import { CabinetFixtureLayer } from "./CabinetFixtureLayer";
 import type { CableClass, ResolvedLayout, RoutingGraph, Selection, Tier } from "./types";
 
 type Props = { data: ResolvedLayout; graph: RoutingGraph; tiers: Set<Tier>; selection: Selection; onSelect: (s: Selection) => void; initialSectionUid: string; cabinetInteraction: CabinetInteraction;
   settings: CabinetGraphicSettings & { hotAisleGap: number }; renderCabinets: (tiles: CabinetTile[]) => ReactNode;
   segments: ConceptualSegment[]; selectedSegmentId: string | null; onSelectSegment: (id: string) => void;
   fixtures: Map<string, { cable_classes: CableClass[]; usable: boolean }>;
+  cabinetRun: CabinetFixtureRun | null; selectedAttachmentUid: string | null; selectedFixtureCableId: string | null;
+  onSelectRunPart: (part: FixtureRunPart) => void;
 };
-export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, fixtures }: Props) {
+export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, fixtures, cabinetRun, selectedAttachmentUid, selectedFixtureCableId, onSelectRunPart }: Props) {
   const display = useMemo(() => conceptualLayout(data, placeRoutingCabinets(data), settings), [data, settings]);
+  const fixtureGeometry = useMemo(() => cabinetRun ? projectFixtureRun(data, display, cabinetRun, segments) : null, [data, display, cabinetRun, segments]);
   // The view controller operates in SVG display units, not model inches.
   const v = useSchematicView(display.height, display.width, "cabinet-map");
   const [focusUid, setFocusUid] = useState(initialSectionUid);
@@ -34,6 +39,7 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
       <button onClick={() => { setFocusUid(""); v.fit(); }}>Fit / reset view</button>
       <select aria-label="Focus section" value={focusUid} onChange={event => setFocusUid(event.target.value)}><option value="">All sections</option>{display.sections.map(s => <option key={s.uid} value={s.uid}>{s.name}</option>)}</select>
       <button disabled={!selectedCabinet} onClick={() => { if (selectedCabinet) v.focusSection(Math.max(0, selectedCabinet.y - 100), selectedCabinet.y + 300); }}>Focus selected cabinet</button>
+      {fixtureGeometry && <button onClick={() => v.focusBounds(fixtureGeometry.points, 100)}>Focus 021 → 031</button>}
       <span>Conceptual · Not to scale · Drag blank space to pan</span>
     </div>
     <svg ref={v.svgRef} className="routing-svg conceptual-svg" viewBox={`${v.view.x} ${v.view.y} ${v.view.w} ${v.view.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="Conceptual cabinet and pathway map, not to scale: SOUTH left, CENTRAL middle, NORTH right"
@@ -70,6 +76,8 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
         </g>;
       })}
       <ConceptualGraph data={data} graph={graph} view={display} scale={v.scale} tiers={tiers} selection={selection} onSelect={onSelect} />
+      {cabinetRun && fixtureGeometry && <CabinetFixtureLayer run={cabinetRun} geometry={fixtureGeometry} scale={v.scale}
+        selectedPartId={selectedAttachmentUid ?? selectedSegmentId} selectedCableId={selectedFixtureCableId} onSelect={onSelectRunPart} />}
     </svg>
     <footer className="routing-view-footer">Conceptual positions and stroke widths are visual only. Segment details retain model lengths and widths.</footer>
   </section>;

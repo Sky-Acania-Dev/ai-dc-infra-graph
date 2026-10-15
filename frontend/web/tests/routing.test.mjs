@@ -4,6 +4,7 @@ import { formatInches, parseInches } from "../src/routing/dimensions.ts";
 import { placeRoutingCabinets } from "../src/routing/cabinetPlacement.ts";
 import { conceptualLayout } from "../src/routing/conceptualLayout.ts";
 import { conceptualSegments, annotationFor, styleFixtures } from "../src/routing/conceptualSegments.ts";
+import { cabinetFixtureRun, projectFixtureRun, offsetPolyline } from "../src/routing/cabinetFixtureRun.ts";
 
 test("formats integer inches without feet rounding", () => {
   for (const [value, text] of [[24, `2'-0"`], [34, `2'-10"`], [96, `8'-0"`], [120, `10'-0"`], [264, `22'-0"`], [336, `28'-0"`], [360, `30'-0"`], [788, `65'-8"`]]) {
@@ -203,4 +204,75 @@ test("fixture preview handles layouts with no configured cabinet rows", () => {
   const fixtures = styleFixtures(data, conceptualSegments(data));
   assert.equal(fixtures.size, 2);
   assert.deepEqual(data.segment_annotations, []);
+});
+
+function cabinetRunFixture() {
+  const data = segmentFixture();
+  data.geometry.sections.forEach((section, i) => Object.assign(section, { start_in: i ? 528 + i * 216 : 0, end_in: i ? 528 + i * 216 : 528, data_hall_id: `DH1-${i + 1}` }));
+  data.geometry.gaps = data.geometry.sections.slice(0, 4).map(s => ({ after_section_uid: s.uid, start_in: s.end_in, end_in: s.end_in + 216, center_in: s.end_in + 108 }));
+  data.geometry.hall_length_in = 1512;
+  data.geometry.row_pairs = [data.geometry.row_pairs[0], { uid: "pair-s1-2", routing_section_uid: "s1", row_field_band_uid: "south", start_in: 264, end_in: 528, hot_aisle_start_in: 408, hot_aisle_end_in: 504 }];
+  data.geometry.cabinet_rows.forEach(r => r.section_uid = "s1");
+  data.cabinets.push(...[
+    { cabinet_uid: "c021", cabinet_id: "021", source_col: 7 }, { cabinet_uid: "c030", cabinet_id: "030", source_col: 16 },
+    { cabinet_uid: "c031", cabinet_id: "031", source_col: 16 }, { cabinet_uid: "c040", cabinet_id: "040", source_col: 7 },
+  ].map(c => ({ ...c, data_hall_id: "DH1-1" })));
+  for (const [uid, position, first, start, cabinets] of [["row21", "A", 21, 384, ["c021", "c030"]], ["row31", "B", 31, 504, ["c031", "c040"]]]) {
+    data.geometry.cabinet_rows.push({ uid, row_pair_uid: "pair-s1-2", row_field_band_uid: "south", section_uid: "s1", position_in_pair: position,
+      cabinet_number_start: first, cabinet_number_end: first + 9, start_in: start, end_in: start + 24, center_in: start + 12,
+      existing_cabinet_uids: cabinets, enabled: true, name: `Rack ${first}-${first + 9}` });
+    data.geometry.cross_routes.push({ uid: `route-${uid}`, kind: "CABINET_COLD_AISLE", cabinet_row_uid: uid, station_in: position === "A" ? 372 : 540,
+      station_source: "DERIVED", width_in: 24, effective_enabled: true });
+  }
+  data.cabinet_rows = data.geometry.cabinet_rows;
+  return data;
+}
+test("021 to 031 review cables use both cold routes and CENTRAL without changing saved data or creating tiers", () => {
+  const data = cabinetRunFixture(), before = structuredClone(data), segments = conceptualSegments(data);
+  const run = cabinetFixtureRun(data, segments);
+  assert.ok(run);
+  assert.equal(run.sourceCabinetUid, "c021");
+  assert.equal(run.destinationCabinetUid, "c031");
+  assert.deepEqual(run.cables.map(c => c.cableClass), ["LC", "MPO", "CAT6"]);
+  assert.equal(new Set(run.cables.map(c => c.id)).size, 3);
+  assert.equal(run.passageBandUid, "central");
+  assert.equal(segments.find(s => s.id === run.segmentIds[0]).cross_route_uid, "route-row21");
+  assert.equal(segments.find(s => s.id === run.segmentIds.at(-1)).cross_route_uid, "route-row31");
+  assert.deepEqual([run.startStation, run.endStation], [372, 540]);
+  assert.deepEqual(data, before);
+  assert.deepEqual(data.segment_annotations, []);
+});
+test("fixture attachments touch cabinet edge centers on their explicit cold sides and preserve the serpentine columns", () => {
+  const data = cabinetRunFixture(), segments = conceptualSegments(data), run = cabinetFixtureRun(data, segments);
+  const view = conceptualLayout(data, placeRoutingCabinets(data)), geometry = projectFixtureRun(data, view, run, segments);
+  const source = view.cabinets.find(t => t.cabinet.cabinet_uid === "c021"), destination = view.cabinets.find(t => t.cabinet.cabinet_uid === "c031");
+  assert.ok(source.x < destination.x);
+  assert.deepEqual(geometry.points[0], { x: source.x + (source.width - 2) / 2, y: source.y });
+  assert.deepEqual(geometry.points.at(-1), { x: destination.x + (destination.width - 2) / 2, y: destination.y + destination.height - 2 });
+  assert.ok(geometry.points[1].y < source.y);
+  assert.ok(geometry.points.at(-2).y > destination.y + destination.height);
+  assert.equal(geometry.parts.filter(p => p.kind === "attachment").length, 2);
+  assert.equal(geometry.points[2].x, view.passageX.get("central"));
+  assert.equal(geometry.points[3].x, view.passageX.get("central"));
+});
+test("parallel fixture lanes keep connected rectilinear corners across the cabinet connectors and shared corridor", () => {
+  const points = [{ x: 0, y: 10 }, { x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 10, y: 20 }, { x: 10, y: 10 }];
+  assert.deepEqual(offsetPolyline(points, 2), [{ x: 2, y: 10 }, { x: 2, y: 2 }, { x: 18, y: 2 }, { x: 18, y: 18 }, { x: 12, y: 18 }, { x: 12, y: 10 }]);
+  for (const offset of [-2, 0, 2]) {
+    const lane = offsetPolyline(points, offset);
+    assert.ok(lane.slice(1).every((p, i) => p.x === lane[i].x || p.y === lane[i].y));
+  }
+  assert.deepEqual(offsetPolyline([points[0], points[0], points[1]], 0), points.slice(0, 2));
+});
+test("endpoint fixtures disappear when a cabinet or its configured cold route is unavailable", () => {
+  const data = cabinetRunFixture();
+  data.cabinets = data.cabinets.filter(c => c.cabinet_uid !== "c031");
+  assert.equal(cabinetFixtureRun(data, conceptualSegments(data)), null);
+  const disabled = cabinetRunFixture();
+  disabled.geometry.cross_routes.find(r => r.uid === "route-row31").effective_enabled = false;
+  assert.equal(cabinetFixtureRun(disabled, conceptualSegments(disabled)), null);
+  const unmapped = cabinetRunFixture();
+  unmapped.cabinets.forEach(c => c.source_col = null);
+  const segments = conceptualSegments(unmapped), run = cabinetFixtureRun(unmapped, segments);
+  assert.equal(projectFixtureRun(unmapped, conceptualLayout(unmapped, placeRoutingCabinets(unmapped)), run, segments), null);
 });

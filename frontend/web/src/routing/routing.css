@@ -27,6 +27,7 @@
 .routing-view-tools select { max-width: 125px; }
 .routing-svg { width: 100%; height: clamp(380px,55vh,650px); display: block; touch-action: none; background: #fff; user-select: none; }
 .routing-svg [data-selectable] { cursor: pointer; }
+.routing-svg [data-selectable]:focus:not(:focus-visible) { outline: none; }
 .routing-svg text { font-family: inherit; fill: #334155; pointer-events: none; }
 .routing-svg .routing-row-label { fill: var(--routing-row-text); }
 .routing-svg .routing-cabinet { fill: var(--routing-row); stroke: #42556a; stroke-width: .6; }
@@ -50,6 +51,24 @@
 .conceptual-fixture-notice { padding: 8px 10px; margin: 6px 0; background: #fff7df; border: 1px solid #ead7a4; border-radius: 4px; color: #735416; font-size: 11px; }
 .routing-form fieldset { display: grid; gap: 7px; border: 1px solid #d6e0eb; border-radius: 4px; }
 .routing-integrated-details { margin-top: 12px; max-height: none; }
+.routing-right-slot { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.routing-inspector-host, .routing-connections-slot { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.routing-right-slot [hidden] { display: none; }
+.routing-connections-slot > .side-pane { flex: 1; }
+.routing-right-slot .routing-segment-inspector, .routing-left-host .routing-pathway-inspector { flex: 1; min-height: 0; max-height: none; overflow-y: auto; border-radius: 0; }
+.workspace.routing-inspecting > .side-pane:first-child { display: none; }
+.routing-left-host:not([hidden]) { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.routing-left-host[hidden] { display: none; }
+.routing-geometry-summary { border-top: 1px solid #dbe3ec; padding-top: 8px; }
+.routing-selection-section { margin: 8px 0; color: #64748b; font-size: 12px; }
+.routing-inspector-heading { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+.routing-inspector-heading .eyebrow { padding-top: 7px; }
+.routing-segment-inspector h3 { line-height: 1.4; }
+.segment-cable-list { display: grid; gap: 9px; margin: 14px 0; }
+.routing-page .segment-cable-card { display: grid; grid-template-columns: 1fr auto; gap: 6px; border-left: 5px solid; background: #fff; text-align: left; padding: 11px; }
+.segment-cable-card strong { font-size: 14px; }
+.segment-cable-card small { grid-column: 1 / -1; color: #64748b; font-size: 10px; overflow-wrap: anywhere; }
+.routing-page .segment-cable-card.is-selected { background: #eff6ff; outline: 2px solid #334155; outline-offset: 1px; }
 .map-pane:has(.map-route-toggle) > .pane-header { flex-wrap: wrap; gap: 8px; height: auto; min-height: 40px; }
 .map-pane:has(.map-route-toggle) .map-title-line { flex-shrink: 0; }
 .map-pane:has(.map-route-toggle) .map-controls { flex-wrap: wrap; }

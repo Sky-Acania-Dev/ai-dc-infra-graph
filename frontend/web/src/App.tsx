@@ -82,6 +82,9 @@ export function App() {
   const [mode, setMode] = useState<AppMode>("topology");
   const [dataHall, setDataHall] = useState("DH1");
   const [showConceptualRoutes, setShowConceptualRoutes] = useState(false);
+  const [routingInspectorHost, setRoutingInspectorHost] = useState<HTMLDivElement | null>(null);
+  const [pathwayInspectorHost, setPathwayInspectorHost] = useState<HTMLDivElement | null>(null);
+  const [routingInspectorActive, setRoutingInspectorActive] = useState(false);
   const [cabinets, setCabinets] = useState<CabinetLayoutItem[]>([]);
   const [selectedCabinetUid, setSelectedCabinetUid] = useState<string | null>(null);
   const [selectedCabinetUids, setSelectedCabinetUids] = useState<string[]>([]);
@@ -1546,7 +1549,7 @@ export function App() {
       ) : mode === "operations" ? (
         <OperationDebugView initialOperationList={operationList} />
       ) : (
-        <div className="workspace">
+        <div className={`workspace ${routingInspectorActive ? "routing-inspecting" : ""}`}>
           {!isProjectTopologyAvailable ? (
             <section className="side-pane unavailable-side-pane">
               <span className="eyebrow">Project Status</span>
@@ -1611,6 +1614,7 @@ export function App() {
               onViewChangeOrderCables={viewCabinetChangeOrderCables}
             />
           )}
+          <div ref={setPathwayInspectorHost} className="routing-left-host" hidden={!routingInspectorActive} />
           {!isProjectTopologyAvailable ? (
             <ProjectUnavailablePane project={selectedProject} />
           ) : isLoading ? (
@@ -1634,6 +1638,9 @@ export function App() {
                 />
               ) : (
                 <CabinetMap
+                  routingInspectorHost={routingInspectorHost}
+                  pathwayInspectorHost={pathwayInspectorHost}
+                  onRoutingInspectorActiveChange={setRoutingInspectorActive}
                   canManage={canManageGroups}
                   project={selectedProject?.uid ?? "LBB01"}
                   building={selectedProject?.building_id ?? "A"}
@@ -1698,6 +1705,9 @@ export function App() {
               />
             </div>
           )}
+          <div className="routing-right-slot">
+            <div ref={setRoutingInspectorHost} className="routing-inspector-host" hidden={!routingInspectorActive} />
+            <div className="routing-connections-slot" hidden={routingInspectorActive}>
           {!isProjectTopologyAvailable ? (
             <section className="side-pane unavailable-side-pane">
               <span className="eyebrow">Database</span>
@@ -1730,6 +1740,8 @@ export function App() {
               guidance={mode === "groups" && selectedCabinetUids.length > 0 && canManageGroups && activeEntityGroup && selectedEntityGroupUids.length === 1 ? `Open a cable list from these cabinets, select candidate cables, then use Add selected to add members to ${activeEntityGroup.name}.` : null}
             />
           )}
+            </div>
+          </div>
         </div>
       )}
     </main>
