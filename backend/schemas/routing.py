@@ -177,6 +177,8 @@ class GraphEdge(Record):
     source_node_id: str
     target_node_id: str
     planar_length_in: int = 0
+    # Domain pathway width. Junctions/openings have no separately measured width.
+    width_in: PositiveInches | None = None
     tier: int | None = None
     lower_tier: int | None = None
     upper_tier: int | None = None

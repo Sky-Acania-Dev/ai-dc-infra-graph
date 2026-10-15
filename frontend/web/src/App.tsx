@@ -81,6 +81,7 @@ export function App() {
   const { locale, setLocale, t } = useI18n();
   const [mode, setMode] = useState<AppMode>("topology");
   const [dataHall, setDataHall] = useState("DH1");
+  const [showConceptualRoutes, setShowConceptualRoutes] = useState(false);
   const [cabinets, setCabinets] = useState<CabinetLayoutItem[]>([]);
   const [selectedCabinetUid, setSelectedCabinetUid] = useState<string | null>(null);
   const [selectedCabinetUids, setSelectedCabinetUids] = useState<string[]>([]);
@@ -1636,6 +1637,8 @@ export function App() {
                   project={selectedProject?.uid ?? "LBB01"}
                   building={selectedProject?.building_id ?? "A"}
                   onOpenRouting={() => setMode("routing")}
+                  showRoutes={showConceptualRoutes}
+                  onShowRoutesChange={setShowConceptualRoutes}
                   cabinets={cabinets}
                   connectedDataHallCounts={connectedDataHallCounts}
                   dataHallBadges={groupDataHallBadges}

@@ -46,6 +46,7 @@ def derive_graph(data: dict) -> RoutingGraph:
                 eid = f"cross:{route['uid']}:tier:{rt['tier']}:{previous['uid']}:{band['uid']}"
                 edges[eid] = GraphEdge(id=eid, edge_type='CROSS_ROUTE', source_node_id=previous['node_id'], target_node_id=nid,
                                       tier=rt['tier'], planar_length_in=band['center_in'] - previous['center_in'],
+                                      width_in=route['width_in'],
                                       pathway_type=rt['pathway_type'], cross_route_uid=route['uid'], cross_route_kind=route['kind'],
                                       cabinet_row_uid=route['cabinet_row_uid'])
             previous = {**band, 'node_id': nid}
@@ -74,5 +75,6 @@ def derive_graph(data: dict) -> RoutingGraph:
             eid = f"passage:{band_uid}:tier:{tier}:{ordered[i]}:{ordered[i + 1]}"
             edges[eid] = GraphEdge(id=eid, edge_type='PASSAGE', source_node_id=ids[i], target_node_id=ids[i + 1],
                                   tier=tier, planar_length_in=ordered[i + 1] - ordered[i], passage_code=band['code'],
+                                  width_in=band['width_in'],
                                   pathway_type=passage_tiers[(band_uid, tier)]['pathway_type'])
     return RoutingGraph(nodes=sorted(nodes.values(), key=lambda n: n.id), edges=sorted(edges.values(), key=lambda e: e.id))

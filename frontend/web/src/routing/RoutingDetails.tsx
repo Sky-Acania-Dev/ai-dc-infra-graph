@@ -63,6 +63,7 @@ export function RoutingDetails({ data, graph, selection, onSelect, canManage, bu
     {edge.cross_route_uid && <>{field("Cross route", crossName(edge.cross_route_uid))}{field("Kind", edge.cross_route_kind)}</>}
     {edge.edge_type === "CROSS_ROUTE" ? <>{field("From passage", a.passage_code)}{field("To passage", b.passage_code)}</> : <>{field("Passage", edge.passage_code)}{field("From station", formatInches(a.station_in))}{field("To station", formatInches(b.station_in))}</>}
     {field("Planar pathway length", formatInches(edge.planar_length_in))}
+    {field("Pathway width", edge.width_in == null ? "Not separately measured" : formatInches(edge.width_in))}
     {edge.vertical_transition_uid && <>{field("Opening", data.vertical_transitions.find(v => v.uid === edge.vertical_transition_uid)?.label)}{field("Notes", data.vertical_transitions.find(v => v.uid === edge.vertical_transition_uid)?.notes)}</>}
   </dl><div className="routing-linked-list">
     {edge.cross_route_uid && <button onClick={() => onSelect({ kind: "cross", uid: edge.cross_route_uid! })}>Inspect cross route</button>}

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 
 import { categoryColor, labelColors } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
@@ -29,6 +29,8 @@ type CabinetMapProps = {
   project: string;
   building: string;
   onOpenRouting: () => void;
+  showRoutes: boolean;
+  onShowRoutesChange: (show: boolean) => void;
   cabinets: CabinetLayoutItem[];
   connectedDataHallCounts: Map<string, number>;
   dataHallBadges?: Map<string, DataHallBadgeCounts>;
@@ -194,6 +196,8 @@ export function CabinetMap({
   project,
   building,
   onOpenRouting,
+  showRoutes,
+  onShowRoutesChange,
   cabinets,
   connectedDataHallCounts,
   dataHallBadges,
@@ -226,7 +230,6 @@ export function CabinetMap({
   onProgressDisplayChange,
 }: CabinetMapProps) {
   const { t } = useI18n();
-  const [showRoutes, setShowRoutes] = useState(false);
   const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (min-width: 760px) and (orientation: landscape)");
   const settings = isPhoneLandscape ? LANDSCAPE_MAP_SIZE_SETTINGS[mapSize] : MAP_SIZE_SETTINGS[mapSize];
   const normalizedLayout = normalizeCabinets(cabinets);
@@ -274,8 +277,7 @@ export function CabinetMap({
         </div>
         <div className="map-controls">
           <div className="map-size-control" role="group" aria-label="Cabinet map layers">
-            <button aria-pressed={!showRoutes} className={!showRoutes ? "is-active" : ""} onClick={() => setShowRoutes(false)}>Cabinets</button>
-            <button aria-pressed={showRoutes} className={showRoutes ? "is-active" : ""} onClick={() => setShowRoutes(true)}>Cabinets + routes</button>
+            <label className="map-route-toggle"><input type="checkbox" aria-label="Show conceptual routes" checked={showRoutes} onChange={event => onShowRoutesChange(event.target.checked)} />Conceptual routes</label>
           </div>
           <div className="map-size-control" role="tablist" aria-label={t("dataHall.selector")}>
             {dataHalls.map((hall) => {

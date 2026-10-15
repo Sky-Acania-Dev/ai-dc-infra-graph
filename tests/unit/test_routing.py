@@ -257,6 +257,31 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(result.planar_length_in, data['geometry']['hall_length_in'])
             self.assertEqual(len(result.steps), 1)
 
+    def test_graph_segment_dimensions_follow_domain_widths_and_survive_preview(self):
+        self.configure_tiers(tiers=(1,), cross_tiers=(1,))
+        data = self.data_now()
+        graph = derive_graph(data)
+        for edge in graph.edges:
+            if edge.edge_type == 'CROSS_ROUTE':
+                self.assertEqual(edge.width_in, 24)
+                self.assertIn(edge.planar_length_in, (365, 389))
+            elif edge.edge_type == 'PASSAGE':
+                self.assertEqual(edge.width_in, 24 if edge.passage_code == 'CENTRAL' else 34)
+            else:
+                self.assertIsNone(edge.width_in)
+        route = next(r for r in data['cross_routes'] if r['kind'] == 'SECTION_GAP')
+        self.save('cross-routes', {'width_in': 30}, route['uid'])
+        self.save('bands', {'width_in': 36}, self.north())
+        updated = self.data_now()
+        graph = derive_graph(updated)
+        cross_edges = [e for e in graph.edges if e.cross_route_uid == route['uid'] and e.edge_type == 'CROSS_ROUTE']
+        self.assertEqual({e.width_in for e in cross_edges}, {30})
+        self.assertEqual({e.planar_length_in for e in cross_edges}, {366, 389})
+        preview = preview_route(graph, updated, self.passage_id(1), self.passage_id(1, updated['geometry']['hall_length_in']))
+        self.assertEqual({e.width_in for e in preview.edges}, {36})
+        self.assertEqual(preview.planar_length_in, updated['geometry']['hall_length_in'])
+        self.assertEqual(preview.model_dump()['edges'][0]['width_in'], 36)
+
     def test_missing_middle_tier_does_not_invent_connection(self):
         self.configure_tiers(tiers=(1,), cross_tiers=(2,))
         graph = derive_graph(self.data_now())
@@ -344,6 +369,8 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(preview.status_code, 200, preview.text)
             self.assertEqual(preview.json()['planar_length_in'], 200)
             self.assertEqual(preview.json()['vertical_transition_count'], 1)
+            self.assertEqual({e['width_in'] for e in preview.json()['edges'] if e['edge_type'] == 'PASSAGE'}, {34})
+            self.assertTrue(all(e['width_in'] is None for e in preview.json()['edges'] if e['edge_type'] == 'VERTICAL'))
             self.assertEqual(client.patch(base + '/vertical-transitions/' + opening, json={'enabled': False}).status_code, 200)
             self.assertEqual(client.post(base + '/route-preview', json=request).status_code, 422)
             self.assertEqual(client.patch(base + '/vertical-transitions/' + opening, json={'enabled': True, 'label': 'Edited opening'}).status_code, 200)

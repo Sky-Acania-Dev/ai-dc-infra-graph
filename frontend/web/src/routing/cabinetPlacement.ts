@@ -1,7 +1,7 @@
 import type { ResolvedLayout, RoutingCabinet } from "./types";
 
 export type CabinetTile = {
-  cabinet: RoutingCabinet; rowUid: string; enabled: boolean; x: number; y: number; width: number; height: number;
+  cabinet: RoutingCabinet; rowUid: string; slot: number; enabled: boolean; x: number; y: number; width: number; height: number;
 };
 
 // Cabinet slots are display subdivisions of a row field, not measured cabinet widths.
@@ -30,7 +30,7 @@ export function placeRoutingCabinets(data: ResolvedLayout): CabinetTile[] {
       // High Y appears at the left in cabinet-map orientation (south left, north right).
       const low = field.end_in - Math.floor((slot + 1) * field.width_in / count);
       const high = field.end_in - Math.floor(slot * field.width_in / count);
-      tiles.push({ cabinet, rowUid: row.uid, enabled: row.enabled, x: row.start_in, y: low, width: row.end_in - row.start_in, height: high - low });
+      tiles.push({ cabinet, rowUid: row.uid, slot, enabled: row.enabled, x: row.start_in, y: low, width: row.end_in - row.start_in, height: high - low });
     }
   }
   return tiles;

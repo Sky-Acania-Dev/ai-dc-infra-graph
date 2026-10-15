@@ -55,7 +55,7 @@ export type GraphNode = {
 };
 export type GraphEdge = {
   id: string; edge_type: "CROSS_ROUTE" | "PASSAGE" | "JUNCTION" | "VERTICAL"; source_node_id: string; target_node_id: string;
-  planar_length_in: number; tier: Tier | null; lower_tier: Tier | null; upper_tier: Tier | null;
+  planar_length_in: number; width_in: number | null; tier: Tier | null; lower_tier: Tier | null; upper_tier: Tier | null;
   pathway_type: PathwayType | null; passage_code: PassageCode | null; cross_route_uid: string | null;
   cross_route_kind: string | null; cabinet_row_uid: string | null; vertical_transition_uid: string | null;
 };
