@@ -1,0 +1,70 @@
+# LBB01 schematic routing API
+
+Routing describes technician-facing cold-aisle pathways in local integer inches. It uses existing PostgreSQL `Room` and `Cabinet` entities and stores nine routing domain tables. Generated graph nodes and edges are never persisted. Existing cable topology and halls without routing layouts continue to work independently.
+
+## Setup
+
+Apply `python -m alembic upgrade head`, start the backend, and open **Routing** in the web app. A manager can initialize LBB01 DH1 with `POST /routing/initialize-lbb01` and `{ "building_id": "A" }`. Initialization requires an existing LBB01 `DH1` or `DH1-1` Room and links each section to the corresponding `DH1-1` through `DH1-5` Room when available. Repeat initialization preserves existing configuration.
+
+The user-confirmed arrangement is ten cabinets per row, north cabinets 801–1600 and south cabinets 1–800. Each section has sixteen rows/eight pairs per side. The initializer creates 80 pairs, 160 rows, 160 cold-side routes and four section-gap routes. It creates no pathway tiers or vertical openings. Cabinet ranges link to existing numeric LBB01 inventory; they do not create duplicate Cabinet records. Later row/pair changes are explicit configuration, never automatic renumbering.
+
+## Endpoints
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /routing/layouts?project_uid=LBB01&building_id=A&hall_code=DH1` | Find the physical hall's layout; returns an empty list when uninitialized |
+| `POST /routing/layouts` | Create a layout anchored to an existing Room, with five sections, five bands and four gap routes |
+| `GET /routing/layouts/{uid}` | Domain configuration and backend-resolved geometry |
+| `PATCH /routing/layouts/{uid}` | Edit dimensions, name and cabinets per row |
+| `DELETE /routing/layouts/{uid}` | Remove the layout and its routing records |
+| `GET /routing/layouts/{uid}/graph` | Deterministic derived graph |
+| `POST /routing/layouts/{uid}/route-preview` | Route between `start_node_id` and `end_node_id` |
+| `GET, POST /routing/layouts/{uid}/{resource}` | List/create configuration records |
+| `GET, PATCH, DELETE /routing/layouts/{uid}/{resource}/{record_uid}` | Read/edit/remove a configuration record, subject to domain invariants |
+
+Resources are `sections`, `bands`, `row-pairs`, `cabinet-rows`, `cross-routes`, `cross-route-tiers`, `passage-tiers`, and `vertical-transitions`. Writes require the existing manager role. Resource payloads are validated by the Pydantic schemas in `backend/schemas/routing.py`; IDs use the repository's `uid` convention. Foreign references must belong to the same layout. Duplicate configuration returns 409; invalid dimensions, missing openings and disconnected routes return 422; missing records return 404.
+
+Five sections, the ordered five-band structure, and the associated cross routes are required scaffold. Individual deletion of sections, bands or cross routes is rejected. Cross routes can be disabled; deleting a cabinet row or pair cascades its associated cold-side routes and tiers. Deleting a whole layout removes the scaffold. Reimports preserve routing Room/Building anchors and all routing configuration.
+
+## Geometry and routing
+
+Ordered band widths are 34, 336, 24, 360, 34 inches. The backend derives boundaries, centers 17/382/771, width 788, and cross-route lengths 365/389. The 264-inch module is cold aisle 0–120, A row 120–144, hot aisle 144–240, B row 240–264. Row centers alternate 120/144 inches apart. A/B identifies members of a shared hot aisle; row-field association identifies which side of the hall contains the pair.
+
+North/south pairs occupy parallel longitudinal slots. Each section consumes the larger of its configured north/south pair counts times the module width, followed by a 216-inch extra gap except after Section 5. Empty intermediate sections still preserve all four gaps. A final 120-inch cold-aisle context accommodates the last B row's outward-facing route; it does not change section offsets or gap stations.
+
+Width/depth/gap dimensions whose centers must stay in integer inches are even-valued. Configured face offsets and stations may be any nonnegative integer inch. The backend derives the module when row/aisle dimensions change. Existing explicit route widths and MANUAL/FIELD_MEASURED stations are preserved. The backend rejects route placement outside the associated cold aisle or section gap.
+
+Every enabled cross-route tier intersects compatible enabled passage tiers using separate cross-route and passage nodes joined by zero-length JUNCTION edges. CROSS_ROUTE edges join adjacent passages only; missing CENTRAL never produces a NORTH–SOUTH shortcut. PASSAGE edges join sorted stations continuously through all five sections. Each enabled opening creates one bidirectional adjacent-tier VERTICAL edge, and requires both configured passage tiers to be enabled. VERTICAL edges have zero planar length; disabling an opening removes that connectivity.
+
+Route preview minimizes, in order: vertical transition count, planar length, edge count, then the ordered stable edge-ID sequence. It returns ordered nodes and edges, compressed technician instructions, opening labels, `vertical_transition_count`, `planar_length_in`, and `length_label: "Planar pathway length"`.
+
+## Frontend workflow
+
+**Routing** displays all five sections together. Use **Focus section**, zoom buttons, the mouse wheel and blank-space panning to inspect details. T1/T2/T3 use solid/dashed/dash-dot styles. Screen offsets and stroke widths affect rendering only. Select infrastructure for details; select a graph node to inspect incident edges, including zero-length junctions.
+
+**Configure routing** manages dimensions, band widths, section names, row pairs, A/B rows, pathway tiers and physical openings. Choose an explicit pathway type to add a tier. Disabled tiers remain configurable. Physical-opening forms accept integer inches or feet/inches such as `33'-4"` and show the proposed station before saving. Enable **Route preview**, then select start/destination nodes in the SVG or endpoint selectors. A configuration change clears stale previews.
+
+Vite and nginx both proxy `/routing`. For a separate local validation backend, set `ROUTING_API_TARGET` before launching Vite; the default is `http://127.0.0.1:8000`.
+
+## V1 schematic assumptions
+
+- NORTH/SOUTH measured 34-inch widths may later be confirmed as nominal 36 inches; V1 preserves 34.
+- Cold-route envelopes default to touching the cold cabinet face, with configurable face offsets. This is schematic placement.
+- DERIVED section-gap routes default to the midpoint of the extra 18-foot gap. This is not a field measurement.
+- Tier elevations are unknown. Vertical distance, rack drops, slack, service loops and exact cable length are outside V1.
+
+Before field use, configure confirmed tier availability, pathway types and physical opening locations. The route preview validates configured topology and is not construction-design approval.
+
+## Validation
+
+```powershell
+python -m pip install -e '.[test]'
+python -m unittest tests.unit.test_routing -q
+$env:RUN_ROUTING_POSTGRESQL_TESTS='1'
+python -m unittest tests.integration.test_routing_postgresql -q
+cd frontend/web
+npm run test:routing
+npm run build
+```
+
+PostgreSQL routing tests create and remove their own isolated schema, exercise full migration upgrade, routing downgrade/re-upgrade, initializer idempotency, graph/pathfinding persistence and cutsheet reimport preservation. They do not replace production data. The frontend tests exercise the shared integer-inch parser and formatter; browser validation exercises initialized/uninitialized rendering, tier configuration, opening forms, section focus and route highlighting.

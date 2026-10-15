@@ -7,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 
 from backend.persistence.postgresql.config import database_url
 from backend.persistence.postgresql.models import Base
+from backend.persistence.postgresql import routing_models  # register additive routing metadata
 
 
 config = context.config
@@ -31,6 +32,12 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    supplied_connection = config.attributes.get("connection")
+    if supplied_connection is not None:
+        context.configure(connection=supplied_connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

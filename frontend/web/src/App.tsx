@@ -35,6 +35,7 @@ import { DevicePortLayout } from "./components/DevicePortLayout";
 import { EntityGroupsPanel } from "./components/EntityGroupsPanel";
 import { EntityGroupSummaryPanel } from "./components/EntityGroupSummaryPanel";
 import { ValidationView } from "./components/ValidationView";
+import { RoutingPage } from "./routing/RoutingPage";
 import type { DataHallBadgeCounts, MapProgressDisplay, MapSize } from "./components/CabinetMap";
 import type {
   CableDetailResponse,
@@ -65,7 +66,7 @@ import { useI18n, type Locale } from "./i18n";
 
 const FALLBACK_DATA_HALLS = ["DH1", "DH2"];
 const OPERATION_POLL_INTERVAL_MS = 5000;
-type AppMode = "projects" | "topology" | "groups" | "validation" | "operations";
+type AppMode = "projects" | "topology" | "groups" | "validation" | "operations" | "routing";
 type ChangeOrderCableStatus = "red" | "yellow" | "cyan" | "replaced";
 type CenterViewMode = "cabinet_map" | "port_layout";
 type CableDetailPageLoader = (offset: number, limit: number) => Promise<CableDetailResponse>;
@@ -178,6 +179,7 @@ export function App() {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (mode === "routing") return;
       const target = event.target as HTMLElement | null;
       const isEditable =
         target?.tagName === "INPUT" || target?.tagName === "SELECT" || target?.tagName === "TEXTAREA";
@@ -1467,7 +1469,7 @@ export function App() {
       <header className="topbar">
         <div>
           <span className="eyebrow">{t("app.name")}</span>
-          <h1>{mode === "projects" ? "Select Project" : mode === "groups" ? "Entity Groups" : mode === "topology" ? t("app.topologyTitle") : mode === "operations" ? "Operation Log" : t("app.validationTitle")}</h1>
+          <h1>{mode === "projects" ? "Select Project" : mode === "groups" ? "Entity Groups" : mode === "routing" ? "Pathway Routing" : mode === "topology" ? t("app.topologyTitle") : mode === "operations" ? "Operation Log" : t("app.validationTitle")}</h1>
         </div>
         <div className="topbar-controls">
           <button className="project-select-button" onClick={() => setMode("projects")} type="button">
@@ -1480,6 +1482,9 @@ export function App() {
             </button>
             <button className={mode === "groups" ? "is-active" : ""} onClick={() => setMode("groups")}>
               Groups
+            </button>
+            <button className={mode === "routing" ? "is-active" : ""} onClick={() => setMode("routing")}>
+              Routing
             </button>
             <button className={mode === "validation" ? "is-active" : ""} onClick={() => setMode("validation")}>
               {t("view.validation")}
@@ -1508,10 +1513,10 @@ export function App() {
             </button>
           </div>
           <div className="segmented-control" role="group" aria-label="Operations">
-            <button disabled={!canEdit || pendingSaveCount > 0 || undoStack.length === 0} onClick={runClientUndo}>
+            <button disabled={mode === "routing" || !canEdit || pendingSaveCount > 0 || undoStack.length === 0} onClick={runClientUndo}>
               Undo
             </button>
-            <button disabled={!canEdit || pendingSaveCount > 0 || redoStack.length === 0} onClick={runClientRedo}>
+            <button disabled={mode === "routing" || !canEdit || pendingSaveCount > 0 || redoStack.length === 0} onClick={runClientRedo}>
               Redo
             </button>
           </div>
@@ -1533,6 +1538,8 @@ export function App() {
         ) : (
           <section className="project-page loading-pane">Loading projects</section>
         )
+      ) : mode === "routing" ? (
+        <RoutingPage project={selectedProject?.uid ?? "LBB01"} building={selectedProject?.building_id ?? "A"} hall={dataHall} canManage={canManageGroups} />
       ) : mode === "validation" ? (
         <ValidationView canValidate={currentUser?.role === "manager"} onJumpToDevice={jumpToDevice} onJumpToPort={jumpToPort} />
       ) : mode === "operations" ? (

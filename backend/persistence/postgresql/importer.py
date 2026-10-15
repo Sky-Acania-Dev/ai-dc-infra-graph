@@ -14,6 +14,7 @@ from backend.models import Device as DomainDevice
 from backend.models import PortConnector
 from backend.persistence import TopologyDatabase
 from backend.persistence.postgresql import models as db
+from backend.persistence.postgresql import routing_models as routing_db
 
 
 def replace_project_topology(
@@ -85,7 +86,7 @@ def replace_project_topology(
     topology_version.summary = _payload(database.summary)
     session.flush()
 
-    session.add(
+    session.merge(
         db.Building(
             uid=building_uid,
             project_uid=project_uid,
@@ -96,7 +97,7 @@ def replace_project_topology(
 
     for room in database.data_halls:
         room_uid = _room_uid(project_uid, database.building_id, room.room_id)
-        session.add(
+        session.merge(
             db.Room(
                 uid=room_uid,
                 project_uid=project_uid,
@@ -108,7 +109,7 @@ def replace_project_topology(
             )
         )
     for room_id in _inferred_room_ids(database):
-        session.add(
+        session.merge(
             db.Room(
                 uid=_room_uid(project_uid, database.building_id, room_id),
                 project_uid=project_uid,
@@ -262,9 +263,18 @@ def _delete_project_topology(session: Session, project_uid: str) -> None:
         db.Building,
     ):
         if "project_uid" in table_model.__table__.columns:
+            statement = delete(table_model).where(table_model.__table__.c.project_uid == project_uid)
+            # Routing configuration survives cutsheet reimports. Retain only its
+            # authoritative Room/Building anchors; all other replacement behavior is unchanged.
+            if table_model is db.Room:
+                statement = statement.where(
+                    ~db.Room.uid.in_(select(routing_db.RoutingLayout.room_uid)),
+                    ~db.Room.uid.in_(select(routing_db.RoutingSection.room_uid).where(routing_db.RoutingSection.room_uid.is_not(None))),
+                )
+            elif table_model is db.Building:
+                statement = statement.where(~db.Building.uid.in_(select(db.Room.building_uid)))
             session.execute(
-                delete(table_model)
-                .where(table_model.__table__.c.project_uid == project_uid)
+                statement
                 .execution_options(synchronize_session=False)
             )
 

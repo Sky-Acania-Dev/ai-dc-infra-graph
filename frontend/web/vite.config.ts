@@ -13,6 +13,7 @@ export default defineConfig({
       "/health": "http://127.0.0.1:8000",
       "/label-extraction": "http://127.0.0.1:8000",
       "/projects": "http://127.0.0.1:8000",
+      "/routing": process.env.ROUTING_API_TARGET ?? "http://127.0.0.1:8000",
       "/tasks": "http://127.0.0.1:8000",
       "/topology": "http://127.0.0.1:8000",
     },

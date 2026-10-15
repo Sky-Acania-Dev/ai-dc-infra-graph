@@ -10,6 +10,7 @@ from backend.api.projects import router as projects_router
 from backend.api.tasks import router as tasks_router
 from backend.api.topology import router as topology_router
 from backend.api.validation import router as validation_router
+from backend.api.routing import router as routing_router
 
 
 app = FastAPI(title="AI DC Infra Graph")
@@ -33,6 +34,7 @@ app.include_router(change_orders_router)
 app.include_router(topology_router)
 app.include_router(tasks_router)
 app.include_router(validation_router)
+app.include_router(routing_router)
 
 
 @app.get("/health")
