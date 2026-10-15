@@ -1634,6 +1634,7 @@ export function App() {
                 />
               ) : (
                 <CabinetMap
+                  canManage={canManageGroups}
                   project={selectedProject?.uid ?? "LBB01"}
                   building={selectedProject?.building_id ?? "A"}
                   onOpenRouting={() => setMode("routing")}

@@ -101,6 +101,21 @@ class RoutingPostgreSQLTests(unittest.TestCase):
         self.assertEqual(before['geometry'], after['geometry'])
         self.assertEqual(len(after['sections']), 5)
 
+    def test_manual_segment_marking_persistence(self):
+        data = routing.initialize_lbb01(self.session)
+        uid = data['layout']['uid']
+        self.assertEqual(data['segment_annotations'], [])
+        north = next(b['uid'] for b in data['bands'] if b['code'] == 'NORTH')
+        item = routing.save_resource(self.session, uid, 'segment-annotations', {
+            'passage_band_uid': north, 'start_station_in': 0, 'end_station_in': 120,
+            'usable': False, 'cable_classes': ['LC', 'MPO'], 'notes': 'Manual marking'})
+        self.session.expire_all()
+        actual = routing.resolved_layout(self.session, uid)['segment_annotations'][0]
+        self.assertEqual(actual['cable_classes'], ['LC', 'MPO'])
+        self.assertFalse(actual['usable'])
+        routing.delete_resource(self.session, uid, 'segment-annotations', item['uid'])
+        self.assertEqual(routing.resolved_layout(self.session, uid)['segment_annotations'], [])
+
 
 if __name__ == '__main__':
     unittest.main()

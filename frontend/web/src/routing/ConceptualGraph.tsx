@@ -2,8 +2,8 @@ import { useMemo } from "react";
 import type { ConceptualLayout } from "./conceptualLayout";
 import type { ResolvedLayout, RoutingGraph, Selection, Tier } from "./types";
 import { formatInches } from "./dimensions";
+import { RouteStroke } from "./RouteStroke";
 
-const DASH: Record<Tier, string | undefined> = { 1: undefined, 2: "8 5", 3: "9 4 2 4" };
 type Props = { data: ResolvedLayout; graph: RoutingGraph; view: ConceptualLayout; scale: number; tiers: Set<Tier>; selection: Selection; onSelect: (s: Selection) => void };
 export function ConceptualGraph({ data, graph, view, scale, tiers, selection, onSelect }: Props) {
   const nodes = useMemo(() => new Map(graph.nodes.map(n => [n.id, n])), [graph]);
@@ -18,7 +18,7 @@ export function ConceptualGraph({ data, graph, view, scale, tiers, selection, on
         onClick={event => { event.stopPropagation(); onSelect({ kind: "edge", uid: edge.id }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "edge", uid: edge.id }); }}>
         {edge.edge_type === "JUNCTION" ? <circle cx={a.x + offset} cy={a.y + offset} r={3 / scale} className={`conceptual-station ${active ? "selected" : ""}`} vectorEffect="non-scaling-stroke" /> : <>
           <line x1={a.x + offset} y1={a.y + offset} x2={b.x + offset} y2={b.y + offset} stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke" />
-          <line x1={a.x + offset} y1={a.y + offset} x2={b.x + offset} y2={b.y + offset} className={`routing-edge ${active ? "selected" : ""}`} strokeWidth={active ? 4 : 2.5} strokeDasharray={DASH[source.tier]} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+          <RouteStroke a={{ x: a.x + offset, y: a.y + offset }} b={{ x: b.x + offset, y: b.y + offset }} scale={scale} selected={active} tier={source.tier} usable={edge.usable} cableClasses={edge.cable_classes} />
         </>}
         <title>{`${edge.edge_type} · Tier ${source.tier} · Planar pathway length ${formatInches(edge.planar_length_in)} · Width ${edge.width_in == null ? "not separately measured" : formatInches(edge.width_in)}`}</title>
       </g>;

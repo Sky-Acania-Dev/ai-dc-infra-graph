@@ -1,11 +1,9 @@
-import { useRef } from "react";
-
-import { categoryColor, labelColors } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useI18n } from "../i18n";
 import type { CabinetLayoutItem, ChangeOrderCabinetStats } from "../types";
 import type { SelectionGesture } from "../App";
+import { CabinetGraphics } from "./CabinetGraphics";
 import { ViewerScaleSlider } from "./ViewerScaleSlider";
 import { CabinetRoutingMap } from "../routing/CabinetRoutingMap";
 
@@ -25,7 +23,8 @@ export type DataHallBadgeCounts = {
   removed: number;
 };
 
-type CabinetMapProps = {
+export type CabinetMapProps = {
+  canManage: boolean;
   project: string;
   building: string;
   onOpenRouting: () => void;
@@ -183,7 +182,6 @@ const LANDSCAPE_MAP_SIZE_SETTINGS: Record<MapSize, (typeof MAP_SIZE_SETTINGS)[Ma
   },
 };
 const PADDING = 24;
-const PREFETCH_HOVER_DELAY_MS = 250;
 const MAP_SIZE_STEPS: Array<{ value: MapSize; labelKey: string }> = [
   { value: "xsmall", labelKey: "map.size.xsmall" },
   { value: "small", labelKey: "map.size.small" },
@@ -192,43 +190,15 @@ const MAP_SIZE_STEPS: Array<{ value: MapSize; labelKey: string }> = [
   { value: "xlarge", labelKey: "map.size.xlarge" },
 ];
 
-export function CabinetMap({
-  project,
-  building,
-  onOpenRouting,
-  showRoutes,
-  onShowRoutesChange,
-  cabinets,
-  connectedDataHallCounts,
-  dataHallBadges,
-  dataHall,
-  dataHalls,
-  selectedCabinetUid,
-  selectedCabinetUids,
-  selectedDeviceCabinetUid,
-  connectedCabinetUids,
-  connectedCabinetCounts,
-  addedCabinetUids,
-  removedCabinetUids,
-  addedConnectedCabinetCounts,
-  reducedConnectedCabinetCounts,
-  lostConnectedCabinetUids,
-  isDeviceMode,
-  isDataLoading,
-  mapSize,
-  progressDisplay,
-  changeOrderStats,
-  changeOrderOptions,
-  selectedChangeOrderNumbers,
-  modeHint,
-  onChangeOrderSelectionChange,
-  onSelectCabinet,
-  onPrefetchCabinet,
-  onClearSelection,
-  onDataHallChange,
-  onMapSizeChange,
-  onProgressDisplayChange,
-}: CabinetMapProps) {
+export function CabinetMap(props: CabinetMapProps) {
+  const {
+    project, building, onOpenRouting, showRoutes, onShowRoutesChange, cabinets,
+    connectedDataHallCounts, dataHallBadges, dataHall, dataHalls,
+    selectedCabinetUids, connectedCabinetUids, isDataLoading, mapSize,
+    progressDisplay, changeOrderOptions, selectedChangeOrderNumbers, modeHint,
+    onChangeOrderSelectionChange, onSelectCabinet, onPrefetchCabinet,
+    onClearSelection, onDataHallChange, onMapSizeChange, onProgressDisplayChange,
+  } = props;
   const { t } = useI18n();
   const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (min-width: 760px) and (orientation: landscape)");
   const settings = isPhoneLandscape ? LANDSCAPE_MAP_SIZE_SETTINGS[mapSize] : MAP_SIZE_SETTINGS[mapSize];
@@ -238,35 +208,11 @@ export function CabinetMap({
   const maxRow = Math.max(...positioned.map((cabinet) => cabinet.row), 0);
   const width = PADDING * 2 + (maxBlock + 1) * 10 * settings.cellWidth + maxBlock * settings.blockGap;
   const height = PADDING * 2 + rowY(maxRow, settings) + settings.cellHeight;
-  const hasSelection = selectedCabinetUids.size > 0;
   const mapPan = useDragPan<HTMLDivElement>();
-  const prefetchTimeoutRef = useRef<number | null>(null);
-  const primaryPositionedCabinet = selectedCabinetUid
-    ? positioned.find((cabinet) => cabinet.cabinet_uid === selectedCabinetUid)
-    : null;
-  const primaryFrame = primaryPositionedCabinet
-    ? {
-        x:
-          PADDING +
-          primaryPositionedCabinet.block * (10 * settings.cellWidth + settings.blockGap) +
-          primaryPositionedCabinet.col * settings.cellWidth,
-        y: PADDING + rowY(primaryPositionedCabinet.row, settings),
-      }
-    : null;
-
-  function scheduleCabinetPrefetch(cabinetUid: string) {
-    clearCabinetPrefetch();
-    prefetchTimeoutRef.current = window.setTimeout(() => {
-      prefetchTimeoutRef.current = null;
-      onPrefetchCabinet(cabinetUid);
-    }, PREFETCH_HOVER_DELAY_MS);
-  }
-
-  function clearCabinetPrefetch() {
-    if (prefetchTimeoutRef.current === null) return;
-    window.clearTimeout(prefetchTimeoutRef.current);
-    prefetchTimeoutRef.current = null;
-  }
+  const positions = positioned.map(cabinet => ({ cabinet,
+    x: PADDING + cabinet.block * (10 * settings.cellWidth + settings.blockGap) + cabinet.col * settings.cellWidth,
+    y: PADDING + rowY(cabinet.row, settings),
+  }));
 
   return (
     <section className="map-pane">
@@ -299,7 +245,7 @@ export function CabinetMap({
               );
             })}
           </div>
-          {!showRoutes && <><div className="map-size-control" aria-label={t("map.display")}>
+          <div className="map-size-control" aria-label={t("map.display")}>
             {(["text", "termination", "dress", "change_orders"] as MapProgressDisplay[]).map((display) => (
               <button
                 className={display === progressDisplay ? "is-active" : ""}
@@ -323,7 +269,6 @@ export function CabinetMap({
             steps={MAP_SIZE_STEPS.map((step) => ({ value: step.value, label: t(step.labelKey) }))}
             value={mapSize}
           />
-          </>}
         </div>
       </div>
       {isDataLoading ? (
@@ -333,6 +278,9 @@ export function CabinetMap({
         </div>
       ) : null}
       {showRoutes ? <CabinetRoutingMap project={project} building={building} hall={dataHall} selected={selectedCabinetUids} connected={connectedCabinetUids}
+        canManage={props.canManage} cabinets={cabinets} settings={settings}
+        renderCabinets={(positions, clearPath) => <CabinetGraphics {...props} positions={positions} settings={settings}
+          onSelectCabinet={(uid, gesture) => { clearPath(); onSelectCabinet(uid, gesture); }} />}
         onSelectCabinet={onSelectCabinet} onPrefetchCabinet={onPrefetchCabinet} onClearSelection={onClearSelection} onOpenRouting={onOpenRouting} /> : <div className="map-scroll drag-pan-surface" {...mapPan}>
         <svg
           className="cabinet-map"
@@ -342,148 +290,7 @@ export function CabinetMap({
           role="img"
           onClick={onClearSelection}
         >
-          {positioned.map((cabinet) => {
-            const fill = categoryColor(cabinet.category);
-            const label = labelColors(fill);
-            const x =
-              PADDING +
-              cabinet.block * (10 * settings.cellWidth + settings.blockGap) +
-              cabinet.col * settings.cellWidth;
-            const y = PADDING + rowY(cabinet.row, settings);
-            const isSelected = selectedCabinetUids.has(cabinet.cabinet_uid);
-            const isDeviceSource = isDeviceMode && cabinet.cabinet_uid === selectedDeviceCabinetUid;
-            const isAdded = addedCabinetUids.has(cabinet.cabinet_uid);
-            const isRemoved = removedCabinetUids.has(cabinet.cabinet_uid);
-            const isLostConnection = lostConnectedCabinetUids.has(cabinet.cabinet_uid);
-            const reducedConnectionCount = reducedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
-            const isReducedConnection = reducedConnectionCount > 0;
-            const connectedSourceCount = connectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
-            const addedConnectionCount = addedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
-            const isConnected = connectedCabinetUids.has(cabinet.cabinet_uid);
-            const showConnectionCount = connectedSourceCount > 0 || addedConnectionCount > 0 || reducedConnectionCount > 0;
-            const isAddedOnlyNeighbor = addedConnectionCount > 0 && connectedSourceCount === 0 && !isSelected && !isAdded && !isRemoved;
-            const isDimmed = (hasSelection && !isSelected && !isConnected) || isAdded || isAddedOnlyNeighbor || (isLostConnection && !isSelected);
-            const cabinetChangeStats = changeOrderStats.get(cabinet.cabinet_uid) ?? emptyChangeOrderStats();
-            const cabinetTypeLabel = progressDisplay === "text" ? cabinet.category : "";
-            const cabinetTypeFit = fitSvgText(
-              cabinetTypeLabel,
-              settings.cabinetTypeFontSize,
-              settings.cellWidth - 6,
-            );
-
-            return (
-              <g
-                key={cabinet.cabinet_uid}
-                className={`map-cabinet ${isSelected ? "is-selected" : ""} ${isAdded ? "is-added-selection" : ""} ${isRemoved ? "is-removed-selection" : ""} ${isConnected ? "is-connected" : ""} ${addedConnectionCount > 0 ? "is-added-connected" : ""} ${isLostConnection ? "is-lost-connection" : ""} ${isReducedConnection ? "is-reduced-connection" : ""} ${isDeviceSource ? "is-device-source" : ""} ${isDimmed ? "is-dimmed" : ""}`}
-                role="button"
-                tabIndex={0}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onSelectCabinet(cabinet.cabinet_uid, event);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") onSelectCabinet(cabinet.cabinet_uid, event);
-                }}
-                onFocus={() => onPrefetchCabinet(cabinet.cabinet_uid)}
-                onPointerEnter={() => scheduleCabinetPrefetch(cabinet.cabinet_uid)}
-                onPointerLeave={clearCabinetPrefetch}
-              >
-                <rect className="cabinet-rect" x={x} y={y} width={settings.cellWidth - 2} height={settings.cellHeight - 2} fill={fill}>
-                  <title>{`${cabinet.cabinet_uid}\n${cabinet.category}\n${cabinet.cabinet_group}`}</title>
-                </rect>
-                <rect
-                  className="cabinet-state-frame"
-                  x={x - 1}
-                  y={y - 1}
-                  width={settings.cellWidth}
-                  height={settings.cellHeight}
-                  rx={Math.max(3, settings.cellHeight * 0.14)}
-                />
-                <rect
-                  className="cabinet-neighbor-frame"
-                  x={x}
-                  y={y}
-                  width={settings.cellWidth - 2}
-                  height={settings.cellHeight - 2}
-                />
-                <text
-                  className="cabinet-id"
-                  x={x + (settings.cellWidth - 2) / 2}
-                  y={y + settings.cellHeight * 0.38}
-                  fill={label.fill}
-                  stroke={label.stroke}
-                  style={{ fontSize: settings.cabinetIdFontSize }}
-                >
-                  {cabinet.cabinet_id}
-                </text>
-                <text
-                  className="cabinet-type"
-                  x={x + (settings.cellWidth - 2) / 2}
-                  y={y + settings.cellHeight * 0.78}
-                  fill={label.fill}
-                  stroke={label.stroke}
-                  textLength={cabinetTypeFit.textLength}
-                  lengthAdjust="spacingAndGlyphs"
-                  style={{ fontSize: cabinetTypeFit.fontSize }}
-                >
-                  {cabinetTypeLabel}
-                </text>
-                {progressDisplay !== "text" && (progressDisplay !== "change_orders" || cabinetChangeStats.total > 0) ? (
-                  <ProgressBar
-                    x={x + 2}
-                    y={y + settings.cellHeight * 0.53}
-                    width={settings.cellWidth - 4}
-                    height={Math.max(6, settings.cellHeight * 0.32)}
-                    percent={
-                      progressDisplay === "termination"
-                        ? cabinet.cable_termination_percent
-                        : progressDisplay === "dress"
-                          ? cabinet.cable_dress_percent
-                          : changeOrderPercent(cabinetChangeStats)
-                    }
-                    fontSize={settings.cabinetTypeFontSize}
-                    label={progressDisplay === "change_orders" ? `${cabinetChangeStats.completed}/${cabinetChangeStats.total}` : undefined}
-                  />
-                ) : null}
-
-              </g>
-            );
-          })}
-          {primaryFrame ? (
-            <rect
-              className="cabinet-primary-frame"
-              x={primaryFrame.x - 1.6}
-              y={primaryFrame.y - 1.6}
-              width={settings.cellWidth + 1.2}
-              height={settings.cellHeight + 1.2}
-              rx={Math.max(3.5, settings.cellHeight * 0.16)}
-            />
-          ) : null}
-          {positioned.map((cabinet) => {
-            const x =
-              PADDING +
-              cabinet.block * (10 * settings.cellWidth + settings.blockGap) +
-              cabinet.col * settings.cellWidth;
-            const y = PADDING + rowY(cabinet.row, settings);
-            const reducedConnectionCount = reducedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
-            const isReducedConnection = reducedConnectionCount > 0;
-            const connectedSourceCount = connectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
-            const addedConnectionCount = addedConnectedCabinetCounts.get(cabinet.cabinet_uid) ?? 0;
-            const showConnectionCount = connectedSourceCount > 0 || addedConnectionCount > 0 || reducedConnectionCount > 0;
-            return showConnectionCount ? (
-              <ConnectionCountBadge
-                addedCount={addedConnectionCount}
-                count={isReducedConnection ? reducedConnectionCount : connectedSourceCount}
-                isReduced={isReducedConnection}
-                isAddedOnly={connectedSourceCount === 0 && !isReducedConnection && addedConnectionCount > 0}
-                key={`badge:${cabinet.cabinet_uid}`}
-                x={x + settings.cellWidth - 2}
-                y={y}
-                cellHeight={settings.cellHeight}
-                fontSize={settings.cabinetTypeFontSize}
-              />
-            ) : null;
-          })}
+          <CabinetGraphics {...props} positions={positions} settings={settings} />
         </svg>
       </div>}
     </section>
@@ -584,118 +391,6 @@ function rowY(rowIndex: number, settings: (typeof MAP_SIZE_SETTINGS)[MapSize]): 
   return y;
 }
 
-function fitSvgText(text: string, fontSize: number, maxWidth: number): { fontSize: number; textLength?: number } {
-  if (!text) return { fontSize };
-
-  const estimatedWidth = estimateSvgTextWidth(text, fontSize);
-  if (estimatedWidth <= maxWidth) return { fontSize };
-
-  const compressedWidth = estimatedWidth * 0.8;
-  if (compressedWidth <= maxWidth) {
-    return { fontSize, textLength: Math.max(1, compressedWidth) };
-  }
-
-  const fittedFontSize = Math.max(4.5, fontSize * (maxWidth / compressedWidth));
-  return { fontSize: fittedFontSize, textLength: Math.max(1, maxWidth) };
-}
-
-function estimateSvgTextWidth(text: string, fontSize: number): number {
-  const narrowChars = text.match(/[I1il|.,:;\-]/g)?.length ?? 0;
-  const wideChars = text.match(/[MW@#%&]/g)?.length ?? 0;
-  const normalChars = Math.max(0, text.length - narrowChars - wideChars);
-  return fontSize * (normalChars * 0.58 + narrowChars * 0.32 + wideChars * 0.78);
-}
-
-function ConnectionCountBadge({
-  addedCount = 0,
-  count,
-  isAddedOnly,
-  isReduced,
-  x,
-  y,
-  cellHeight,
-  fontSize,
-}: {
-  addedCount?: number;
-  count: number;
-  isAddedOnly: boolean;
-  isReduced: boolean;
-  x: number;
-  y: number;
-  cellHeight: number;
-  fontSize: number;
-}) {
-  const label = addedCount > 0 && count > 0 ? `${count}+${addedCount}` : String(count || addedCount);
-  const radius = Math.max(5, Math.min(10, cellHeight * 0.3, 5 + label.length * 2.1));
-  const badgeFontSize = Math.max(6, Math.min(fontSize + 1, radius * 0.95));
-  return (
-    <g className={`cabinet-connection-count ${isAddedOnly ? "is-added-only" : ""} ${isReduced ? "is-reduced" : ""}`.trim()} aria-label={`${label} connected cabinets`}>
-      <circle cx={x - radius * 0.35} cy={y + radius * 0.35} r={radius} />
-      <text
-        dominantBaseline="central"
-        textAnchor="middle"
-        x={x - radius * 0.35}
-        y={y + radius * 0.35}
-        style={{ fontSize: badgeFontSize }}
-      >
-        {count > 0 ? <tspan className="active-count">{count}</tspan> : null}
-        {addedCount > 0 ? <tspan className="added-count">{count > 0 ? `+${addedCount}` : addedCount}</tspan> : null}
-      </text>
-    </g>
-  );
-}
-
-function ProgressBar({
-  x,
-  y,
-  width,
-  height,
-  percent,
-  fontSize,
-  label,
-}: {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  percent: number;
-  fontSize: number;
-  label?: string;
-}) {
-  const clamped = Math.min(100, Math.max(0, percent));
-  const displayLabel = label ?? `${Math.round(clamped)}%`;
-  const labelFontSize = Math.min(fontSize, Math.max(5, height * 0.58));
-  return (
-    <g className="map-progress-bar">
-      <rect className="map-progress-bg" x={x} y={y} width={width} height={height} rx={1.5} />
-      <rect
-        className="map-progress-fill"
-        x={x}
-        y={y}
-        width={(width * clamped) / 100}
-        height={height}
-        rx={1.5}
-        fill={progressColor(clamped)}
-      />
-      <text
-        dominantBaseline="central"
-        textAnchor="middle"
-        x={x + width / 2}
-        y={y + height / 2}
-        style={{ fontSize: labelFontSize }}
-      >
-        {displayLabel}
-      </text>
-    </g>
-  );
-}
-
-function progressColor(percent: number): string {
-  if (percent < 25) return "#ef4444";
-  if (percent < 50) return "#f97316";
-  if (percent < 75) return "#eab308";
-  return "#22c55e";
-}
 function ChangeOrderFilter({
   options,
   selectedNumbers,
@@ -740,13 +435,5 @@ function ChangeOrderFilter({
       </div>
     </details>
   );
-}
-
-function emptyChangeOrderStats(): ChangeOrderCabinetStats {
-  return { completed: 0, total: 0, added: 0, changed: 0, removed: 0, replaced: 0 };
-}
-
-function changeOrderPercent(stats: ChangeOrderCabinetStats): number {
-  return stats.total > 0 ? (stats.completed / stats.total) * 100 : 0;
 }
 

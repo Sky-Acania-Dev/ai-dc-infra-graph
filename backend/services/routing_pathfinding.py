@@ -17,6 +17,8 @@ def preview_route(graph: RoutingGraph, data: dict, start: str, end: str) -> Rout
     adjacency = {nid: [] for nid in nodes}
     edges = {e.id: e for e in graph.edges}
     for edge in graph.edges:
+        if not edge.usable:
+            continue
         adjacency[edge.source_node_id].append((edge.target_node_id, edge))
         adjacency[edge.target_node_id].append((edge.source_node_id, edge))
     # Stable edge-ID sequence is the final lexicographic tie breaker.

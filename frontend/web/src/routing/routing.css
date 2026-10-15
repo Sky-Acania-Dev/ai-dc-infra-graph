@@ -42,6 +42,13 @@
 .routing-integrated .routing-toolbar { margin-top: 0; padding-top: 0; border-top: 0; }
 .routing-integrated .routing-svg { height: clamp(400px,62vh,800px); }
 .routing-integrated .routing-notice { font-size: 11px; line-height: 1.5; }
+.conceptual-route-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 0; color: #475569; font-size: 11px; }
+.conceptual-route-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.conceptual-route-legend i { width: 22px; border-top: 3px solid; }
+.conceptual-route-legend i.cable { border-top-width: 5px; }
+.conceptual-fixture-toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+.conceptual-fixture-notice { padding: 8px 10px; margin: 6px 0; background: #fff7df; border: 1px solid #ead7a4; border-radius: 4px; color: #735416; font-size: 11px; }
+.routing-form fieldset { display: grid; gap: 7px; border: 1px solid #d6e0eb; border-radius: 4px; }
 .routing-integrated-details { margin-top: 12px; max-height: none; }
 .map-pane:has(.map-route-toggle) > .pane-header { flex-wrap: wrap; gap: 8px; height: auto; min-height: 40px; }
 .map-pane:has(.map-route-toggle) .map-title-line { flex-shrink: 0; }

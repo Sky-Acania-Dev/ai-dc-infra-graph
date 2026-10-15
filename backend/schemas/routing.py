@@ -150,6 +150,36 @@ class PreviewInput(Record):
     end_node_id: str
 
 
+CableClass = Literal['LC', 'CAT6', 'MPO', 'MPO_TRUNK_T2_T1_RO', 'CROSS_SECTION_CAT6', 'CROSS_SECTION_LC']
+
+
+class SegmentAnnotationInput(Record):
+    passage_band_uid: str | None = None
+    cross_route_uid: str | None = None
+    start_station_in: Inches | None = None
+    end_station_in: Inches | None = None
+    from_passage_band_uid: str | None = None
+    to_passage_band_uid: str | None = None
+    tier: Tier | None = None
+    usable: bool = True
+    cable_classes: list[CableClass] = Field(default_factory=list)
+    notes: str | None = None
+
+    @model_validator(mode='after')
+    def span(self):
+        if self.passage_band_uid:
+            valid = (not self.cross_route_uid and self.start_station_in is not None and self.end_station_in is not None
+                     and self.end_station_in > self.start_station_in and not self.from_passage_band_uid and not self.to_passage_band_uid)
+        else:
+            valid = (bool(self.cross_route_uid) and self.start_station_in is None and self.end_station_in is None
+                     and bool(self.from_passage_band_uid) and bool(self.to_passage_band_uid)
+                     and self.from_passage_band_uid != self.to_passage_band_uid)
+        if not valid:
+            raise ValueError('Select a passage station interval or one cross-route span between adjacent passages.')
+        self.cable_classes = sorted(set(self.cable_classes))
+        return self
+
+
 class InitializeInput(Record):
     project_uid: Literal['LBB01'] = 'LBB01'
     building_id: str = 'A'
@@ -188,6 +218,8 @@ class GraphEdge(Record):
     cross_route_kind: str | None = None
     cabinet_row_uid: str | None = None
     vertical_transition_uid: str | None = None
+    usable: bool = True
+    cable_classes: list[CableClass] = Field(default_factory=list)
 
 
 class RoutingGraph(Record):

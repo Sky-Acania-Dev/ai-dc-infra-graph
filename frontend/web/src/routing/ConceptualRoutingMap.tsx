@@ -1,14 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
-import { CabinetLayer, type CabinetInteraction } from "./CabinetLayer";
-import { placeRoutingCabinets } from "./cabinetPlacement";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type { CabinetInteraction } from "./CabinetLayer";
+import type { CabinetGraphicSettings } from "../components/CabinetGraphics";
+import { placeRoutingCabinets, type CabinetTile } from "./cabinetPlacement";
+import { annotationFor, type ConceptualSegment } from "./conceptualSegments";
+import { RouteStroke } from "./RouteStroke";
+import { formatInches } from "./dimensions";
 import { ConceptualGraph } from "./ConceptualGraph";
 import { conceptualLayout } from "./conceptualLayout";
 import { useSchematicView } from "./useSchematicView";
-import type { ResolvedLayout, RoutingGraph, Selection, Tier } from "./types";
+import type { CableClass, ResolvedLayout, RoutingGraph, Selection, Tier } from "./types";
 
-type Props = { data: ResolvedLayout; graph: RoutingGraph; tiers: Set<Tier>; selection: Selection; onSelect: (s: Selection) => void; initialSectionUid: string; cabinetInteraction: CabinetInteraction };
-export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction }: Props) {
-  const display = useMemo(() => conceptualLayout(data, placeRoutingCabinets(data)), [data]);
+type Props = { data: ResolvedLayout; graph: RoutingGraph; tiers: Set<Tier>; selection: Selection; onSelect: (s: Selection) => void; initialSectionUid: string; cabinetInteraction: CabinetInteraction;
+  settings: CabinetGraphicSettings & { hotAisleGap: number }; renderCabinets: (tiles: CabinetTile[]) => ReactNode;
+  segments: ConceptualSegment[]; selectedSegmentId: string | null; onSelectSegment: (id: string) => void;
+  fixtures: Map<string, { cable_classes: CableClass[]; usable: boolean }>;
+};
+export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, fixtures }: Props) {
+  const display = useMemo(() => conceptualLayout(data, placeRoutingCabinets(data), settings), [data, settings]);
   // The view controller operates in SVG display units, not model inches.
   const v = useSchematicView(display.height, display.width, "cabinet-map");
   const [focusUid, setFocusUid] = useState(initialSectionUid);
@@ -40,24 +48,25 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
         <rect x={crossStart} y={gap.start} width={crossEnd - crossStart} height={gap.end - gap.start} fill="#edf1f5" />
         <text x={crossStart - 10 / v.scale} y={(gap.start + gap.end) / 2} dy="0.35em" textAnchor="end" fontSize={10 / v.scale}>S{index + 1}–S{index + 2} gap</text>
       </g>)}
-      {v.scale > 0.5 && display.hotAisles.map(aisle => <text key={aisle.uid} x={aisle.x + aisle.width / 2} y={aisle.y + aisle.height / 2} dominantBaseline="central" textAnchor="middle" fontSize={9 / v.scale} fill="#7b8795">Hot aisle · no routing</text>)}
       {[...display.rows].map(([uid, row]) => <rect key={uid} data-selectable="true" role="button" tabIndex={0} aria-label={`Select ${row.name}`} x={row.x} y={row.y} width={row.width} height={row.height} className={`conceptual-row ${selected("row", uid) ? "selected" : ""}`} vectorEffect="non-scaling-stroke"
         onClick={event => { event.stopPropagation(); onSelect({ kind: "row", uid }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "row", uid }); }}><title>{row.name}</title></rect>)}
-      <CabinetLayer tiles={display.cabinets} scale={v.scale} interaction={cabinetInteraction} horizontal />
+      {renderCabinets(display.cabinets)}
       {display.passages.map(p => <g key={p.uid} data-selectable="true" role="button" tabIndex={0} aria-label={`Select ${p.code} passage`}
         onClick={event => { event.stopPropagation(); onSelect({ kind: "passage", uid: p.uid }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "passage", uid: p.uid }); }}>
         <line x1={p.x} x2={p.x} y1={0} y2={display.height} stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke" />
-        <line x1={p.x} x2={p.x} y1={0} y2={display.height} className={`conceptual-passage ${selected("passage", p.uid) ? "selected" : ""}`} vectorEffect="non-scaling-stroke" />
         <text x={p.x} y={-14 / v.scale} textAnchor="middle" fontSize={11 / v.scale} fontWeight="800">{p.code}</text>
       </g>)}
-      {data.geometry.cross_routes.map(route => {
-        const y = display.stationY(route.station_in);
-        return <g key={route.uid} data-selectable="true" role="button" tabIndex={0} aria-label={`Select pathway ${route.label ?? data.cabinet_rows.find(r => r.uid === route.cabinet_row_uid)?.name ?? "cross route"}`} opacity={route.effective_enabled ? 1 : 0.2}
-          onClick={event => { event.stopPropagation(); onSelect({ kind: "cross", uid: route.uid }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "cross", uid: route.uid }); }}>
-          <line x1={crossStart} x2={crossEnd} y1={y} y2={y} stroke="transparent" strokeWidth={10} vectorEffect="non-scaling-stroke" />
-          <line x1={crossStart} x2={crossEnd} y1={y} y2={y} className={`conceptual-cross ${route.kind === "SECTION_GAP" ? "gap-route" : ""} ${selected("cross", route.uid) ? "selected" : ""}`} vectorEffect="non-scaling-stroke" />
-          {display.passages.map(p => <circle key={p.uid} cx={p.x} cy={y} r={2.5 / v.scale} className="conceptual-guide-station" vectorEffect="non-scaling-stroke" />)}
-          <title>{`${route.kind === "SECTION_GAP" ? "Section-gap route" : "Cabinet cold-side route"} · ${route.label ?? data.cabinet_rows.find(r => r.uid === route.cabinet_row_uid)?.name}`}</title>
+      {segments.map(segment => {
+        const passage = segment.passage_band_uid;
+        const station = data.geometry.cross_routes.find(r => r.uid === segment.cross_route_uid)?.station_in ?? 0;
+        const a = { x: display.passageX.get(passage ?? segment.from_passage_band_uid!) ?? 0, y: display.stationY(passage ? segment.start_station_in! : station) };
+        const b = { x: display.passageX.get(passage ?? segment.to_passage_band_uid!) ?? 0, y: display.stationY(passage ? segment.end_station_in! : station) };
+        const marking = fixtures.get(segment.id) ?? annotationFor(data, segment, null);
+        return <g key={segment.id} data-selectable="true" role="button" tabIndex={0} aria-label={`Select segment ${segment.label}`} data-fixture={fixtures.has(segment.id) || undefined}
+          onClick={event => { event.stopPropagation(); onSelectSegment(segment.id); }} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectSegment(segment.id); } }}>
+          <line x1={a.x} x2={b.x} y1={a.y} y2={b.y} stroke="transparent" strokeWidth={14} vectorEffect="non-scaling-stroke" />
+          <RouteStroke a={a} b={b} scale={v.scale} usable={marking?.usable} cableClasses={marking?.cable_classes} selected={selectedSegmentId === segment.id} />
+          <title>{`${segment.label}\nPlanar pathway length ${formatInches(segment.planar_length_in)} · Width ${formatInches(segment.width_in)}${fixtures.has(segment.id) ? "\nFake style fixture — display only" : ""}`}</title>
         </g>;
       })}
       <ConceptualGraph data={data} graph={graph} view={display} scale={v.scale} tiers={tiers} selection={selection} onSelect={onSelect} />

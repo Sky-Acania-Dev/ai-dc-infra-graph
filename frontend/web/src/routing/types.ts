@@ -1,5 +1,12 @@
 export type Tier = 1 | 2 | 3;
 export type PathwayType = "LADDER_RACK" | "BASKET_TRAY";
+export type CableClass = "LC" | "CAT6" | "MPO" | "MPO_TRUNK_T2_T1_RO" | "CROSS_SECTION_CAT6" | "CROSS_SECTION_LC";
+export type SegmentSpan = {
+  passage_band_uid: string | null; cross_route_uid: string | null;
+  start_station_in: number | null; end_station_in: number | null;
+  from_passage_band_uid: string | null; to_passage_band_uid: string | null;
+};
+export type SegmentAnnotation = RecordBase & SegmentSpan & { updated_at: string; tier: Tier | null; usable: boolean; cable_classes: CableClass[]; notes: string | null };
 export type PassageCode = "NORTH" | "CENTRAL" | "SOUTH";
 export type RecordBase = { uid: string; routing_layout_uid: string };
 export type RoutingLayout = {
@@ -36,6 +43,7 @@ export type ResolvedLayout = {
   layout: RoutingLayout; sections: Section[]; bands: Band[]; row_pairs: RowPair[]; cabinet_rows: CabinetRow[];
   cross_routes: CrossRoute[]; cross_route_tiers: CrossRouteTier[]; passage_tiers: PassageTier[];
   vertical_transitions: VerticalTransition[];
+  segment_annotations: SegmentAnnotation[];
   cabinets: RoutingCabinet[];
   geometry: {
     bands: Array<Band & Bounds>; sections: Array<Section & Omit<Bounds, "center_in"> & { data_hall_id: string | null }>;
@@ -58,6 +66,7 @@ export type GraphEdge = {
   planar_length_in: number; width_in: number | null; tier: Tier | null; lower_tier: Tier | null; upper_tier: Tier | null;
   pathway_type: PathwayType | null; passage_code: PassageCode | null; cross_route_uid: string | null;
   cross_route_kind: string | null; cabinet_row_uid: string | null; vertical_transition_uid: string | null;
+  usable: boolean; cable_classes: CableClass[];
 };
 export type RoutingGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
 export type RoutePreview = RoutingGraph & {
@@ -65,5 +74,5 @@ export type RoutePreview = RoutingGraph & {
   steps: string[]; vertical_opening_labels: string[];
 };
 export type Selection = { kind: "passage" | "cross" | "row" | "transition" | "edge" | "node" | "cabinet"; uid: string } | null;
-export type Resource = "sections" | "bands" | "row-pairs" | "cabinet-rows" | "cross-routes" | "cross-route-tiers" | "passage-tiers" | "vertical-transitions";
+export type Resource = "sections" | "bands" | "row-pairs" | "cabinet-rows" | "cross-routes" | "cross-route-tiers" | "passage-tiers" | "vertical-transitions" | "segment-annotations";
 export type Mutate = (resource: Resource | "layout", values: object, uid?: string, remove?: boolean) => Promise<boolean>;

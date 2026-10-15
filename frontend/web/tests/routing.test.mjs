@@ -3,6 +3,7 @@ import test from "node:test";
 import { formatInches, parseInches } from "../src/routing/dimensions.ts";
 import { placeRoutingCabinets } from "../src/routing/cabinetPlacement.ts";
 import { conceptualLayout } from "../src/routing/conceptualLayout.ts";
+import { conceptualSegments, annotationFor, styleFixtures } from "../src/routing/conceptualSegments.ts";
 
 test("formats integer inches without feet rounding", () => {
   for (const [value, text] of [[24, `2'-0"`], [34, `2'-10"`], [96, `8'-0"`], [120, `10'-0"`], [264, `22'-0"`], [336, `28'-0"`], [360, `30'-0"`], [788, `65'-8"`]]) {
@@ -124,4 +125,82 @@ test("conceptual station projection preserves the same tier station and all empt
   assert.equal(view.gaps.length, 4);
   assert.deepEqual(view.projectNode({ passage_band_uid: "central", station_in: 600, tier: 1 }), view.projectNode({ passage_band_uid: "central", station_in: 600, tier: 2 }));
   assert.ok(view.height > 0);
+});
+
+function segmentFixture() {
+  const data = conceptualFixture();
+  data.geometry.bands.forEach(b => b.center_in = (b.start_in + b.end_in) / 2);
+  data.geometry.bands[1].code = "NORTH_FIELD";
+  data.geometry.bands[3].code = "SOUTH_FIELD";
+  data.bands = data.geometry.bands;
+  data.vertical_transitions = [];
+  data.segment_annotations = [];
+  data.cabinet_rows = data.geometry.cabinet_rows;
+  data.geometry.cross_routes = data.geometry.cabinet_rows.map((r, i) => ({ uid: `cold${i}`, kind: "CABINET_COLD_AISLE", cabinet_row_uid: r.uid,
+    station_in: i ? 276 : 108, width_in: 24, effective_enabled: true }));
+  data.geometry.cross_routes.push({ uid: "gap1", kind: "SECTION_GAP", section_boundary_after_section_uid: "s1", label: "Section 1-2 gap route", station_in: 372, width_in: 24, effective_enabled: true });
+  return data;
+}
+test("conceptual spans retain physical lengths/widths and select their cabinet field without duplicate continuations", () => {
+  const data = segmentFixture();
+  const segments = conceptualSegments(data);
+  const cold = segments.filter(s => s.cross_route_uid === "cold0");
+  assert.equal(cold.length, 1);
+  assert.equal(cold[0].from_passage_band_uid, "central");
+  assert.equal(cold[0].planar_length_in, 389);
+  assert.equal(cold[0].width_in, 24);
+  assert.deepEqual(segments.filter(s => s.cross_route_uid === "gap1").map(s => s.planar_length_in), [365, 389]);
+  for (const passage of data.bands.filter(b => b.kind === "PASSAGE")) {
+    assert.equal(segments.filter(s => s.passage_band_uid === passage.uid).reduce((sum, s) => sum + s.planar_length_in, 0), data.geometry.hall_length_in);
+  }
+  data.geometry.cross_routes[0].effective_enabled = false;
+  assert.ok(!conceptualSegments(data).some(s => s.cross_route_uid === "cold0"));
+});
+test("manual interval endpoints split guides and markings match only their tier and covered span", () => {
+  const data = segmentFixture();
+  const marking = { uid: "manual", passage_band_uid: "central", start_station_in: 50, end_station_in: 150, tier: 1, usable: false, cable_classes: [] };
+  data.segment_annotations = [marking];
+  const segments = conceptualSegments(data).filter(s => s.passage_band_uid === "central");
+  assert.ok(segments.some(s => s.start_station_in === 50));
+  assert.ok(segments.some(s => s.end_station_in === 150));
+  const covered = segments.find(s => s.start_station_in === 50);
+  assert.equal(annotationFor(data, covered, 1), marking);
+  assert.equal(annotationFor(data, covered, 2), undefined);
+  assert.equal(annotationFor(data, covered, null), undefined);
+  assert.equal(annotationFor(data, segments.find(s => s.start_station_in === 150), 1), undefined);
+});
+test("style fixtures demonstrate all six cable classes and an unusable segment without mutating saved data", () => {
+  const data = segmentFixture();
+  for (let i = 2; i < 7; i++) {
+    const row = { ...data.geometry.cabinet_rows[0], uid: `fixture-row${i}`, section_uid: "s1" };
+    data.geometry.cabinet_rows.push(row);
+    data.geometry.cross_routes.push({ uid: `cold${i}`, kind: "CABINET_COLD_AISLE", cabinet_row_uid: row.uid, station_in: 300 + i * 10, width_in: 24, effective_enabled: true });
+  }
+  data.geometry.cabinet_rows.forEach(row => row.section_uid = "s1");
+  const before = structuredClone(data);
+  const segments = conceptualSegments(data), examples = styleFixtures(data, segments);
+  assert.deepEqual(new Set([...examples.values()].flatMap(s => s.cable_classes)), new Set(["LC", "CAT6", "MPO", "MPO_TRUNK_T2_T1_RO", "CROSS_SECTION_CAT6", "CROSS_SECTION_LC"]));
+  assert.equal([...examples.values()].filter(s => !s.usable).length, 1);
+  assert.ok([...examples.values()].some(s => s.cable_classes.length === 3));
+  assert.deepEqual(styleFixtures(data, segments), examples);
+  assert.deepEqual(data, before);
+  assert.deepEqual(data.segment_annotations, []);
+});
+test("conceptual view retains original cabinet dimensions, adds spacing, and uses a narrower hot gap", () => {
+  const data = conceptualFixture();
+  const view = conceptualLayout(data, placeRoutingCabinets(data), { cellWidth: 46, cellHeight: 30, hotAisleGap: 10 });
+  assert.ok(view.cabinets.every(t => t.width === 46 && t.height === 30));
+  const first = view.cabinets.find(t => t.cabinet.cabinet_id === "001"), next = view.cabinets.find(t => t.cabinet.cabinet_id === "002");
+  assert.ok(next.x - first.x > first.width);
+  assert.equal(view.hotAisles[0].height, 10);
+  assert.ok(view.rows.get("b").y - view.rows.get("a").y - first.height < 56);
+});
+test("fixture preview handles layouts with no configured cabinet rows", () => {
+  const data = segmentFixture();
+  data.geometry.cabinet_rows = [];
+  data.cabinet_rows = [];
+  data.geometry.cross_routes = data.geometry.cross_routes.filter(r => r.kind === "SECTION_GAP");
+  const fixtures = styleFixtures(data, conceptualSegments(data));
+  assert.equal(fixtures.size, 2);
+  assert.deepEqual(data.segment_annotations, []);
 });

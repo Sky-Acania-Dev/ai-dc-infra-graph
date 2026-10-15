@@ -2,12 +2,13 @@ import type { CabinetTile } from "./cabinetPlacement";
 import type { GraphNode, ResolvedLayout } from "./types";
 
 // Display units only: never returned to the API or used for pathway lengths/widths.
-const DISPLAY = { cabinet: 38, row: 28, hot: 20, cold: 40, gap: 64, heading: 30, passage: 28, margin: 36 };
-const MODULE = DISPLAY.cold + DISPLAY.row * 2 + DISPLAY.hot;
+const DEFAULT_DISPLAY = { cabinet: 46, row: 30, hot: 10, cold: 56, gap: 72, heading: 30, passage: 34, margin: 40, cabinetGap: 4 };
 
-export function conceptualLayout(data: ResolvedLayout, inventoryTiles: CabinetTile[]) {
+export function conceptualLayout(data: ResolvedLayout, inventoryTiles: CabinetTile[], size?: { cellWidth: number; cellHeight: number; hotAisleGap: number }) {
+  const DISPLAY = size ? { ...DEFAULT_DISPLAY, cabinet: size.cellWidth, row: size.cellHeight, hot: size.hotAisleGap } : DEFAULT_DISPLAY;
+  const MODULE = DISPLAY.cold + DISPLAY.row * 2 + DISPLAY.hot;
   const g = data.geometry;
-  const fieldWidth = data.layout.cabinets_per_row * DISPLAY.cabinet;
+  const fieldWidth = data.layout.cabinets_per_row * (DISPLAY.cabinet + DISPLAY.cabinetGap) - DISPLAY.cabinetGap;
   const fields = new Map<string, { x: number; width: number }>();
   const passages: Array<{ uid: string; code: string; x: number }> = [];
   let x = DISPLAY.margin;
@@ -56,6 +57,16 @@ export function conceptualLayout(data: ResolvedLayout, inventoryTiles: CabinetTi
   }
   y += DISPLAY.cold;
   stationAnchors.set(g.hall_length_in, y);
+  // Give conceptual cold-side strokes room beside the unchanged cabinet glyphs.
+  // This visual clearance does not change the backend's face-offset assumption.
+  for (const route of g.cross_routes ?? []) {
+    const row = rows.get(route.cabinet_row_uid ?? "");
+    const physical = g.cabinet_rows.find(r => r.uid === route.cabinet_row_uid);
+    if (row && physical && route.station_source === "DERIVED") {
+      stationAnchors.set(route.station_in, physical.position_in_pair === "A"
+        ? row.y - DISPLAY.cold / 3 : row.y + row.height + DISPLAY.cold / 3);
+    }
+  }
   const anchors = [...stationAnchors].sort((a, b) => a[0] - b[0]);
   function stationY(station: number) {
     if (!anchors.length) return 0;
@@ -69,7 +80,7 @@ export function conceptualLayout(data: ResolvedLayout, inventoryTiles: CabinetTi
   const passageX = new Map(passages.map(p => [p.uid, p.x]));
   const cabinets = inventoryTiles.flatMap(tile => {
     const row = rows.get(tile.rowUid);
-    return row ? [{ ...tile, x: row.x + tile.slot * DISPLAY.cabinet, y: row.y, width: DISPLAY.cabinet, height: DISPLAY.row }] : [];
+    return row ? [{ ...tile, x: row.x + tile.slot * (DISPLAY.cabinet + DISPLAY.cabinetGap), y: row.y, width: DISPLAY.cabinet, height: DISPLAY.row }] : [];
   });
   const projectNode = (node: GraphNode) => ({ x: passageX.get(node.passage_band_uid) ?? 0, y: stationY(node.station_in) });
   return { width: x + DISPLAY.margin, height: y, sections, gaps, rows, hotAisles, passages, passageX, cabinets, stationY, projectNode };

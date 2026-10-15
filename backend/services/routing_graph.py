@@ -13,6 +13,12 @@ def derive_graph(data: dict) -> RoutingGraph:
     nodes: dict[str, GraphNode] = {}
     edges: dict[str, GraphEdge] = {}
     stations: dict[tuple[str, int], set[int]] = {key: {0, geometry['hall_length_in']} for key in passage_tiers}
+    # Domain interval endpoints split the generated passage without storing edges.
+    for item in data.get('segment_annotations', []):
+        if item['passage_band_uid']:
+            for (band_uid, tier), station_set in stations.items():
+                if band_uid == item['passage_band_uid'] and item['tier'] in (None, tier):
+                    station_set.update((item['start_station_in'], item['end_station_in']))
 
     def passage_node(band: dict, station: int, tier: int) -> str:
         uid = f"passage:{band['uid']}:station:{station}:tier:{tier}"
@@ -77,4 +83,6 @@ def derive_graph(data: dict) -> RoutingGraph:
                                   tier=tier, planar_length_in=ordered[i + 1] - ordered[i], passage_code=band['code'],
                                   width_in=band['width_in'],
                                   pathway_type=passage_tiers[(band_uid, tier)]['pathway_type'])
+    from backend.services.routing_annotations import apply_annotations
+    apply_annotations(data, geometry, nodes, edges)
     return RoutingGraph(nodes=sorted(nodes.values(), key=lambda n: n.id), edges=sorted(edges.values(), key=lambda e: e.id))

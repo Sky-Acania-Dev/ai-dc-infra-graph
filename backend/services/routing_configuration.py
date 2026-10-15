@@ -20,6 +20,7 @@ RESOURCES = {
     'cross-route-tiers': (db.RoutingCrossRouteTier, schema.CrossRouteTierInput),
     'passage-tiers': (db.RoutingPassageTier, schema.PassageTierInput),
     'vertical-transitions': (db.RoutingVerticalTransition, schema.VerticalTransitionInput),
+    'segment-annotations': (db.RoutingSegmentAnnotation, schema.SegmentAnnotationInput),
 }
 
 
@@ -193,6 +194,8 @@ def update_layout(session: Session, uid: str, patch: dict):
 
 def save_resource(session: Session, layout_uid: str, resource: str, payload: dict, uid: str | None = None) -> dict:
     layout = get_layout(session, layout_uid)
+    # Serialize span edits with other configuration edits in this layout.
+    session.scalar(select(db.RoutingLayout).where(db.RoutingLayout.uid == layout_uid).with_for_update())
     model, input_type = resource_type(resource)
     existing = session.get(model, uid) if uid else None
     if uid and (existing is None or existing.routing_layout_uid != layout_uid):
@@ -211,7 +214,8 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
     # Validate references before flush so bad associations return useful domain errors.
     for field, target in (('routing_section_uid', db.RoutingSection), ('row_field_band_uid', db.RoutingBand), ('row_pair_uid', db.RoutingRowPair),
                           ('cabinet_row_uid', db.RoutingCabinetRow), ('section_boundary_after_section_uid', db.RoutingSection),
-                          ('cross_route_uid', db.RoutingCrossRoute), ('passage_band_uid', db.RoutingBand)):
+                          ('cross_route_uid', db.RoutingCrossRoute), ('passage_band_uid', db.RoutingBand),
+                          ('from_passage_band_uid', db.RoutingBand), ('to_passage_band_uid', db.RoutingBand)):
         if values.get(field):
             referenced = session.get(target, values[field])
             if referenced is None or referenced.routing_layout_uid != layout_uid:
@@ -253,6 +257,11 @@ def validate_layout(session: Session, uid: str) -> None:
     if {r['section_boundary_after_section_uid'] for r in data['cross_routes'] if r['kind'] == 'SECTION_GAP'} != boundary_uids:
         raise RoutingConfigurationError('Each of the four section boundaries requires one gap route.')
     geometry = resolve_geometry(data)
+    from backend.services.routing_annotations import validate_annotations
+    try:
+        validate_annotations(data, geometry)
+    except ValueError as exc:
+        raise RoutingConfigurationError(str(exc)) from exc
     bands = {b['uid']: b for b in data['bands']}
     for pair in data['row_pairs']:
         if bands[pair['row_field_band_uid']]['kind'] != 'ROW_FIELD':

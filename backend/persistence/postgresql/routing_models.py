@@ -5,6 +5,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
 
 from backend.persistence.postgresql.models import Base
 
@@ -146,3 +147,22 @@ class RoutingVerticalTransition(LayoutChild, Base):
     label: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class RoutingSegmentAnnotation(LayoutChild, Base):
+    """Manual design markings on domain pathway spans, never generated edge IDs."""
+    __tablename__ = "routing_segment_annotations"
+    __table_args__ = (
+        CheckConstraint("tier IS NULL OR tier BETWEEN 1 AND 3", name="ck_routing_annotation_tier"),
+        CheckConstraint("(passage_band_uid IS NOT NULL AND cross_route_uid IS NULL AND start_station_in IS NOT NULL AND end_station_in IS NOT NULL AND end_station_in > start_station_in AND start_station_in >= 0 AND from_passage_band_uid IS NULL AND to_passage_band_uid IS NULL) OR (passage_band_uid IS NULL AND cross_route_uid IS NOT NULL AND start_station_in IS NULL AND end_station_in IS NULL AND from_passage_band_uid IS NOT NULL AND to_passage_band_uid IS NOT NULL AND from_passage_band_uid <> to_passage_band_uid)", name="ck_routing_annotation_span"),
+    )
+    passage_band_uid: Mapped[str | None] = mapped_column(ForeignKey("routing_bands.uid", ondelete="CASCADE"), index=True)
+    cross_route_uid: Mapped[str | None] = mapped_column(ForeignKey("routing_cross_routes.uid", ondelete="CASCADE"), index=True)
+    start_station_in: Mapped[int | None] = mapped_column(Integer)
+    end_station_in: Mapped[int | None] = mapped_column(Integer)
+    from_passage_band_uid: Mapped[str | None] = mapped_column(ForeignKey("routing_bands.uid", ondelete="CASCADE"))
+    to_passage_band_uid: Mapped[str | None] = mapped_column(ForeignKey("routing_bands.uid", ondelete="CASCADE"))
+    tier: Mapped[int | None] = mapped_column(Integer)
+    usable: Mapped[bool] = mapped_column(Boolean, default=True)
+    cable_classes: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    notes: Mapped[str | None] = mapped_column(Text)

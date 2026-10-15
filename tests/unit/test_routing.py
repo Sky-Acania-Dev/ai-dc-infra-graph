@@ -326,6 +326,85 @@ class RoutingTests(unittest.TestCase):
         self.save('cabinet-rows', {'enabled': False}, row['uid'])
         self.assertFalse(any(e.cross_route_uid == route['uid'] for e in derive_graph(self.data_now()).edges))
 
+    def test_manual_unusable_interval_splits_passage_and_prevents_routing(self):
+        self.configure_tiers(tiers=(1, 2), cross_tiers=())
+        annotation = self.save('segment-annotations', {'passage_band_uid': self.north(), 'start_station_in': 50,
+            'end_station_in': 150, 'tier': 1, 'usable': False, 'notes': 'Physical obstruction'})
+        data = self.data_now()
+        graph = derive_graph(data)
+        blocked = [e for e in graph.edges if not e.usable]
+        self.assertEqual(len(blocked), 1)
+        self.assertEqual(blocked[0].planar_length_in, 100)
+        self.assertEqual(blocked[0].width_in, 34)
+        self.assertEqual(graph, derive_graph(data))
+        with self.assertRaises(NoRoutingPath):
+            preview_route(graph, data, self.passage_id(1), self.passage_id(1, data['geometry']['hall_length_in']))
+        self.assertTrue(preview_route(graph, data, self.passage_id(2), self.passage_id(2, data['geometry']['hall_length_in'])).edges)
+        self.save('segment-annotations', {'usable': True}, annotation['uid'])
+        data = self.data_now()
+        self.assertTrue(preview_route(derive_graph(data), data, self.passage_id(1), self.passage_id(1, data['geometry']['hall_length_in'])).edges)
+
+    def test_segment_markings_are_empty_by_default_and_do_not_create_tiers(self):
+        self.assertEqual(self.data['segment_annotations'], [])
+        route = next(r for r in self.data['cross_routes'] if r['kind'] == 'SECTION_GAP')
+        passages = sorted((b for b in self.data['bands'] if b['kind'] == 'PASSAGE'), key=lambda b: b['ordinal'])
+        item = self.save('segment-annotations', {'cross_route_uid': route['uid'], 'from_passage_band_uid': passages[0]['uid'],
+            'to_passage_band_uid': passages[1]['uid'], 'cable_classes': ['LC', 'CAT6', 'LC']})
+        self.assertEqual(item['cable_classes'], ['CAT6', 'LC'])
+        self.assertEqual(derive_graph(self.data_now()).edges, [])
+        self.configure_tiers(tiers=(1,), cross_tiers=(1,))
+        marked = [e for e in derive_graph(self.data_now()).edges if e.cable_classes]
+        self.assertEqual(len(marked), 1)
+        self.assertEqual(marked[0].planar_length_in, 365)
+        self.save('segment-annotations', {'usable': False}, item['uid'])
+        self.assertFalse(next(e for e in derive_graph(self.data_now()).edges if e.cable_classes).usable)
+        config.delete_resource(self.session, self.uid, 'segment-annotations', item['uid'])
+        self.assertFalse(any(e.cable_classes or not e.usable for e in derive_graph(self.data_now()).edges))
+
+    def test_obstruction_blocks_coincident_cross_route_representations(self):
+        self.configure_tiers(tiers=(1,), cross_tiers=(1,))
+        routes = self.data['geometry']['cross_routes']
+        row = next(r for r in self.data['geometry']['cabinet_rows'] if r['cabinet_number_start'] == 1)
+        route = next(r for r in routes if r['cabinet_row_uid'] == row['uid'])
+        central = next(b['uid'] for b in self.data['bands'] if b['code'] == 'CENTRAL')
+        south = next(b['uid'] for b in self.data['bands'] if b['code'] == 'SOUTH')
+        request = {'cross_route_uid': route['uid'], 'from_passage_band_uid': central, 'to_passage_band_uid': south, 'usable': False}
+        self.save('segment-annotations', request)
+        data = self.data_now()
+        graph = derive_graph(data)
+        blocked = [e for e in graph.edges if not e.usable]
+        self.assertEqual(len(blocked), 2)
+        self.assertEqual({e.planar_length_in for e in blocked}, {389})
+        alias = next(r for r in routes if r['uid'] != route['uid'] and r['station_in'] == route['station_in'])
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('segment-annotations', {**request, 'cross_route_uid': alias['uid']})
+
+    def test_segment_annotation_api_validates_scope_spans_and_permissions(self):
+        self.session.commit()
+        with patch('backend.api.routing.session_factory', return_value=self.factory):
+            client = TestClient(app)
+            base = f'/routing/layouts/{self.uid}/segment-annotations'
+            request = {'passage_band_uid': self.north(), 'start_station_in': 50, 'end_station_in': 150}
+            for invalid in ({'end_station_in': 50}, {'end_station_in': 150.5}, {'tier': 4}, {'cable_classes': ['UNKNOWN']},
+                            {'passage_band_uid': 'foreign-layout'}, {'passage_band_uid': next(b['uid'] for b in self.data['bands'] if b['kind'] == 'ROW_FIELD')},
+                            {'end_station_in': 999999}):
+                self.assertEqual(client.post(base, json={**request, **invalid}).status_code, 422)
+            self.assertEqual(client.post(base, json=request, headers={'x-user-role': 'viewer'}).status_code, 403)
+            saved = client.post(base, json=request)
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertEqual(client.post(base, json={**request, 'start_station_in': 100}).status_code, 422)
+            uid = saved.json()['uid']
+            self.assertEqual(client.patch(base + '/' + uid, json={'usable': False}).status_code, 200)
+            self.assertEqual(client.get(base + '/' + uid).json()['usable'], False)
+            self.assertEqual(client.delete(base + '/' + uid).status_code, 204)
+            self.assertEqual(client.get(base).json(), [])
+
+    def test_cross_annotations_reject_nonadjacent_passages(self):
+        passages = sorted((b for b in self.data['bands'] if b['kind'] == 'PASSAGE'), key=lambda b: b['ordinal'])
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('segment-annotations', {'cross_route_uid': self.data['cross_routes'][0]['uid'],
+                'from_passage_band_uid': passages[0]['uid'], 'to_passage_band_uid': passages[2]['uid']})
+
     def test_api_crud_errors_permissions_and_preview(self):
         self.session.commit()
         with patch('backend.api.routing.session_factory', return_value=self.factory):

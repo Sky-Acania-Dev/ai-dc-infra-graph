@@ -163,8 +163,8 @@ export async function fetchTopologyEnums(): Promise<TopologyEnums> {
   return response.json();
 }
 
-export async function fetchCabinetLayout(dataHall: string): Promise<CabinetLayoutItem[]> {
-  const response = await fetch(`${API_BASE_URL}/topology/layout/cabinets?data_hall=${encodeURIComponent(dataHall)}`);
+export async function fetchCabinetLayout(dataHall: string, signal?: AbortSignal): Promise<CabinetLayoutItem[]> {
+  const response = await fetch(`${API_BASE_URL}/topology/layout/cabinets?data_hall=${encodeURIComponent(dataHall)}`, { signal });
   if (!response.ok) {
     throw new Error(`Failed to load cabinet layout: ${response.status}`);
   }
