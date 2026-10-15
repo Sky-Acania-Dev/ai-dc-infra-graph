@@ -10,6 +10,16 @@ export function RoutingDetails({ data, graph, selection, onSelect, canManage, bu
   const crossName = (uid: string) => { const route = data.cross_routes.find(r => r.uid === uid); return route?.label ?? data.cabinet_rows.find(r => r.uid === route?.cabinet_row_uid)?.name ?? "Cross route"; };
   const field = (name: string, value: unknown) => <div key={name}><dt>{name}</dt><dd>{String(value ?? "—")}</dd></div>;
   if (!selection) return <div className="routing-empty"><h3>Inspect a pathway</h3><p>Select a passage, cold-side route, cabinet row, graph node, edge, or opening.</p><p>Tier 1 is solid, Tier 2 dashed, Tier 3 dash-dot.</p></div>;
+  if (selection.kind === "cabinet") {
+    const cabinet = data.cabinets?.find(c => c.cabinet_uid === selection.uid);
+    const row = data.geometry.cabinet_rows.find(r => r.existing_cabinet_uids.includes(selection.uid));
+    if (!cabinet || !row) return null;
+    const route = data.cross_routes.find(r => r.cabinet_row_uid === row.uid);
+    return <div><h3>Cabinet {cabinet.cabinet_id}</h3><dl>{field("Data hall", cabinet.data_hall_id)}{field("Category", cabinet.category)}{field("Group", cabinet.cabinet_group)}{field("Cabinet row", row.name)}{field("Pair position", row.position_in_pair)}{field("Section", data.sections.find(s => s.uid === row.section_uid)?.name)}</dl>
+      <button onClick={() => onSelect({ kind: "row", uid: row.uid })}>Inspect cabinet row</button>
+      {route && <button onClick={() => onSelect({ kind: "cross", uid: route.uid })}>Inspect cold-side route</button>}
+    </div>;
+  }
   if (selection.kind === "passage") {
     const passage = data.geometry.bands.find(b => b.uid === selection.uid);
     if (!passage) return null;

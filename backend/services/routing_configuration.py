@@ -54,10 +54,24 @@ def resolved_layout(session: Session, uid: str) -> dict:
     result = snapshot(session, uid)
     result['geometry'] = resolve_geometry(result)
     anchor = session.get(Room, result['layout']['room_uid'])
-    cabinets = list(session.scalars(select(Cabinet).where(Cabinet.building_uid == anchor.building_uid, Cabinet.deleted_at.is_(None))))
+    rooms = {r.uid: r for r in session.scalars(select(Room).where(Room.building_uid == anchor.building_uid, Room.deleted_at.is_(None)))}
+    sections = {s['uid']: s for s in result['sections']}
+    room_uids = {s['room_uid'] or anchor.uid for s in result['sections']} & rooms.keys()
+    cabinets = list(session.scalars(select(Cabinet).where(Cabinet.room_uid.in_(room_uids), Cabinet.deleted_at.is_(None))))
+    linked = {}
+    for section in result['geometry']['sections']:
+        room = rooms.get(section['room_uid'])
+        section['data_hall_id'] = room.room_id if room else None
     for row in result['geometry']['cabinet_rows']:
-        row['existing_cabinet_uids'] = sorted(c.uid for c in cabinets if row['cabinet_number_start'] is not None
-                                             and c.cabinet_id.isdigit() and row['cabinet_number_start'] <= int(c.cabinet_id) <= row['cabinet_number_end'])
+        room_uid = sections[row['section_uid']]['room_uid'] or anchor.uid
+        matches = [c for c in cabinets if c.room_uid == room_uid and row['cabinet_number_start'] is not None
+                   and c.cabinet_id.isdigit() and row['cabinet_number_start'] <= int(c.cabinet_id) <= row['cabinet_number_end']]
+        row['existing_cabinet_uids'] = sorted(c.uid for c in matches)
+        linked.update((c.uid, c) for c in matches)
+    # Read the existing inventory; these are presentation records, not duplicate Cabinets.
+    result['cabinets'] = [dict(cabinet_uid=c.uid, cabinet_id=c.cabinet_id, data_hall_id=rooms[c.room_uid].room_id,
+                               category=c.category, cabinet_group=c.cabinet_group, source_row=c.source_row,
+                               source_col=c.source_col) for c in sorted(linked.values(), key=lambda c: c.uid)]
     return result
 
 

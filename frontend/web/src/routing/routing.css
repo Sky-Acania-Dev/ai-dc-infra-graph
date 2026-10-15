@@ -31,6 +31,21 @@
 .routing-svg .routing-row-label { fill: var(--routing-row-text); }
 .routing-svg .routing-cabinet { fill: var(--routing-row); stroke: #42556a; stroke-width: .6; }
 .routing-svg .routing-cabinet.selected { stroke: var(--routing-selected); stroke-width: 3; }
+.routing-svg .routing-cabinet.tiled { fill: #e8edf2; }
+.routing-svg .routing-inventory-tile { fill: #f8fafc; stroke: #aab7c5; stroke-width: .5; }
+.routing-svg .routing-inventory-cabinet.selected .routing-inventory-tile { fill: #ffecd3; stroke: var(--routing-selected); stroke-width: 2.5; }
+.routing-svg .routing-inventory-cabinet.connected .routing-inventory-tile { stroke: #087e9d; stroke-width: 1.8; }
+.routing-svg .routing-inventory-cabinet.selected.connected .routing-inventory-tile { stroke: var(--routing-selected); }
+.routing-svg .routing-inventory-cabinet:hover .routing-inventory-tile { fill: #e3edf4; }
+.routing-view-tools > label { display: flex; align-items: center; gap: 4px; }
+.routing-integrated { border: 0; border-radius: 0; padding: 10px; flex: 1; min-height: 0; overflow: auto; }
+.routing-integrated .routing-toolbar { margin-top: 0; padding-top: 0; border-top: 0; }
+.routing-integrated .routing-svg { height: clamp(400px,62vh,800px); }
+.routing-integrated .routing-notice { font-size: 11px; line-height: 1.5; }
+.routing-integrated-details { margin-top: 12px; max-height: none; }
+.map-pane:has(.routing-integrated) > .pane-header { flex-wrap: wrap; gap: 8px; height: auto; min-height: 40px; }
+.map-pane:has(.routing-integrated) .map-title-line { flex-shrink: 0; }
+.map-pane:has(.routing-integrated) .map-controls { flex-wrap: wrap; }
 .routing-svg .routing-passage-envelope { fill: var(--routing-passage); stroke: #9ab5c8; stroke-width: .5; }
 .routing-svg .routing-cross-envelope { fill: var(--routing-cross); fill-opacity: .45; stroke: #85adbb; stroke-width: .3; }
 .routing-svg .routing-cross-envelope.gap { fill: #9bc2d4; fill-opacity: .6; }

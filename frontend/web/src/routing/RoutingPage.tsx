@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { routingApi } from "./api";
 import { formatInches } from "./dimensions";
-import { useRoutingLayout } from "./useRoutingLayout";
+import { useRoutingLayout, physicalHallCode } from "./useRoutingLayout";
 import { RoutingSchematic } from "./RoutingSchematic";
 import { RoutingDetails } from "./RoutingDetails";
 import { RoutingConfiguration } from "./RoutingConfiguration";
+import { TierVisibility } from "./TierVisibility";
 import type { GraphNode, RoutePreview, Selection, Tier } from "./types";
 import "./routing.css";
 
 export function RoutingPage({ project, building, hall, canManage }: { project: string; building: string; hall: string; canManage: boolean }) {
-  const physicalHall = project === "LBB01" && /^DH1(?:-[1-5])?$/.test(hall) ? "DH1" : hall;
+  const physicalHall = physicalHallCode(project, hall);
   const { data, graph, loading, busy, error, mutate, initialize, reload } = useRoutingLayout(project, building, physicalHall);
   const [tiers, setTiers] = useState(new Set<Tier>([1, 2, 3]));
   const [selection, setSelection] = useState<Selection>(null);
@@ -50,7 +51,7 @@ export function RoutingPage({ project, building, hall, canManage }: { project: s
     {error && <div className="error-banner" role="alert">{error}</div>}
     {loading && !data ? <div className="routing-empty">Loading routing layout…</div> : !data ? <div className="routing-empty"><h3>{error ? "Routing layout unavailable" : "No routing layout configured"}</h3><p>Existing hall topology is available independently of routing configuration.</p>{canManage && project === "LBB01" && physicalHall === "DH1" && !error && <button disabled={busy} onClick={() => void initialize()}>Initialize LBB01 DH1 routing</button>}</div> : <>
       <div className="routing-toolbar">
-        <div className="routing-actions" aria-label="Tier visibility">{([1, 2, 3] as Tier[]).map(tier => <label className={`routing-tier-toggle routing-tier-${tier}`} key={tier}><input type="checkbox" checked={tiers.has(tier)} onChange={e => setTiers(current => { const next = new Set(current); if (e.target.checked) next.add(tier); else next.delete(tier); return next; })} /><span className={`routing-tier-sample tier-${tier}`} />T{tier}</label>)}</div>
+        <TierVisibility tiers={tiers} onChange={setTiers} />
         <div className="routing-actions"><button className={routeMode ? "is-active" : ""} onClick={() => { setRouteMode(!routeMode); clearRoute(); }}>Route preview</button><button disabled={!start && !preview} onClick={clearRoute}>Clear route</button><span>{busy || loading ? "Updating…" : `${data.sections.length} sections · ${data.row_pairs.length} pairs · ${data.cabinet_rows.length} rows · ${data.geometry.gaps.length} section gaps`}</span></div>
       </div>
       {!graph.nodes.length && <p className="routing-notice">Pathway tiers are unconfigured. Select Configure routing to enable confirmed tiers and choose ladder rack or basket tray.</p>}

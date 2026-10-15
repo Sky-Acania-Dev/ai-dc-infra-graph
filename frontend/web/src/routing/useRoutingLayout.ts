@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { routingApi } from "./api";
 import type { Mutate, ResolvedLayout, RoutingGraph } from "./types";
 
+export const physicalHallCode = (project: string, hall: string) => project === "LBB01" && /^DH1(?:-[1-5])?$/.test(hall) ? "DH1" : hall;
+
 export function useRoutingLayout(project: string, building: string, hall: string) {
   const [data, setData] = useState<ResolvedLayout | null>(null);
   const [graph, setGraph] = useState<RoutingGraph>({ nodes: [], edges: [] });

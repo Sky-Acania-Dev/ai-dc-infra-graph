@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import { categoryColor, labelColors } from "../colors";
 import { useDragPan } from "../hooks/useDragPan";
@@ -7,6 +7,7 @@ import { useI18n } from "../i18n";
 import type { CabinetLayoutItem, ChangeOrderCabinetStats } from "../types";
 import type { SelectionGesture } from "../App";
 import { ViewerScaleSlider } from "./ViewerScaleSlider";
+import { CabinetRoutingMap } from "../routing/CabinetRoutingMap";
 
 type PositionedCabinet = CabinetLayoutItem & {
   block: number;
@@ -25,6 +26,9 @@ export type DataHallBadgeCounts = {
 };
 
 type CabinetMapProps = {
+  project: string;
+  building: string;
+  onOpenRouting: () => void;
   cabinets: CabinetLayoutItem[];
   connectedDataHallCounts: Map<string, number>;
   dataHallBadges?: Map<string, DataHallBadgeCounts>;
@@ -187,6 +191,9 @@ const MAP_SIZE_STEPS: Array<{ value: MapSize; labelKey: string }> = [
 ];
 
 export function CabinetMap({
+  project,
+  building,
+  onOpenRouting,
   cabinets,
   connectedDataHallCounts,
   dataHallBadges,
@@ -219,6 +226,7 @@ export function CabinetMap({
   onProgressDisplayChange,
 }: CabinetMapProps) {
   const { t } = useI18n();
+  const [showRoutes, setShowRoutes] = useState(false);
   const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (min-width: 760px) and (orientation: landscape)");
   const settings = isPhoneLandscape ? LANDSCAPE_MAP_SIZE_SETTINGS[mapSize] : MAP_SIZE_SETTINGS[mapSize];
   const normalizedLayout = normalizeCabinets(cabinets);
@@ -265,6 +273,10 @@ export function CabinetMap({
           <span>{modeHint ?? t("map.cabinetMap")}</span>
         </div>
         <div className="map-controls">
+          <div className="map-size-control" role="group" aria-label="Cabinet map layers">
+            <button aria-pressed={!showRoutes} className={!showRoutes ? "is-active" : ""} onClick={() => setShowRoutes(false)}>Cabinets</button>
+            <button aria-pressed={showRoutes} className={showRoutes ? "is-active" : ""} onClick={() => setShowRoutes(true)}>Cabinets + routes</button>
+          </div>
           <div className="map-size-control" role="tablist" aria-label={t("dataHall.selector")}>
             {dataHalls.map((hall) => {
               const graphNeighborCount = hall === dataHall ? 0 : connectedDataHallCounts.get(hall) ?? 0;
@@ -285,7 +297,7 @@ export function CabinetMap({
               );
             })}
           </div>
-          <div className="map-size-control" aria-label={t("map.display")}>
+          {!showRoutes && <><div className="map-size-control" aria-label={t("map.display")}>
             {(["text", "termination", "dress", "change_orders"] as MapProgressDisplay[]).map((display) => (
               <button
                 className={display === progressDisplay ? "is-active" : ""}
@@ -309,6 +321,7 @@ export function CabinetMap({
             steps={MAP_SIZE_STEPS.map((step) => ({ value: step.value, label: t(step.labelKey) }))}
             value={mapSize}
           />
+          </>}
         </div>
       </div>
       {isDataLoading ? (
@@ -317,7 +330,8 @@ export function CabinetMap({
           <span>{t("map.loadingData")}</span>
         </div>
       ) : null}
-      <div className="map-scroll drag-pan-surface" {...mapPan}>
+      {showRoutes ? <CabinetRoutingMap project={project} building={building} hall={dataHall} selected={selectedCabinetUids} connected={connectedCabinetUids}
+        onSelectCabinet={onSelectCabinet} onPrefetchCabinet={onPrefetchCabinet} onClearSelection={onClearSelection} onOpenRouting={onOpenRouting} /> : <div className="map-scroll drag-pan-surface" {...mapPan}>
         <svg
           className="cabinet-map"
           width={width}
@@ -469,7 +483,7 @@ export function CabinetMap({
             ) : null;
           })}
         </svg>
-      </div>
+      </div>}
     </section>
   );
 }

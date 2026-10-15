@@ -27,12 +27,18 @@ export type VerticalTransition = RecordBase & {
   label: string | null; notes: string | null; enabled: boolean;
 };
 export type Bounds = { start_in: number; end_in: number; center_in: number };
+export type RoutingCabinet = {
+  cabinet_uid: string; cabinet_id: string; data_hall_id: string; category: string; cabinet_group: string;
+  source_row: number | null; source_col: number | null;
+};
+export type SchematicOrientation = "longitudinal" | "cabinet-map";
 export type ResolvedLayout = {
   layout: RoutingLayout; sections: Section[]; bands: Band[]; row_pairs: RowPair[]; cabinet_rows: CabinetRow[];
   cross_routes: CrossRoute[]; cross_route_tiers: CrossRouteTier[]; passage_tiers: PassageTier[];
   vertical_transitions: VerticalTransition[];
+  cabinets: RoutingCabinet[];
   geometry: {
-    bands: Array<Band & Bounds>; sections: Array<Section & Omit<Bounds, "center_in">>;
+    bands: Array<Band & Bounds>; sections: Array<Section & Omit<Bounds, "center_in"> & { data_hall_id: string | null }>;
     gaps: Array<Bounds & { after_section_uid: string; before_section_uid: string }>;
     row_pairs: Array<RowPair & Omit<Bounds, "center_in"> & { hot_aisle_start_in: number; hot_aisle_end_in: number }>;
     cabinet_rows: Array<CabinetRow & Bounds & { section_uid: string; row_field_band_uid: string; existing_cabinet_uids: string[] }>;
@@ -58,6 +64,6 @@ export type RoutePreview = RoutingGraph & {
   vertical_transition_count: number; planar_length_in: number; length_label: "Planar pathway length";
   steps: string[]; vertical_opening_labels: string[];
 };
-export type Selection = { kind: "passage" | "cross" | "row" | "transition" | "edge" | "node"; uid: string } | null;
+export type Selection = { kind: "passage" | "cross" | "row" | "transition" | "edge" | "node" | "cabinet"; uid: string } | null;
 export type Resource = "sections" | "bands" | "row-pairs" | "cabinet-rows" | "cross-routes" | "cross-route-tiers" | "passage-tiers" | "vertical-transitions";
 export type Mutate = (resource: Resource | "layout", values: object, uid?: string, remove?: boolean) => Promise<boolean>;

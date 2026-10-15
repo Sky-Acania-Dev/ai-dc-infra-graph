@@ -100,6 +100,25 @@ class RoutingTests(unittest.TestCase):
         for pair in self.data['geometry']['row_pairs']:
             self.assertEqual(pair['hot_aisle_end_in'] - pair['hot_aisle_start_in'], 96)
 
+    def test_resolved_inventory_uses_section_room_and_existing_map_coordinates(self):
+        self.session.add(db.Room(uid='LBB01:A:DH2', project_uid='LBB01', building_uid='LBB01:A', room_id='DH2'))
+        self.session.flush()
+        self.session.add_all([
+            db.Cabinet(uid='rack:001', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-1', cabinet_id='001', category='RES', source_row=9, source_col=7),
+            db.Cabinet(uid='rack:010', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-1', cabinet_id='010', category='RES', source_row=9, source_col=16),
+            db.Cabinet(uid='other-hall:001', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH2', cabinet_id='001'),
+            db.Cabinet(uid='wrong-section:001', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-2', cabinet_id='001'),
+        ])
+        self.session.flush()
+        data = self.data_now()
+        row = next(r for r in data['geometry']['cabinet_rows'] if r['cabinet_number_start'] == 1)
+        self.assertEqual(row['existing_cabinet_uids'], ['rack:001', 'rack:010'])
+        self.assertEqual([c['cabinet_uid'] for c in data['cabinets']], ['rack:001', 'rack:010'])
+        self.assertEqual([c['source_col'] for c in data['cabinets']], [7, 16])
+        self.assertEqual([c['data_hall_id'] for c in data['cabinets']], ['DH1-1', 'DH1-1'])
+        self.assertEqual([s['data_hall_id'] for s in data['geometry']['sections']], [f'DH1-{i}' for i in range(1, 6)])
+        self.assertEqual(data, self.data_now())
+
     def test_transverse_dimensions_and_formatter(self):
         geometry = self.data['geometry']
         self.assertEqual(geometry['total_width_in'], 788)

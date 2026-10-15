@@ -1633,6 +1633,9 @@ export function App() {
                 />
               ) : (
                 <CabinetMap
+                  project={selectedProject?.uid ?? "LBB01"}
+                  building={selectedProject?.building_id ?? "A"}
+                  onOpenRouting={() => setMode("routing")}
                   cabinets={cabinets}
                   connectedDataHallCounts={connectedDataHallCounts}
                   dataHallBadges={groupDataHallBadges}

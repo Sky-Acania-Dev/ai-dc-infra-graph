@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import type { SchematicOrientation } from "./types";
 
-export function useSchematicView(length: number, width: number) {
+export function useSchematicView(length: number, width: number, orientation: SchematicOrientation) {
   const svgRef = useRef<SVGSVGElement>(null);
   const leftMargin = Math.max(160, length * 0.12);
-  const fitted = { x: -leftMargin, y: -110, w: length + leftMargin + 160, h: width + 220 };
+  const portrait = orientation === "cabinet-map";
+  const fitted = portrait ? { x: -100, y: -100, w: width + 200, h: length + 200 }
+    : { x: -leftMargin, y: -110, w: length + leftMargin + 160, h: width + 220 };
   const [view, setView] = useState(fitted);
   const [screenWidth, setScreenWidth] = useState(1200);
   const drag = useRef<{ x: number; y: number; origin: typeof view; moved: boolean } | null>(null);
   const suppressClick = useRef(false);
   const scale = Math.min(screenWidth / view.w, (svgRef.current?.clientHeight || 460) / view.h);
-  useEffect(() => { setView(fitted); }, [length, width]);
+  useEffect(() => { setView(fitted); }, [length, width, orientation]);
   useEffect(() => {
     if (!svgRef.current) return;
     const observer = new ResizeObserver(entries => setScreenWidth(entries[0].contentRect.width));
@@ -44,6 +47,8 @@ export function useSchematicView(length: number, width: number) {
     if (d.moved) setView({ ...d.origin, x: d.origin.x - dx / scale, y: d.origin.y - dy / scale });
   }
   function pointerUp() { suppressClick.current = Boolean(drag.current?.moved); drag.current = null; }
-  const focusSection = (start: number, end: number) => setView({ x: start - 200, y: -80, w: end - start + 400, h: width + 160 });
+  const focusSection = (start: number, end: number) => setView(portrait
+    ? { x: -95, y: start - 70, w: width + 190, h: end - start + 140 }
+    : { x: start - 200, y: -80, w: end - start + 400, h: width + 160 });
   return { svgRef, view, scale, zoom, point, focusSection, fit: () => setView(fitted), pointerDown, pointerMove, pointerUp, suppressClick };
 }
