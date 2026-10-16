@@ -17,3 +17,11 @@ export function parseInches(text: string): number {
   if (!Number.isSafeInteger(result)) throw new Error("Dimension is too large.");
   return result;
 }
+
+/** Exact tenths of a millimeter for display; persisted dimensions remain integer inches. */
+export function formatMillimeters(inches: number): string {
+  if (!Number.isSafeInteger(inches)) throw new Error("Dimension must be integer inches.");
+  const tenths = inches * 254;
+  if (!Number.isSafeInteger(tenths)) throw new Error("Dimension is too large.");
+  return `${tenths % 10 ? (tenths / 10).toFixed(1) : tenths / 10} mm`;
+}

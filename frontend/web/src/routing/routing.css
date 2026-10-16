@@ -74,6 +74,7 @@
 .tier-section-card > div { display: flex; justify-content: space-between; gap: 5px; font-size: 11px; }
 .tier-section-card > div > span { color: #64748b; font-size: 9px; }
 .tier-section-card svg { width: 100%; max-height: 104px; display: block; }
+.tier-section-card svg + div { margin-top: 5px; }
 .tier-section-card [role=button] { cursor: pointer; }
 .routing-page .section-bundle-label { display: inline-block; padding: 3px 4px; margin: 2px; max-width: 100%; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .section-selection-info { padding: 7px; background: #eef6ff; font-size: 11px; line-height: 1.5; }
@@ -83,6 +84,8 @@
 .section-slot-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .routing-tier-editor .tier-elevation-form { grid-column: 1 / -1; display: flex; align-items: end; gap: 5px; }
 .tier-elevation-form label { display: grid; gap: 3px; flex: 1; font-size: 10px; }
+.tier-elevation-form > div { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.routing-tier-editor .tier-elevation-form label { display: grid; gap: 3px; }
 .routing-page .tier-elevation-form button { padding: 6px; font-size: 10px; }
 .routing-page .compact-geometric-link { margin: 8px 0; font-size: 10px; }
 .routing-inspector-heading { display: flex; justify-content: space-between; align-items: start; gap: 8px; }

@@ -16,10 +16,8 @@ export function ConceptualGraph({ data, graph, view, scale, tiers, selection, on
       const active = selected("edge", edge.id);
       return <g key={edge.id} data-selectable="true" role="button" tabIndex={0} aria-label={`Select segment ${edge.id}`} className={`routing-tier-${source.tier}`}
         onClick={event => { event.stopPropagation(); onSelect({ kind: "edge", uid: edge.id }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "edge", uid: edge.id }); }}>
-        {edge.edge_type === "JUNCTION" ? <circle cx={a.x + offset} cy={a.y + offset} r={3 / scale} className={`conceptual-station ${active ? "selected" : ""}`} vectorEffect="non-scaling-stroke" /> : <>
           <line x1={a.x + offset} y1={a.y + offset} x2={b.x + offset} y2={b.y + offset} stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke" />
           <RouteStroke a={{ x: a.x + offset, y: a.y + offset }} b={{ x: b.x + offset, y: b.y + offset }} scale={scale} selected={active} tier={source.tier} usable={edge.usable} cableClasses={edge.cable_classes} />
-        </>}
         <title>{`${edge.edge_type} · Tier ${source.tier} · Planar pathway length ${formatInches(edge.planar_length_in)} · Width ${edge.width_in == null ? "not separately measured" : formatInches(edge.width_in)}`}</title>
       </g>;
     })}

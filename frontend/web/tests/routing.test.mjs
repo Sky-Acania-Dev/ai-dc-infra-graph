@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatInches, parseInches } from "../src/routing/dimensions.ts";
+import { formatInches, parseInches, formatMillimeters } from "../src/routing/dimensions.ts";
+import { occupationGrid } from "../src/routing/sectionGrid.ts";
 import { placeRoutingCabinets } from "../src/routing/cabinetPlacement.ts";
 import { conceptualLayout } from "../src/routing/conceptualLayout.ts";
 import { conceptualSegments, annotationFor, styleFixtures, rowName, passageName } from "../src/routing/conceptualSegments.ts";
@@ -349,4 +350,42 @@ test("tier markings show cable types without inventing sectional bundle position
   assert.deepEqual(model.markedClasses[2], []);
   assert.deepEqual(model.blocks, []);
   assert.equal(model.demoMode, false);
+});
+
+test("metric display converts integer inches exactly and feet/inches remain canonical inches", () => {
+  assert.equal(formatMillimeters(1), "25.4 mm");
+  assert.equal(formatMillimeters(parseInches(`1'-0"`)), "304.8 mm");
+  assert.equal(formatMillimeters(10), "254 mm");
+  assert.throws(() => formatMillimeters(1.5));
+});
+
+test("12 by 8 integer occupation grid repeats one bundle across its multi-cell footprint", () => {
+  const a = {uid: "a", layer: 1, position: 2, slot_width: 3, slot_height: 2};
+  const b = {uid: "b", layer: 4, position: 6, slot_width: 4, slot_height: 2};
+  const {cells, occupants} = occupationGrid(12, 8, [b, a]);
+  assert.equal(cells.length, 8); assert.equal(cells[0].length, 12);
+  assert.deepEqual(cells[0].slice(1, 4), [1, 1, 1]);
+  assert.equal(cells[1][2], 1); assert.equal(cells[3][5], 2);
+  assert.equal(cells.flat().filter(v => v !== 0).length, 14);
+  assert.deepEqual(occupants.map(p => p.uid), ["a", "b"]);
+  assert.deepEqual(cells, occupationGrid(12, 8, [a, b]).cells);
+  assert.throws(() => occupationGrid(12, 8, [a, {...b, layer: 2, position: 3}]), /overlap/);
+  assert.throws(() => occupationGrid(12, 8, [{...a, position: 12}]), /outside/);
+});
+
+test("physical-only rectangles do not manufacture grid slots or modify physical dimensions", () => {
+  const p = {uid: "rect", layer: null, position: null, slot_width: null, slot_height: null, offset_across_in: 2, offset_up_in: 1, occupied_width_in: 6, occupied_height_in: 3};
+  const before = structuredClone(p);
+  assert.ok(occupationGrid(12, 8, [p]).cells.flat().every(v => v === 0));
+  occupationGrid(24, 16, [p]);
+  assert.deepEqual(p, before);
+});
+
+test("021 to 031 demonstrations include rectangular and multi-cell occupations without persistence", () => {
+  const data = tierFixture(), segments = conceptualSegments(data), run = cabinetFixtureRun(data, segments), before = structuredClone(data);
+  const model = segmentTierModel(data, segments.find(s => s.id === run.segmentIds[0]), run.cables);
+  const lc = model.blocks.find(b => b.cable_class === "LC");
+  assert.deepEqual([lc.slot_width, lc.slot_height, lc.occupied_width_in, lc.occupied_height_in], [3, 2, 4, 2]);
+  assert.equal(occupationGrid(12, 8, model.blocks.filter(b => b.tier === 1)).cells.flat().filter(v => v > 0).length, 12);
+  assert.deepEqual(data, before);
 });

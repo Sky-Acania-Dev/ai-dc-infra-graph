@@ -30,6 +30,7 @@ class RoutingLayout(RoutingRecord, Base):
         CheckConstraint("default_cross_route_width_in > 0 AND default_cross_route_width_in % 2 = 0", name="ck_routing_default_width"),
         CheckConstraint("max_tier = 3", name="ck_routing_max_tier"),
         CheckConstraint("cabinets_per_row > 0", name="ck_routing_cabinet_count"),
+        CheckConstraint("(bottom_basket_elevation_in IS NULL OR bottom_basket_elevation_in >= 0) AND (north_south_top_elevation_in IS NULL OR north_south_top_elevation_in >= 0)", name="ck_routing_measured_elevations"),
     )
     room_uid: Mapped[str] = mapped_column(ForeignKey("rooms.uid"), unique=True)
     name: Mapped[str] = mapped_column(Text)
@@ -42,6 +43,8 @@ class RoutingLayout(RoutingRecord, Base):
     default_cross_route_width_in: Mapped[int] = mapped_column(Integer, default=24)
     max_tier: Mapped[int] = mapped_column(Integer, default=3)
     cabinets_per_row: Mapped[int] = mapped_column(Integer, default=10)
+    bottom_basket_elevation_in: Mapped[int | None] = mapped_column(Integer)
+    north_south_top_elevation_in: Mapped[int | None] = mapped_column(Integer)
 
 
 class RoutingSection(LayoutChild, Base):
@@ -119,11 +122,13 @@ class RoutingCrossRouteTier(LayoutChild, Base):
     __table_args__ = (UniqueConstraint("cross_route_uid", "tier", name="uq_routing_cross_tier"),
                       CheckConstraint("tier BETWEEN 1 AND 3", name="ck_routing_cross_tier"),
                       CheckConstraint("pathway_type IN ('LADDER_RACK','BASKET_TRAY')", name="ck_routing_cross_type"),
-                      CheckConstraint("elevation_in IS NULL OR elevation_in >= 0", name="ck_routing_cross_elevation"))
+                      CheckConstraint("elevation_in IS NULL OR elevation_in >= 0", name="ck_routing_cross_elevation"),
+                      CheckConstraint("elevation_reference IS NULL OR elevation_reference IN ('BOTTOM_BASKET','NORTH_SOUTH_TOP')", name="ck_routing_cross_route_tiers_elevation_reference"))
     cross_route_uid: Mapped[str] = mapped_column(ForeignKey("routing_cross_routes.uid", ondelete="CASCADE"), index=True)
     tier: Mapped[int] = mapped_column(Integer)
     pathway_type: Mapped[str] = mapped_column(Text)
     elevation_in: Mapped[int | None] = mapped_column(Integer)
+    elevation_reference: Mapped[str | None] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -132,11 +137,13 @@ class RoutingPassageTier(LayoutChild, Base):
     __table_args__ = (UniqueConstraint("passage_band_uid", "tier", name="uq_routing_passage_tier"),
                       CheckConstraint("tier BETWEEN 1 AND 3", name="ck_routing_passage_tier"),
                       CheckConstraint("pathway_type IN ('LADDER_RACK','BASKET_TRAY')", name="ck_routing_passage_type"),
-                      CheckConstraint("elevation_in IS NULL OR elevation_in >= 0", name="ck_routing_passage_elevation"))
+                      CheckConstraint("elevation_in IS NULL OR elevation_in >= 0", name="ck_routing_passage_elevation"),
+                      CheckConstraint("elevation_reference IS NULL OR elevation_reference IN ('BOTTOM_BASKET','NORTH_SOUTH_TOP')", name="ck_routing_passage_tiers_elevation_reference"))
     passage_band_uid: Mapped[str] = mapped_column(ForeignKey("routing_bands.uid", ondelete="CASCADE"), index=True)
     tier: Mapped[int] = mapped_column(Integer)
     pathway_type: Mapped[str] = mapped_column(Text)
     elevation_in: Mapped[int | None] = mapped_column(Integer)
+    elevation_reference: Mapped[str | None] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -158,6 +165,8 @@ class RoutingSegmentAnnotation(LayoutChild, Base):
     __tablename__ = "routing_segment_annotations"
     __table_args__ = (
         CheckConstraint("tier IS NULL OR tier BETWEEN 1 AND 3", name="ck_routing_annotation_tier"),
+        CheckConstraint("grid_columns BETWEEN 1 AND 64 AND grid_rows BETWEEN 1 AND 64", name="ck_routing_section_grid"),
+        CheckConstraint("section_height_in IS NULL OR section_height_in > 0", name="ck_routing_section_height"),
         CheckConstraint("(passage_band_uid IS NOT NULL AND cross_route_uid IS NULL AND start_station_in IS NOT NULL AND end_station_in IS NOT NULL AND end_station_in > start_station_in AND start_station_in >= 0 AND from_passage_band_uid IS NULL AND to_passage_band_uid IS NULL) OR (passage_band_uid IS NULL AND cross_route_uid IS NOT NULL AND start_station_in IS NULL AND end_station_in IS NULL AND from_passage_band_uid IS NOT NULL AND to_passage_band_uid IS NOT NULL AND from_passage_band_uid <> to_passage_band_uid)", name="ck_routing_annotation_span"),
     )
     passage_band_uid: Mapped[str | None] = mapped_column(ForeignKey("routing_bands.uid", ondelete="CASCADE"), index=True)
@@ -171,23 +180,64 @@ class RoutingSegmentAnnotation(LayoutChild, Base):
     cable_classes: Mapped[list[str]] = mapped_column(JSONB, default=list)
     notes: Mapped[str | None] = mapped_column(Text)
     section_reference: Mapped[str | None] = mapped_column(Text)
+    grid_columns: Mapped[int] = mapped_column(Integer, default=12)
+    grid_rows: Mapped[int] = mapped_column(Integer, default=8)
+    section_height_in: Mapped[int | None] = mapped_column(Integer)
 
 
 class RoutingBundlePlacement(LayoutChild, Base):
-    """Ordinal sectional placement, with existing bundle/group references like EntityGroupMember."""
+    """Optional multi-cell grid footprint and/or physical sectional rectangle."""
     __tablename__ = "routing_bundle_placements"
     __table_args__ = (
         UniqueConstraint("segment_annotation_uid", "tier", "layer", "position", name="uq_routing_bundle_position"),
-        CheckConstraint("tier BETWEEN 1 AND 3 AND layer BETWEEN 1 AND 64 AND position BETWEEN 1 AND 64", name="ck_routing_bundle_position"),
+        CheckConstraint("tier BETWEEN 1 AND 3", name="ck_routing_bundle_position"),
+        CheckConstraint("(layer IS NULL AND position IS NULL AND slot_width IS NULL AND slot_height IS NULL) OR (layer IS NOT NULL AND position IS NOT NULL AND slot_width IS NOT NULL AND slot_height IS NOT NULL AND layer BETWEEN 1 AND 64 AND position BETWEEN 1 AND 64 AND slot_width BETWEEN 1 AND 64 AND slot_height BETWEEN 1 AND 64)", name="ck_routing_bundle_slots"),
+        CheckConstraint("(offset_across_in IS NULL AND offset_up_in IS NULL AND occupied_width_in IS NULL AND occupied_height_in IS NULL) OR (offset_across_in IS NOT NULL AND offset_up_in IS NOT NULL AND occupied_width_in IS NOT NULL AND occupied_height_in IS NOT NULL AND offset_across_in >= 0 AND offset_up_in >= 0 AND occupied_width_in > 0 AND occupied_height_in > 0)", name="ck_routing_bundle_rectangle"),
+        CheckConstraint("layer IS NOT NULL OR offset_across_in IS NOT NULL", name="ck_routing_bundle_occupation"),
         CheckConstraint("(source_kind = 'MANUAL' AND source_uid IS NULL AND label IS NOT NULL AND length(label) > 0) OR (source_kind IN ('BUNDLE','GROUP') AND source_uid IS NOT NULL)", name="ck_routing_bundle_source"),
     )
     segment_annotation_uid: Mapped[str] = mapped_column(ForeignKey("routing_segment_annotations.uid", ondelete="CASCADE"), index=True)
     tier: Mapped[int] = mapped_column(Integer)
-    layer: Mapped[int] = mapped_column(Integer)
-    position: Mapped[int] = mapped_column(Integer)
+    layer: Mapped[int | None] = mapped_column(Integer)
+    position: Mapped[int | None] = mapped_column(Integer)
+    slot_width: Mapped[int | None] = mapped_column(Integer().evaluates_none(), default=1)
+    slot_height: Mapped[int | None] = mapped_column(Integer().evaluates_none(), default=1)
+    offset_across_in: Mapped[int | None] = mapped_column(Integer)
+    offset_up_in: Mapped[int | None] = mapped_column(Integer)
+    occupied_width_in: Mapped[int | None] = mapped_column(Integer)
+    occupied_height_in: Mapped[int | None] = mapped_column(Integer)
     source_kind: Mapped[str] = mapped_column(Text, default="MANUAL")
     source_uid: Mapped[str | None] = mapped_column(Text)
     label: Mapped[str | None] = mapped_column(Text)
     cable_class: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class RoutingBundleConnection(LayoutChild, Base):
+    """Bundle movement between domain span endpoints; never generated graph IDs."""
+    __tablename__ = "routing_bundle_connections"
+    __table_args__ = (
+        CheckConstraint("from_end IN ('START','END') AND to_end IN ('START','END') AND from_placement_uid <> to_placement_uid", name="ck_routing_connection_ends"),
+    )
+    from_placement_uid: Mapped[str] = mapped_column(ForeignKey("routing_bundle_placements.uid", ondelete="CASCADE"), index=True)
+    from_end: Mapped[str] = mapped_column(Text)
+    to_placement_uid: Mapped[str] = mapped_column(ForeignKey("routing_bundle_placements.uid", ondelete="CASCADE"), index=True)
+    to_end: Mapped[str] = mapped_column(Text)
+    vertical_transition_uid: Mapped[str | None] = mapped_column(ForeignKey("routing_vertical_transitions.uid"), index=True)
+    notes: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class RoutingCabinetAttachment(LayoutChild, Base):
+    """Cabinet takeoff along a domain span, without inserting a graph node."""
+    __tablename__ = "routing_cabinet_attachments"
+    __table_args__ = (CheckConstraint("offset_in >= 0 AND (tier IS NULL OR tier BETWEEN 1 AND 3)", name="ck_routing_attachment_position"),)
+    segment_annotation_uid: Mapped[str] = mapped_column(ForeignKey("routing_segment_annotations.uid", ondelete="CASCADE"), index=True)
+    # Like group/bundle source references: a reimport may retire the Cabinet UID.
+    cabinet_uid: Mapped[str] = mapped_column(Text, index=True)
+    offset_in: Mapped[int] = mapped_column(Integer)
+    tier: Mapped[int | None] = mapped_column(Integer)
+    label: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)

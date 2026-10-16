@@ -82,10 +82,8 @@ export function RoutingSchematic({ data, graph, tiers, selection, preview, start
           const highlight = pathEdges.has(edge.id), isSelected = selected("edge", edge.id);
           const opacity = preview && !highlight ? 0.16 : 1;
           return <g key={edge.id} data-selectable="true" className={`routing-tier-${a.tier}`} opacity={opacity} onClick={event => { event.stopPropagation(); onSelect({ kind: "edge", uid: edge.id }); }}>
-            {edge.edge_type === "JUNCTION" ? <circle cx={a.x_in + shift} cy={a.y_in + shift} r={5 / v.scale} fill="none" stroke={isSelected ? "var(--routing-selected)" : "transparent"} strokeWidth={3} vectorEffect="non-scaling-stroke"><title>Junction · {a.passage_code} · Tier {a.tier}</title></circle> : <>
               <line x1={a.x_in + shift} y1={a.y_in + shift} x2={b.x_in + shift} y2={b.y_in + shift} stroke="transparent" strokeWidth={14} vectorEffect="non-scaling-stroke" />
               <line x1={a.x_in + shift} y1={a.y_in + shift} x2={b.x_in + shift} y2={b.y_in + shift} className={`routing-edge ${highlight || isSelected ? "selected" : ""}`} strokeWidth={highlight || isSelected ? 4 : 1.8} strokeDasharray={DASH[a.tier]} vectorEffect="non-scaling-stroke" pointerEvents="none" />
-            </>}
             <title>{`${edge.edge_type} · Tier ${a.tier} · ${formatInches(edge.planar_length_in)}`}</title>
           </g>;
         })}

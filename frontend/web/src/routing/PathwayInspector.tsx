@@ -9,6 +9,7 @@ import { segmentTierModel } from "./segmentTierModel";
 import { TierSectionDiagrams } from "./TierSectionDiagrams";
 import { TierEditor } from "./TierEditor";
 import { BundleSectionEditor } from "./BundleSectionEditor";
+import { occupationLabel } from "./occupation";
 
 export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, fixture, canManage, busy, mutate, onSelect, onOpenRouting, demoCables = [] }: {
   data: ResolvedLayout; graph: RoutingGraph; selection: Selection; segment: ConceptualSegment | null | undefined; selectedEdge?: GraphEdge;
@@ -25,7 +26,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
   const node = selection?.kind === "node" ? graph.nodes.find(n => n.id === selection.uid) : selectedEdge ? graph.nodes.find(n => n.id === selectedEdge.source_node_id) : undefined;
   const pointOwner = opening?.passage_band_uid ?? node?.passage_band_uid;
   const pointStation = opening?.station_in ?? node?.station_in;
-  const active = segment ?? conceptualSegments(data).find(s => s.cross_route_uid === fallbackRoute?.uid)
+  const active = selection?.kind === "node" || selection?.kind === "transition" || selectedEdge?.edge_type === "VERTICAL" ? null : segment ?? conceptualSegments(data).find(s => s.cross_route_uid === fallbackRoute?.uid)
     ?? (selection?.kind === "passage" ? { id: selection.uid, label: `${data.bands.find(b => b.uid === selection.uid)?.code} passage`, passage_band_uid: selection.uid,
       cross_route_uid: null, start_station_in: 0, end_station_in: data.geometry.hall_length_in, from_passage_band_uid: null, to_passage_band_uid: null,
       width_in: data.bands.find(b => b.uid === selection.uid)!.width_in, planar_length_in: data.geometry.hall_length_in } : null)
@@ -49,7 +50,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
         {field("Span", active.passage_band_uid ? `${formatInches(active.start_station_in!)}–${formatInches(active.end_station_in!)}` : `${data.bands.find(b => b.uid === active.from_passage_band_uid)?.code} → ${data.bands.find(b => b.uid === active.to_passage_band_uid)?.code}`)}
         {field("Planar length / width", attachmentUid ? `Connector unknown / route ${formatInches(active.width_in)}` : `${formatInches(active.planar_length_in)} / ${formatInches(active.width_in)}`)}
         {field("Station / source", route ? `${formatInches(route.station_in)} · ${route.station_source}` : "Ordered passage stations")}
-        {field("Elevation AFF", model.records.length ? model.records.map(t => `T${t.tier}: ${t.elevation_in == null ? "?" : formatInches(t.elevation_in)}`).join(" · ") : "Unknown · tiers unconfigured")}
+        {field("Elevation AFF", model.records.length ? model.records.map(t => `T${t.tier}: ${(t.effective_elevation_in ?? t.elevation_in) == null ? "?" : formatInches((t.effective_elevation_in ?? t.elevation_in)!)}`).join(" · ") : data.layout.bottom_basket_elevation_in != null ? `Basket bottom ${formatInches(data.layout.bottom_basket_elevation_in)} · tiers unconfigured` : "Unknown · tiers unconfigured")}
         {field("Pathway types", model.records.length ? model.records.map(t => `T${t.tier} ${t.pathway_type === "LADDER_RACK" ? "Ladder" : "Basket"}${!t.enabled ? " (off)" : ""}`).join(" · ") : "Unconfigured")}
         {field("Marking / usability", `${marking ? "Manual" : "Unassigned"} · ${marking?.usable === false ? "Unusable" : "Usable"}`)}
         {field("Bundles / openings", `${model.blocks.length}${model.demoMode ? " demo" : " saved"} / ${model.openings.filter(o => o.enabled).length} configured`)}
@@ -57,11 +58,11 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
         {field("Notes / hall", attachmentUid ? "Schematic connector; no measured drop dimensions" : opening?.notes ?? marking?.notes ?? `${data.geometry.sections.length} sections · ${data.geometry.gaps.length} gaps · ${formatInches(data.geometry.total_width_in)} wide`)}
       </dl>
       <TierSectionDiagrams data={data} model={model} onSelectPlacement={uid => { setSelectedBlockUid(uid); if (data.bundle_placements?.some(p => p.uid === uid)) setConfigureOpen(true); }} />
-      {selectedBlock && <p className="section-selection-info">{selectedBlock.demo ? "DEMO · " : ""}{selectedBlock.label} · T{selectedBlock.tier} · Layer {selectedBlock.layer} (bottom=1) · Position {selectedBlock.position} (inner=1)</p>}
+      {selectedBlock && <p className="section-selection-info">{selectedBlock.demo ? "DEMO · " : ""}{selectedBlock.label} · T{selectedBlock.tier} · {occupationLabel(selectedBlock)}</p>}
       {canManage && <details className="section-configuration" open={configureOpen} onToggle={e => setConfigureOpen(e.currentTarget.open)}><summary>Configure heights / bundle sections</summary>
         {configureOpen && <>
-        <TierEditor kind={active.passage_band_uid ? "passage" : "cross"} owner={(active.passage_band_uid ?? active.cross_route_uid)!} records={model.records} mutate={mutate} disabled={busy} />
-        <div className="routing-linked-list">{data.bundle_placements?.filter(p => model.parents.some(a => a.uid === p.segment_annotation_uid)).map(p => <button key={p.uid} onClick={() => setSelectedBlockUid(p.uid)}>{p.resolved_label} · T{p.tier} / L{p.layer} / P{p.position}{!p.enabled ? " · disabled" : ""}</button>)}{placement && <button onClick={() => setSelectedBlockUid(null)}>Add another bundle</button>}</div>
+        <TierEditor kind={active.passage_band_uid ? "passage" : "cross"} owner={(active.passage_band_uid ?? active.cross_route_uid)!} records={model.records} mutate={mutate} disabled={busy} layout={data.layout} passageCode={data.bands.find(b => b.uid === active.passage_band_uid)?.code} />
+        <div className="routing-linked-list">{data.bundle_placements?.filter(p => model.parents.some(a => a.uid === p.segment_annotation_uid)).map(p => <button key={p.uid} onClick={() => setSelectedBlockUid(p.uid)}>{p.resolved_label} · T{p.tier} · {occupationLabel(p)}{!p.enabled ? " · disabled" : ""}</button>)}{placement && <button onClick={() => setSelectedBlockUid(null)}>Add another bundle</button>}</div>
         <BundleSectionEditor key={placement?.uid ?? active.id} data={data} segment={active} placement={placement} mutate={mutate} busy={busy} />
         </>}
       </details>}

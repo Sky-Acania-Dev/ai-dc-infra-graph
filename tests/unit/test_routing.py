@@ -332,7 +332,8 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(graph, derive_graph(reverse))
         self.assertEqual({e.planar_length_in for e in graph.edges if e.edge_type == 'CROSS_ROUTE'}, {365, 389})
         self.assertEqual(len([e for e in graph.edges if e.edge_type == 'CROSS_ROUTE']), 164 * 2)
-        self.assertTrue(all(e.planar_length_in == 0 for e in graph.edges if e.edge_type == 'JUNCTION'))
+        self.assertFalse(any(e.edge_type == 'JUNCTION' for e in graph.edges))
+        self.assertEqual(len(graph.nodes), len({(n.x_in, n.y_in, n.tier) for n in graph.nodes}))
         nodes = {n.id: n for n in graph.nodes}
         for edge in graph.edges:
             if edge.edge_type == 'PASSAGE':
@@ -544,6 +545,174 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(client.post(base + '/route-preview', json=request).json()['vertical_opening_labels'], ['Edited opening'])
             self.assertEqual(client.delete(base + '/vertical-transitions/' + opening).status_code, 204)
             self.assertEqual(client.post(base + '/route-preview', json=request).status_code, 422)
+
+
+    def test_measured_elevation_references_are_scoped_without_guessing_top_tier(self):
+        self.assertEqual((self.data['layout']['bottom_basket_elevation_in'], self.data['layout']['north_south_top_elevation_in']), (98, 116))
+        self.assertEqual(self.data['passage_tiers'], [])
+        bottom = self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 1, 'pathway_type': 'BASKET_TRAY'})
+        self.assertEqual(bottom['elevation_reference'], 'BOTTOM_BASKET')
+        upper = self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 2, 'pathway_type': 'LADDER_RACK'})
+        self.assertIsNone(upper['elevation_reference'])
+        self.assertIsNone(upper['elevation_in'])
+        self.save('passage-tiers', {'elevation_reference': 'NORTH_SOUTH_TOP'}, upper['uid'])
+        resolved = self.data_now()
+        self.assertEqual({p['effective_elevation_in'] for p in resolved['passage_tiers']}, {98, 116})
+        graph = derive_graph(resolved)
+        self.assertEqual({e.elevation_in for e in graph.edges}, {98, 116})
+        self.assertFalse(any(e.edge_type == 'VERTICAL' for e in graph.edges))
+        self.save('segment-annotations', {'passage_band_uid': self.north(), 'start_station_in': 0, 'end_station_in': 108})
+        self.assertEqual(derive_graph(self.data_now()).nodes[0].id, graph.nodes[0].id)
+        central = next(b['uid'] for b in self.data['bands'] if b['code'] == 'CENTRAL')
+        for invalid in ({'passage_band_uid': central, 'tier': 2, 'pathway_type': 'LADDER_RACK', 'elevation_reference': 'NORTH_SOUTH_TOP'},
+                        {'passage_band_uid': self.north(), 'tier': 3, 'pathway_type': 'LADDER_RACK'},
+                        {'passage_band_uid': central, 'tier': 1, 'pathway_type': 'LADDER_RACK', 'elevation_reference': 'BOTTOM_BASKET'}):
+            with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+                self.save('passage-tiers', invalid)
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('passage-tiers', {'elevation_in': 120}, upper['uid'])
+        self.save('passage-tiers', {'elevation_reference': None}, upper['uid'])
+        self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 3, 'pathway_type': 'LADDER_RACK', 'elevation_reference': 'NORTH_SOUTH_TOP'})
+        self.assertIsNone(next(p for p in self.data_now()['passage_tiers'] if p['uid'] == upper['uid'])['effective_elevation_in'])
+
+    def test_measured_elevations_are_not_copied_to_other_buildings(self):
+        self.session.add(db.Building(uid='LBB01:B', project_uid='LBB01', building_id='B'))
+        self.session.flush()
+        self.session.add(db.Room(uid='LBB01:B:DH1-1', project_uid='LBB01', building_uid='LBB01:B', room_id='DH1-1'))
+        self.session.flush()
+        other = config.initialize_lbb01(self.session, 'B')
+        self.assertIsNone(other['layout']['bottom_basket_elevation_in'])
+        self.assertIsNone(other['layout']['north_south_top_elevation_in'])
+        self.assertEqual(other['passage_tiers'], [])
+
+    def section_span(self, start=0, end=108, tier=None, **extra):
+        return self.save('segment-annotations', {'passage_band_uid': self.north(), 'start_station_in': start, 'end_station_in': end, 'tier': tier, **extra})
+
+    def placement(self, parent, **extra):
+        return self.save('bundle-placements', {'segment_annotation_uid': parent['uid'], 'tier': 1, 'label': 'G1', **extra})
+
+    def test_default_integer_grid_multi_cell_occupation_bounds_and_overlap(self):
+        self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 1, 'pathway_type': 'LADDER_RACK'})
+        parent = self.section_span()
+        self.assertEqual((parent['grid_columns'], parent['grid_rows']), (12, 8))
+        first = self.placement(parent, position=2, layer=1, slot_width=3, slot_height=2)
+        section = self.data_now()['section_occupations'][0]
+        self.assertEqual((len(section['cells']), len(section['cells'][0])), (8, 12))
+        self.assertEqual(sum(value > 0 for row in section['cells'] for value in row), 6)
+        self.assertEqual(section['cells'][0][1:4], [1, 1, 1])
+        self.assertEqual(section['occupants'], [{'value': 1, 'placement_uid': first['uid']}])
+        for invalid in ({'position': 12, 'slot_width': 2}, {'layer': 8, 'slot_height': 2}, {'position': 4, 'layer': 2}):
+            with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+                self.placement(parent, **invalid)
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('segment-annotations', {'grid_columns': 3}, parent['uid'])
+        self.save('bundle-placements', {'enabled': False}, first['uid'])
+        self.placement(parent, position=3, layer=2)
+
+    def test_physical_rectangle_and_grid_are_independent_and_integer_inches(self):
+        from backend.schemas.routing import BundlePlacementInput
+        self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 1, 'pathway_type': 'LADDER_RACK'})
+        parent = self.section_span(section_height_in=8)
+        values = dict(layer=None, position=None, slot_width=None, slot_height=None, offset_across_in=0, offset_up_in=0, occupied_width_in=4, occupied_height_in=2)
+        first = self.placement(parent, **values)
+        self.assertIsNone(first['slot_width'])
+        self.placement(parent, **{**values, 'offset_across_in': 4})  # Touching edges are valid.
+        for invalid in ({'offset_across_in': 3}, {'occupied_width_in': 35}, {'offset_up_in': 7}):
+            with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+                self.placement(parent, **{**values, **invalid})
+        for invalid in ({'occupied_width_in': 1.5}, {'occupied_height_in': 0}, {'offset_up_in': None}):
+            with self.assertRaises(ValidationError):
+                BundlePlacementInput.model_validate({'segment_annotation_uid': parent['uid'], 'tier': 1, 'label': 'G1', **values, **invalid})
+        self.save('bundle-placements', {'layer': 3, 'position': 3, 'slot_width': 2, 'slot_height': 2}, first['uid'])
+        section = self.data_now()['section_occupations'][0]
+        self.assertEqual(len(section['rectangles']), 2)
+        self.assertEqual(sum(v > 0 for row in section['cells'] for v in row), 4)
+        self.save('segment-annotations', {'grid_columns': 20}, parent['uid'])
+        self.assertEqual(next(p for p in self.data_now()['bundle_placements'] if p['uid'] == first['uid'])['occupied_width_in'], 4)
+
+    def test_all_passage_junctions_share_one_node_per_tier_with_opening_roles(self):
+        self.configure_tiers(tiers=(1, 2), cross_tiers=(1, 2))
+        self.save('vertical-transitions', {'passage_band_uid': self.north(), 'station_in': 108, 'lower_tier': 1, 'upper_tier': 2})
+        graph = derive_graph(self.data_now())
+        for code in ('NORTH', 'CENTRAL', 'SOUTH'):
+            for tier in (1, 2):
+                matches = [n for n in graph.nodes if n.station_in == 108 and n.passage_code == code and n.tier == tier]
+                self.assertEqual(len(matches), 1)
+                node = matches[0]
+                self.assertEqual(node.node_type, 'JUNCTION')
+                self.assertIn('JUNCTION', node.roles)
+                self.assertTrue(any(e.edge_type == 'CROSS_ROUTE' and node.id in (e.source_node_id, e.target_node_id) for e in graph.edges))
+                if code == 'NORTH':
+                    self.assertIn('TIER_OPENING', node.roles)
+
+    def test_bundle_junction_connections_reference_span_ends_and_cascade(self):
+        self.configure_tiers(tiers=(1,), cross_tiers=(1,))
+        a = self.placement(self.section_span())
+        central = next(b['uid'] for b in self.data['bands'] if b['code'] == 'CENTRAL')
+        route = next(r for r in self.data['geometry']['cross_routes'] if r['station_in'] == 108)
+        parent = self.save('segment-annotations', {'cross_route_uid': route['uid'], 'from_passage_band_uid': self.north(), 'to_passage_band_uid': central})
+        b = self.placement(parent)
+        values = {'from_placement_uid': a['uid'], 'from_end': 'END', 'to_placement_uid': b['uid'], 'to_end': 'START'}
+        connection = self.save('bundle-connections', values)
+        resolved = self.data_now()
+        item = resolved['bundle_connections'][0]
+        self.assertEqual(item['from_node_id'], item['to_node_id'])
+        node = next(n for n in derive_graph(resolved).nodes if n.id == item['from_node_id'])
+        self.assertIn(connection['uid'], node.bundle_connection_uids)
+        for invalid in ({'from_end': 'START'}, {'from_placement_uid': 'foreign'}, {'vertical_transition_uid': 'missing'}):
+            with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+                self.save('bundle-connections', {**values, **invalid})
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('bundle-connections', {'from_placement_uid': b['uid'], 'from_end': 'START', 'to_placement_uid': a['uid'], 'to_end': 'END'})
+        config.delete_resource(self.session, self.uid, 'bundle-placements', a['uid'])
+        self.assertEqual(self.data_now()['bundle_connections'], [])
+
+    def test_bundle_tier_connection_requires_matching_explicit_opening(self):
+        self.configure_tiers(tiers=(1, 2, 3), cross_tiers=())
+        a = self.placement(self.section_span(tier=1))
+        b = self.placement(self.section_span(108, 276, tier=2), tier=2)
+        values = {'from_placement_uid': a['uid'], 'from_end': 'END', 'to_placement_uid': b['uid'], 'to_end': 'START'}
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('bundle-connections', values)
+        opening = self.save('vertical-transitions', {'passage_band_uid': self.north(), 'station_in': 108, 'lower_tier': 1, 'upper_tier': 2})
+        self.save('bundle-connections', {**values, 'vertical_transition_uid': opening['uid']})
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('vertical-transitions', {'enabled': False}, opening['uid'])
+        self.assertEqual(len(self.data_now()['bundle_connections']), 1)
+
+    def test_cabinet_attachments_do_not_insert_graph_nodes_and_validate_offsets(self):
+        self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 1, 'pathway_type': 'LADDER_RACK'})
+        parent = self.section_span()
+        self.session.add(db.Cabinet(uid='cab21', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-1', cabinet_id='021'))
+        self.session.flush()
+        before = derive_graph(self.data_now())
+        values = {'segment_annotation_uid': parent['uid'], 'cabinet_uid': 'cab21', 'offset_in': 17}
+        saved = self.save('cabinet-attachments', values)
+        after = self.data_now()
+        self.assertEqual(before.nodes, derive_graph(after).nodes)
+        self.assertEqual((after['cabinet_attachments'][0]['x_in'], after['cabinet_attachments'][0]['y_in']), (17, 17))
+        self.assertTrue(any(saved['uid'] in e.cabinet_attachment_uids for e in derive_graph(after).edges))
+        for invalid in ({'offset_in': 109}, {'cabinet_uid': 'other-hall'}, {'segment_annotation_uid': 'foreign'}):
+            with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+                self.save('cabinet-attachments', {**values, **invalid})
+        config.delete_resource(self.session, self.uid, 'segment-annotations', parent['uid'])
+        self.assertEqual(self.data_now()['cabinet_attachments'], [])
+
+    def test_occupation_api_roundtrip_and_new_resource_permissions(self):
+        self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 1, 'pathway_type': 'LADDER_RACK'})
+        parent = self.section_span()
+        self.session.commit()
+        with patch('backend.api.routing.session_factory', return_value=self.factory):
+            client = TestClient(app)
+            base = f'/routing/layouts/{self.uid}'
+            values = {'segment_annotation_uid': parent['uid'], 'tier': 1, 'label': 'API rectangular bundle', 'layer': None, 'position': None, 'slot_width': None, 'slot_height': None, 'offset_across_in': 1, 'offset_up_in': 2, 'occupied_width_in': 6, 'occupied_height_in': 3}
+            response = client.post(base + '/bundle-placements', json=values)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(client.get(base).json()['section_occupations'][0]['rectangles'][0]['occupied_width_in'], 6)
+            for resource in ('bundle-connections', 'cabinet-attachments'):
+                self.assertEqual(client.get(base + '/' + resource).json(), [])
+                self.assertEqual(client.post(base + '/' + resource, json={}, headers={'x-user-role': 'viewer'}).status_code, 403)
+            self.assertEqual(client.patch(base + '/segment-annotations/' + parent['uid'], json={'grid_columns': 0}).status_code, 422)
 
 
 class PathfindingPriorityTests(unittest.TestCase):

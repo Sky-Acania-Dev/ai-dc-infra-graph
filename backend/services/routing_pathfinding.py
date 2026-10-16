@@ -72,14 +72,12 @@ def route_steps(nodes, edges, data: dict) -> tuple[list[str], list[str]]:
             return ' / '.join(transitions[uid]['label'] or uid for uid in node.vertical_transition_uids)
         if node.cross_route_uid:
             return cross_label(node.cross_route_uid)
-        # A passage node may be the separate representation of an intersection.
+        # Fallback for a station whose associated cross route is unavailable.
         matching = next((r for r in data.get('geometry', {}).get('cross_routes', []) if r['station_in'] == node.station_in), None)
         return cross_label(matching['uid']) if matching else f'station {format_inches(node.station_in)}'
 
     groups = []
     for i, edge in enumerate(edges):
-        if edge.edge_type == 'JUNCTION':
-            continue
         key = (edge.edge_type, edge.tier, edge.cross_route_uid, edge.passage_code)
         if groups and edge.edge_type != 'VERTICAL' and groups[-1]['key'] == key:
             groups[-1]['end'] = nodes[i + 1]

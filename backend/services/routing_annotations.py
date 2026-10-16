@@ -55,7 +55,11 @@ def apply_annotations(data: dict, geometry: dict, nodes: dict, edges: dict) -> N
             if matches:
                 edge.usable = item['usable']
                 classes = set(item['cable_classes'])
-                classes.update(p['cable_class'] for p in data.get('bundle_placements', [])
-                               if p['segment_annotation_uid'] == item['uid'] and p['tier'] == edge.tier and p['enabled'] and p['cable_class'])
+                placements = [p for p in data.get('bundle_placements', []) if p['segment_annotation_uid'] == item['uid'] and p['tier'] == edge.tier and p['enabled']]
+                classes.update(p['cable_class'] for p in placements if p['cable_class'])
+                edge.bundle_placement_uids = sorted(p['uid'] for p in placements)
+                edge.cabinet_attachment_uids = sorted(t['uid'] for t in data.get('cabinet_attachments', [])
+                    if t['segment_annotation_uid'] == item['uid'] and t['enabled'] and t['tier'] in (None, edge.tier)
+                    and (edge.edge_type == 'CROSS_ROUTE' or min(a.station_in, b.station_in) <= item['start_station_in'] + t['offset_in'] <= max(a.station_in, b.station_in)))
                 edge.cable_classes = sorted(classes)
                 break

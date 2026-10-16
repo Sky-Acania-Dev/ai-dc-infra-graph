@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from backend.schemas.routing import GraphEdge, GraphNode, RoutingGraph
 from backend.services.routing_geometry import resolve_geometry, passage_span_label
+from backend.services.routing_elevations import tier_elevation
 
 
 def derive_graph(data: dict) -> RoutingGraph:
@@ -24,7 +25,8 @@ def derive_graph(data: dict) -> RoutingGraph:
         uid = f"passage:{band['uid']}:station:{station}:tier:{tier}"
         if uid not in nodes:
             nodes[uid] = GraphNode(id=uid, node_type='PASSAGE_STATION', x_in=station, y_in=band['center_in'],
-                                  station_in=station, tier=tier, passage_code=band['code'], passage_band_uid=band['uid'])
+                                  station_in=station, tier=tier, passage_code=band['code'], passage_band_uid=band['uid'],
+                                  roles=['ENDPOINT'] if station in (0, geometry['hall_length_in']) else [])
         stations[(band['uid'], tier)].add(station)
         return uid
 
@@ -38,22 +40,23 @@ def derive_graph(data: dict) -> RoutingGraph:
             if (band['uid'], rt['tier']) not in passage_tiers:
                 previous = None
                 continue
-            nid = f"cross:{route['uid']}:passage:{band['uid']}:tier:{rt['tier']}"
-            nodes[nid] = GraphNode(id=nid, node_type='CROSS_PASSAGE_INTERSECTION', x_in=route['station_in'],
-                                  y_in=band['center_in'], station_in=route['station_in'], tier=rt['tier'],
-                                  passage_code=band['code'], passage_band_uid=band['uid'], cross_route_uid=route['uid'],
-                                  cross_route_kind=route['kind'], cabinet_row_uid=route['cabinet_row_uid'], label=route['display_label'])
-            pid = passage_node(band, route['station_in'], rt['tier'])
-            eid = f"junction:{nid}"
-            edges[eid] = GraphEdge(id=eid, edge_type='JUNCTION', source_node_id=nid, target_node_id=pid,
-                                  tier=rt['tier'], passage_code=band['code'], cross_route_uid=route['uid'],
-                                  cross_route_kind=route['kind'], cabinet_row_uid=route['cabinet_row_uid'])
+            nid = passage_node(band, route['station_in'], rt['tier'])
+            node = nodes[nid]
+            node.node_type = 'JUNCTION'
+            node.roles.append('JUNCTION')
+            node.cross_route_uids.append(route['uid'])
+            if route['cabinet_row_uid']:
+                node.cabinet_row_uids.append(route['cabinet_row_uid'])
+            # Singular fields remain the first deterministic association for existing clients.
+            if node.cross_route_uid is None:
+                node.cross_route_uid, node.cross_route_kind = route['uid'], route['kind']
+                node.cabinet_row_uid, node.label = route['cabinet_row_uid'], route['display_label']
             if previous:
                 eid = f"cross:{route['uid']}:tier:{rt['tier']}:{previous['uid']}:{band['uid']}"
                 edges[eid] = GraphEdge(id=eid, edge_type='CROSS_ROUTE', source_node_id=previous['node_id'], target_node_id=nid,
                                       tier=rt['tier'], planar_length_in=band['center_in'] - previous['center_in'],
                                       width_in=route['width_in'],
-                                      elevation_in=rt.get('elevation_in'), label=route['display_label'],
+                                      elevation_in=tier_elevation(data['layout'], rt), label=route['display_label'],
                                       pathway_type=rt['pathway_type'], cross_route_uid=route['uid'], cross_route_kind=route['kind'],
                                       cabinet_row_uid=route['cabinet_row_uid'])
             previous = {**band, 'node_id': nid}
@@ -68,6 +71,7 @@ def derive_graph(data: dict) -> RoutingGraph:
         target = passage_node(band, vt['station_in'], vt['upper_tier'])
         for nid in (source, target):
             nodes[nid].vertical_transition_uids.append(vt['uid'])
+            nodes[nid].roles.append('TIER_OPENING')
         eid = f"vertical:{vt['uid']}"
         edges[eid] = GraphEdge(id=eid, edge_type='VERTICAL', source_node_id=source, target_node_id=target,
                               lower_tier=vt['lower_tier'], upper_tier=vt['upper_tier'], passage_code=band['code'],
@@ -83,9 +87,20 @@ def derive_graph(data: dict) -> RoutingGraph:
             edges[eid] = GraphEdge(id=eid, edge_type='PASSAGE', source_node_id=ids[i], target_node_id=ids[i + 1],
                                   tier=tier, planar_length_in=ordered[i + 1] - ordered[i], passage_code=band['code'],
                                   width_in=band['width_in'],
-                                  elevation_in=passage_tiers[(band_uid, tier)].get('elevation_in'),
+                                  elevation_in=tier_elevation(data['layout'], passage_tiers[(band_uid, tier)]),
                                   label=passage_span_label(geometry, band_uid, ordered[i], ordered[i + 1]),
                                   pathway_type=passage_tiers[(band_uid, tier)]['pathway_type'])
     from backend.services.routing_annotations import apply_annotations
     apply_annotations(data, geometry, nodes, edges)
+    from backend.services.routing_connections import connection_points
+    for connection in data.get('bundle_connections', []):
+        if connection['enabled']:
+            for nid in connection_points(data, geometry, connection)['node_ids']:
+                if nid in nodes:
+                    nodes[nid].bundle_connection_uids.append(connection['uid'])
+    for node in nodes.values():
+        node.roles = sorted(set(node.roles)) or ['STATION']
+        node.cross_route_uids = sorted(set(node.cross_route_uids))
+        node.cabinet_row_uids = sorted(set(node.cabinet_row_uids))
+        node.bundle_connection_uids.sort()
     return RoutingGraph(nodes=sorted(nodes.values(), key=lambda n: n.id), edges=sorted(edges.values(), key=lambda e: e.id))

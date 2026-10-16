@@ -22,6 +22,8 @@ RESOURCES = {
     'vertical-transitions': (db.RoutingVerticalTransition, schema.VerticalTransitionInput),
     'segment-annotations': (db.RoutingSegmentAnnotation, schema.SegmentAnnotationInput),
     'bundle-placements': (db.RoutingBundlePlacement, schema.BundlePlacementInput),
+    'bundle-connections': (db.RoutingBundleConnection, schema.BundleConnectionInput),
+    'cabinet-attachments': (db.RoutingCabinetAttachment, schema.CabinetAttachmentInput),
 }
 
 
@@ -55,14 +57,22 @@ def snapshot(session: Session, uid: str) -> dict:
 def resolved_layout(session: Session, uid: str) -> dict:
     result = snapshot(session, uid)
     result['geometry'] = resolve_geometry(result)
-    from backend.services.routing_sections import resolve_source
+    from backend.services.routing_elevations import resolve_elevations
+    resolve_elevations(result)
+    from backend.services.routing_sections import resolve_source, resolve_sections
     for placement in result['bundle_placements']:
         placement['resolved_label'], placement['source_available'] = resolve_source(session, get_layout(session, uid), placement)
+    result['section_occupations'] = resolve_sections(result, result['geometry'])
+    from backend.services.routing_connections import resolve_connections
+    resolve_connections(result, result['geometry'])
     anchor = session.get(Room, result['layout']['room_uid'])
     rooms = {r.uid: r for r in session.scalars(select(Room).where(Room.building_uid == anchor.building_uid, Room.deleted_at.is_(None)))}
     sections = {s['uid']: s for s in result['sections']}
     room_uids = {s['room_uid'] or anchor.uid for s in result['sections']} & rooms.keys()
     cabinets = list(session.scalars(select(Cabinet).where(Cabinet.room_uid.in_(room_uids), Cabinet.deleted_at.is_(None))))
+    cabinet_ids = {c.uid for c in cabinets}
+    for attachment in result['cabinet_attachments']:
+        attachment['cabinet_available'] = attachment['cabinet_uid'] in cabinet_ids
     linked = {}
     for section in result['geometry']['sections']:
         room = rooms.get(section['room_uid'])
@@ -144,7 +154,8 @@ def initialize_lbb01(session: Session, building_id: str = 'A'):
         raise RoutingConfigurationError('Import the LBB01 DH1 rooms first. Initialization requires an existing DH1 or DH1-1 Room.')
     layout = find_layout(session, 'LBB01', building_id, 'DH1')
     if layout is None:
-        layout = create_layout(session, {'room_uid': room.uid})
+        measured = {'bottom_basket_elevation_in': 98, 'north_south_top_elevation_in': 116} if building_id == 'A' else {}
+        layout = create_layout(session, {'room_uid': room.uid, **measured})
         initialize_confirmed_rows(session, layout)
     else:
         maintain_scaffold(session, layout)
@@ -209,10 +220,13 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
         values.update(payload)
     else:
         values = payload
+    if resource in ('passage-tiers', 'cross-route-tiers') and existing is None and values.get('tier') == 1 and values.get('pathway_type') == 'BASKET_TRAY' and 'elevation_in' not in values and 'elevation_reference' not in values and layout.bottom_basket_elevation_in is not None:
+        values = {**values, 'elevation_reference': 'BOTTOM_BASKET'}
     values = input_type.model_validate(values).model_dump()
     if resource == 'cross-routes' and existing and any(values[k] != getattr(existing, k) for k in ('kind', 'cabinet_row_uid', 'section_boundary_after_section_uid')):
         raise RoutingConfigurationError('Cross-route association cannot be changed. Edit its associated row instead.')
     original_source = (existing.source_kind, existing.source_uid) if existing is not None and resource == 'bundle-placements' else None
+    original_cabinet = existing.cabinet_uid if existing is not None and resource == 'cabinet-attachments' else None
     row = existing or model(uid=str(uuid4()), routing_layout_uid=layout_uid)
     for key, value in values.items():
         setattr(row, key, value)
@@ -220,7 +234,9 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
     for field, target in (('routing_section_uid', db.RoutingSection), ('row_field_band_uid', db.RoutingBand), ('row_pair_uid', db.RoutingRowPair),
                           ('cabinet_row_uid', db.RoutingCabinetRow), ('section_boundary_after_section_uid', db.RoutingSection),
                           ('cross_route_uid', db.RoutingCrossRoute), ('passage_band_uid', db.RoutingBand),
-                          ('from_passage_band_uid', db.RoutingBand), ('to_passage_band_uid', db.RoutingBand)):
+                          ('from_passage_band_uid', db.RoutingBand), ('to_passage_band_uid', db.RoutingBand),
+                          ('segment_annotation_uid', db.RoutingSegmentAnnotation), ('from_placement_uid', db.RoutingBundlePlacement),
+                          ('to_placement_uid', db.RoutingBundlePlacement), ('vertical_transition_uid', db.RoutingVerticalTransition)):
         if values.get(field):
             referenced = session.get(target, values[field])
             if referenced is None or referenced.routing_layout_uid != layout_uid:
@@ -237,6 +253,12 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
         room, anchor = session.get(Room, values['room_uid']), session.get(Room, layout.room_uid)
         if room is None or room.building_uid != anchor.building_uid:
             raise RoutingConfigurationError('Section Room must be in the same building as its layout.')
+    if resource == 'cabinet-attachments':
+        cabinet = session.get(Cabinet, values['cabinet_uid'])
+        rooms = {s.room_uid or layout.room_uid for s in session.scalars(select(db.RoutingSection).where(db.RoutingSection.routing_layout_uid == layout_uid))}
+        available = cabinet is not None and cabinet.deleted_at is None and cabinet.room_uid in rooms
+        if not available and not (original_cabinet == values['cabinet_uid'] and not values['enabled']):
+            raise RoutingConfigurationError('Select an existing cabinet in this physical hall.')
     session.add(row)
     session.flush()
     if resource == 'cabinet-rows' and existing is None:
@@ -274,7 +296,11 @@ def validate_layout(session: Session, uid: str) -> None:
     try:
         validate_annotations(data, geometry)
         from backend.services.routing_sections import validate_sections
-        validate_sections(data)
+        from backend.services.routing_elevations import validate_elevations
+        validate_elevations(data)
+        validate_sections(data, geometry)
+        from backend.services.routing_connections import validate_connections
+        validate_connections(data, geometry)
     except ValueError as exc:
         raise RoutingConfigurationError(str(exc)) from exc
     bands = {b['uid']: b for b in data['bands']}

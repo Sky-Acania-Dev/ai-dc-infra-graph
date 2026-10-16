@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Mutate, ResolvedLayout } from "./types";
 import { parseInches, formatInches } from "./dimensions";
+import { DimensionInput } from "./SectionSettings";
 
 const DIMENSIONS = [
   ["cabinet_row_depth_in", "Cabinet row depth"], ["hot_aisle_clear_in", "Hot aisle clear"], ["cold_aisle_clear_in", "Cold aisle clear"],
@@ -11,16 +12,20 @@ export function LayoutSettings({ data, disabled, mutate }: { data: ResolvedLayou
   const [count, setCount] = useState(data.layout.cabinets_per_row);
   const [dimensions, setDimensions] = useState(Object.fromEntries(DIMENSIONS.map(([key]) => [key, formatInches(data.layout[key])])));
   const [error, setError] = useState("");
+  const [bottom, setBottom] = useState(data.layout.bottom_basket_elevation_in == null ? "" : formatInches(data.layout.bottom_basket_elevation_in));
+  const [top, setTop] = useState(data.layout.north_south_top_elevation_in == null ? "" : formatInches(data.layout.north_south_top_elevation_in));
   return <div>
     <form className="routing-form" onSubmit={event => {
       event.preventDefault();
-      try { void mutate("layout", { name, cabinets_per_row: count, ...Object.fromEntries(Object.entries(dimensions).map(([key, value]) => [key, parseInches(value)])) }); setError(""); }
+      try { void mutate("layout", { name, cabinets_per_row: count, bottom_basket_elevation_in: bottom.trim() ? parseInches(bottom) : null, north_south_top_elevation_in: top.trim() ? parseInches(top) : null, ...Object.fromEntries(Object.entries(dimensions).map(([key, value]) => [key, parseInches(value)])) }); setError(""); }
       catch (reason) { setError((reason as Error).message); }
     }}>
       <h3>Layout dimensions</h3>
       <label>Name<input value={name} onChange={e => setName(e.target.value)} required /></label>
       <label>Cabinets per row<input type="number" min={1} step={1} value={count} onChange={e => setCount(Number(e.target.value))} required /></label>
       {DIMENSIONS.map(([key, label]) => <label key={key}>{label}<input value={dimensions[key]} onChange={e => setDimensions({ ...dimensions, [key]: e.target.value })} required /></label>)}
+      <h4>Measured elevations above finished floor</h4><DimensionInput label="Bottom basket tier · all routes" value={bottom} onChange={setBottom} /><DimensionInput label="Top tier · NORTH / SOUTH passages only" value={top} onChange={setTop} />
+      <small>Top is a physical role. Designate the confirmed T2 or T3 using its elevation source; no tiers are created by these measurements.</small>
       <small>Row-pair module: {formatInches(data.layout.row_pair_module_in)}. The backend derives the module when row or aisle dimensions change. Row counts come from configured pairs.</small>
       <small>Existing cabinet ranges must match cabinets per row. Changing defaults preserves configured route widths and manual stations.</small>
       {error && <p role="alert" className="routing-error">{error}</p>}

@@ -26,6 +26,8 @@ class LayoutInput(Record):
     default_cross_route_width_in: PositiveInches = 24
     max_tier: Literal[3] = 3
     cabinets_per_row: Annotated[int, Field(strict=True, ge=1, le=1600)] = 10
+    bottom_basket_elevation_in: Inches | None = None
+    north_south_top_elevation_in: Inches | None = None
 
     @model_validator(mode='after')
     def geometry(self):
@@ -120,6 +122,7 @@ class CrossRouteTierInput(Record):
     tier: Tier
     pathway_type: PathwayType
     elevation_in: Inches | None = None
+    elevation_reference: Literal['BOTTOM_BASKET', 'NORTH_SOUTH_TOP'] | None = None
     enabled: bool = True
 
 
@@ -128,6 +131,7 @@ class PassageTierInput(Record):
     tier: Tier
     pathway_type: PathwayType
     elevation_in: Inches | None = None
+    elevation_reference: Literal['BOTTOM_BASKET', 'NORTH_SOUTH_TOP'] | None = None
     enabled: bool = True
 
 
@@ -167,6 +171,9 @@ class SegmentAnnotationInput(Record):
     cable_classes: list[CableClass] = Field(default_factory=list)
     notes: str | None = None
     section_reference: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    grid_columns: Annotated[int, Field(strict=True, ge=1, le=64)] = 12
+    grid_rows: Annotated[int, Field(strict=True, ge=1, le=64)] = 8
+    section_height_in: PositiveInches | None = None
 
     @model_validator(mode='after')
     def span(self):
@@ -186,8 +193,14 @@ class SegmentAnnotationInput(Record):
 class BundlePlacementInput(Record):
     segment_annotation_uid: str
     tier: Tier
-    layer: Annotated[int, Field(strict=True, ge=1, le=64)]
-    position: Annotated[int, Field(strict=True, ge=1, le=64)]
+    layer: Annotated[int, Field(strict=True, ge=1, le=64)] | None = 1
+    position: Annotated[int, Field(strict=True, ge=1, le=64)] | None = 1
+    slot_width: Annotated[int, Field(strict=True, ge=1, le=64)] | None = 1
+    slot_height: Annotated[int, Field(strict=True, ge=1, le=64)] | None = 1
+    offset_across_in: Inches | None = None
+    offset_up_in: Inches | None = None
+    occupied_width_in: PositiveInches | None = None
+    occupied_height_in: PositiveInches | None = None
     source_kind: Literal['MANUAL', 'BUNDLE', 'GROUP'] = 'MANUAL'
     source_uid: str | None = None
     label: Annotated[str, Field(min_length=1, max_length=200)] | None = None
@@ -201,7 +214,41 @@ class BundlePlacementInput(Record):
             raise ValueError('Manual bundle placement requires a label and no external reference.')
         if self.source_kind != 'MANUAL' and not self.source_uid:
             raise ValueError('Select an existing bundle or cable/bundle group.')
+        slots = (self.layer, self.position, self.slot_width, self.slot_height)
+        rectangle = (self.offset_across_in, self.offset_up_in, self.occupied_width_in, self.occupied_height_in)
+        if any(v is not None for v in slots) and any(v is None for v in slots):
+            raise ValueError('Provide all four grid footprint values, or set all four to null.')
+        if any(v is not None for v in rectangle) and any(v is None for v in rectangle):
+            raise ValueError('Provide all four physical rectangle values, or leave all four unset.')
+        if self.layer is None and self.offset_across_in is None:
+            raise ValueError('A bundle needs a grid footprint, a physical rectangle, or both.')
         return self
+
+
+class BundleConnectionInput(Record):
+    from_placement_uid: str
+    from_end: Literal['START', 'END']
+    to_placement_uid: str
+    to_end: Literal['START', 'END']
+    vertical_transition_uid: str | None = None
+    notes: str | None = None
+    enabled: bool = True
+
+    @model_validator(mode='after')
+    def distinct(self):
+        if self.from_placement_uid == self.to_placement_uid:
+            raise ValueError('Connect placements on two different pathway spans.')
+        return self
+
+
+class CabinetAttachmentInput(Record):
+    segment_annotation_uid: str
+    cabinet_uid: str
+    offset_in: Inches
+    tier: Tier | None = None
+    label: str | None = None
+    notes: str | None = None
+    enabled: bool = True
 
 
 class InitializeInput(Record):
@@ -211,7 +258,8 @@ class InitializeInput(Record):
 
 class GraphNode(Record):
     id: str
-    node_type: Literal['CROSS_PASSAGE_INTERSECTION', 'PASSAGE_STATION']
+    node_type: Literal['JUNCTION', 'PASSAGE_STATION']
+    roles: list[Literal['JUNCTION', 'TIER_OPENING', 'ENDPOINT', 'STATION']] = Field(default_factory=list)
     x_in: int
     y_in: int
     station_in: int
@@ -221,13 +269,16 @@ class GraphNode(Record):
     cross_route_uid: str | None = None
     cross_route_kind: str | None = None
     cabinet_row_uid: str | None = None
+    cross_route_uids: list[str] = Field(default_factory=list)
+    cabinet_row_uids: list[str] = Field(default_factory=list)
+    bundle_connection_uids: list[str] = Field(default_factory=list)
     vertical_transition_uids: list[str] = Field(default_factory=list)
     label: str | None = None
 
 
 class GraphEdge(Record):
     id: str
-    edge_type: Literal['CROSS_ROUTE', 'PASSAGE', 'JUNCTION', 'VERTICAL']
+    edge_type: Literal['CROSS_ROUTE', 'PASSAGE', 'VERTICAL']
     source_node_id: str
     target_node_id: str
     planar_length_in: int = 0
@@ -246,6 +297,8 @@ class GraphEdge(Record):
     vertical_transition_uid: str | None = None
     usable: bool = True
     cable_classes: list[CableClass] = Field(default_factory=list)
+    bundle_placement_uids: list[str] = Field(default_factory=list)
+    cabinet_attachment_uids: list[str] = Field(default_factory=list)
 
 
 class RoutingGraph(Record):

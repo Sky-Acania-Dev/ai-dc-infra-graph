@@ -133,6 +133,45 @@ class RoutingPostgreSQLTests(unittest.TestCase):
         routing.save_resource(self.session, uid, 'passage-tiers', {'elevation_in': None}, tier['uid'])
         self.assertIsNone(routing.resolved_layout(self.session, uid)['passage_tiers'][0]['elevation_in'])
 
+    def test_multi_cell_rectangles_connections_and_upgrade_preservation(self):
+        data = routing.initialize_lbb01(self.session)
+        uid = data['layout']['uid']
+        north = next(b['uid'] for b in data['bands'] if b['code'] == 'NORTH')
+        routing.save_resource(self.session, uid, 'passage-tiers', {'passage_band_uid': north, 'tier': 1, 'pathway_type': 'LADDER_RACK'})
+        parent = routing.save_resource(self.session, uid, 'segment-annotations', {'passage_band_uid': north, 'start_station_in': 0, 'end_station_in': 108, 'grid_columns': 20, 'grid_rows': 10})
+        old = routing.save_resource(self.session, uid, 'bundle-placements', {'segment_annotation_uid': parent['uid'], 'tier': 1, 'layer': 9, 'position': 15, 'label': 'Legacy G1'})
+        # A populated round trip preserves every legacy slot, expanding defaults as needed.
+        command.downgrade(self.alembic, 'b5f63c9e0214')
+        command.upgrade(self.alembic, 'head')
+        self.session.expire_all()
+        resolved = routing.resolved_layout(self.session, uid)
+        self.assertEqual((resolved['segment_annotations'][0]['grid_columns'], resolved['segment_annotations'][0]['grid_rows']), (15, 9))
+        self.assertEqual((resolved['bundle_placements'][0]['position'], resolved['bundle_placements'][0]['slot_width']), (15, 1))
+        routing.save_resource(self.session, uid, 'bundle-placements', {'position': 1, 'layer': 1, 'slot_width': 3, 'slot_height': 2, 'offset_across_in': 0, 'offset_up_in': 0, 'occupied_width_in': 6, 'occupied_height_in': 2}, old['uid'])
+        other = routing.save_resource(self.session, uid, 'segment-annotations', {'passage_band_uid': north, 'start_station_in': 108, 'end_station_in': 276})
+        new = routing.save_resource(self.session, uid, 'bundle-placements', {'segment_annotation_uid': other['uid'], 'tier': 1, 'label': 'Legacy G1', 'layer': None, 'position': None, 'slot_width': None, 'slot_height': None, 'offset_across_in': 0, 'offset_up_in': 0, 'occupied_width_in': 4, 'occupied_height_in': 2})
+        connection = routing.save_resource(self.session, uid, 'bundle-connections', {'from_placement_uid': old['uid'], 'from_end': 'END', 'to_placement_uid': new['uid'], 'to_end': 'START'})
+        self.session.expire_all()
+        resolved = routing.resolved_layout(self.session, uid)
+        section = next(s for s in resolved['section_occupations'] if s['segment_annotation_uid'] == parent['uid'])
+        self.assertEqual(sum(v > 0 for row in section['cells'] for v in row), 6)
+        self.assertEqual(section['rectangles'][0]['occupied_width_in'], 6)
+        self.assertEqual(resolved['bundle_connections'][0]['uid'], connection['uid'])
+        self.assertEqual(len(derive_graph(resolved).nodes), len({(n.x_in, n.y_in, n.tier) for n in derive_graph(resolved).nodes}))
+
+    def test_measured_elevation_downgrade_preserves_effective_values(self):
+        data = routing.initialize_lbb01(self.session)
+        uid = data['layout']['uid']
+        north = next(b['uid'] for b in data['bands'] if b['code'] == 'NORTH')
+        routing.save_resource(self.session, uid, 'passage-tiers', {'passage_band_uid': north, 'tier': 1, 'pathway_type': 'BASKET_TRAY'})
+        routing.save_resource(self.session, uid, 'passage-tiers', {'passage_band_uid': north, 'tier': 3, 'pathway_type': 'LADDER_RACK', 'elevation_reference': 'NORTH_SOUTH_TOP'})
+        command.downgrade(self.alembic, 'c73a91de4826')
+        command.upgrade(self.alembic, 'head')
+        self.session.expire_all()
+        resolved = routing.resolved_layout(self.session, uid)
+        self.assertEqual({p['effective_elevation_in'] for p in resolved['passage_tiers']}, {98, 116})
+        self.assertTrue(all(p['elevation_reference'] is None for p in resolved['passage_tiers']))
+
 
 if __name__ == '__main__':
     unittest.main()

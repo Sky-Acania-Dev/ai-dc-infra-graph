@@ -24,14 +24,14 @@ export function RoutingDetails({ data, graph, selection, onSelect, canManage, bu
   if (selection.kind === "passage") {
     const passage = data.geometry.bands.find(b => b.uid === selection.uid);
     if (!passage) return null;
-    return <div><h3>{passage.code} passage</h3><dl>{field("Width", formatInches(passage.width_in))}{field("Centerline Y", formatInches(passage.center_in))}{field("Extent", "Continuous through all five sections")}</dl><h4>Explicit pathway tiers</h4><TierEditor kind="passage" owner={passage.uid} records={data.passage_tiers.filter(p => p.passage_band_uid === passage.uid)} mutate={mutate} disabled={!canManage || busy} /></div>;
+    return <div><h3>{passage.code} passage</h3><dl>{field("Width", formatInches(passage.width_in))}{field("Centerline Y", formatInches(passage.center_in))}{field("Extent", "Continuous through all five sections")}</dl><h4>Explicit pathway tiers</h4><TierEditor kind="passage" owner={passage.uid} records={data.passage_tiers.filter(p => p.passage_band_uid === passage.uid)} mutate={mutate} disabled={!canManage || busy} layout={data.layout} passageCode={passage.code} /></div>;
   }
   if (selection.kind === "cross") {
     const route = data.geometry.cross_routes.find(r => r.uid === selection.uid);
     if (!route) return null;
     return <div><h3>{crossName(route.uid)}</h3><dl>{field("Kind", route.kind)}{field("Station", formatInches(route.station_in))}{field("Station source", route.station_source)}{field("Width", formatInches(route.width_in))}{field("Enabled", route.effective_enabled ? "Yes" : "No")}</dl>
       {route.cabinet_row_uid && <button onClick={() => onSelect({ kind: "row", uid: route.cabinet_row_uid! })}>Inspect associated cabinet row</button>}
-      <h4>Explicit pathway tiers</h4><TierEditor kind="cross" owner={route.uid} records={data.cross_route_tiers.filter(t => t.cross_route_uid === route.uid)} mutate={mutate} disabled={!canManage || busy} />
+      <h4>Explicit pathway tiers</h4><TierEditor kind="cross" owner={route.uid} records={data.cross_route_tiers.filter(t => t.cross_route_uid === route.uid)} mutate={mutate} disabled={!canManage || busy} layout={data.layout} />
       {canManage && <CrossRouteEditor key={route.uid} route={route} mutate={mutate} disabled={busy} />}
     </div>;
   }
@@ -54,7 +54,7 @@ export function RoutingDetails({ data, graph, selection, onSelect, canManage, bu
   if (selection.kind === "node") {
     const node = graph.nodes.find(n => n.id === selection.uid);
     if (!node) return null;
-    return <div><h3>Graph node · Tier {node.tier}</h3><dl>{field("Kind", node.node_type)}{field("Passage", node.passage_code)}{field("Station", formatInches(node.station_in))}{node.cross_route_uid && field("Cross route", crossName(node.cross_route_uid))}</dl><h4>Connected edges</h4><div className="routing-linked-list">{graph.edges.filter(e => e.source_node_id === node.id || e.target_node_id === node.id).map(edge => <button key={edge.id} onClick={() => onSelect({ kind: "edge", uid: edge.id })}>{edge.edge_type} · {formatInches(edge.planar_length_in)}</button>)}</div><details><summary>Stable node ID</summary><code>{node.id}</code></details></div>;
+    return <div><h3>{node.node_type === "JUNCTION" ? "Junction" : "Pathway station"} · Tier {node.tier}</h3><dl>{field("Roles", node.roles.join(", "))}{field("Passage", node.passage_code)}{field("Station", formatInches(node.station_in))}{field("Cross routes", [...new Set(node.cross_route_uids.map(crossName))].join(", ") || "—")}{field("Bundle continuations", node.bundle_connection_uids.length)}</dl><h4>Connected edges</h4><div className="routing-linked-list">{graph.edges.filter(e => e.source_node_id === node.id || e.target_node_id === node.id).map(edge => <button key={edge.id} onClick={() => onSelect({ kind: "edge", uid: edge.id })}>{edge.label ?? edge.edge_type} · {formatInches(edge.planar_length_in)}</button>)}</div>{node.bundle_connection_uids.map(uid => { const c = data.bundle_connections.find(c => c.uid === uid); return c && <p key={uid}>{data.bundle_placements.find(p => p.uid === c.from_placement_uid)?.resolved_label} · {c.from_end} → {c.to_end}{c.vertical_transition_uid ? " · physical opening" : ""}</p>; })}<details><summary>Stable node ID</summary><code>{node.id}</code></details></div>;
   }
   const edge = graph.edges.find(e => e.id === selection.uid);
   if (!edge) return null;
@@ -66,6 +66,7 @@ export function RoutingDetails({ data, graph, selection, onSelect, canManage, bu
     {field("Planar pathway length", formatInches(edge.planar_length_in))}
     {field("Usable", edge.usable ? "Yes" : "No — manually marked unusable")}
     {field("Pathway width", edge.width_in == null ? "Not separately measured" : formatInches(edge.width_in))}
+    {field("Bundle occupations", edge.bundle_placement_uids.length)}{field("Cabinet attachments", edge.cabinet_attachment_uids.length)}
     {edge.vertical_transition_uid && <>{field("Opening", data.vertical_transitions.find(v => v.uid === edge.vertical_transition_uid)?.label)}{field("Notes", data.vertical_transitions.find(v => v.uid === edge.vertical_transition_uid)?.notes)}</>}
   </dl><div className="routing-linked-list">
     {edge.cross_route_uid && <button onClick={() => onSelect({ kind: "cross", uid: edge.cross_route_uid! })}>Inspect cross route</button>}
