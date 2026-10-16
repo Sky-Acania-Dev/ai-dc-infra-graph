@@ -116,6 +116,23 @@ class RoutingPostgreSQLTests(unittest.TestCase):
         routing.delete_resource(self.session, uid, 'segment-annotations', item['uid'])
         self.assertEqual(routing.resolved_layout(self.session, uid)['segment_annotations'], [])
 
+    def test_elevation_and_bundle_section_persistence(self):
+        data = routing.initialize_lbb01(self.session)
+        uid = data['layout']['uid']
+        north = next(b['uid'] for b in data['bands'] if b['code'] == 'NORTH')
+        tier = routing.save_resource(self.session, uid, 'passage-tiers', {'passage_band_uid': north, 'tier': 1,
+            'pathway_type': 'LADDER_RACK', 'elevation_in': 121})
+        parent = routing.save_resource(self.session, uid, 'segment-annotations', {'passage_band_uid': north, 'start_station_in': 108,
+            'end_station_in': 276, 'section_reference': 'Inner toward CENTRAL'})
+        routing.save_resource(self.session, uid, 'bundle-placements', {'segment_annotation_uid': parent['uid'], 'tier': 1,
+            'layer': 2, 'position': 3, 'label': 'LC-G1', 'cable_class': 'LC'})
+        self.session.expire_all()
+        resolved = routing.resolved_layout(self.session, uid)
+        self.assertEqual(resolved['passage_tiers'][0]['elevation_in'], 121)
+        self.assertEqual((resolved['bundle_placements'][0]['layer'], resolved['bundle_placements'][0]['position']), (2, 3))
+        routing.save_resource(self.session, uid, 'passage-tiers', {'elevation_in': None}, tier['uid'])
+        self.assertIsNone(routing.resolved_layout(self.session, uid)['passage_tiers'][0]['elevation_in'])
+
 
 if __name__ == '__main__':
     unittest.main()

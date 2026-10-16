@@ -54,5 +54,8 @@ def apply_annotations(data: dict, geometry: dict, nodes: dict, edges: dict) -> N
                            and {item['from_passage_band_uid'], item['to_passage_band_uid']} == {a.passage_band_uid, b.passage_band_uid})
             if matches:
                 edge.usable = item['usable']
-                edge.cable_classes = item['cable_classes']
+                classes = set(item['cable_classes'])
+                classes.update(p['cable_class'] for p in data.get('bundle_placements', [])
+                               if p['segment_annotation_uid'] == item['uid'] and p['tier'] == edge.tier and p['enabled'] and p['cable_class'])
+                edge.cable_classes = sorted(classes)
                 break

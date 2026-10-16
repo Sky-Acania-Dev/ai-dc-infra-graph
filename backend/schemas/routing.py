@@ -119,6 +119,7 @@ class CrossRouteTierInput(Record):
     cross_route_uid: str
     tier: Tier
     pathway_type: PathwayType
+    elevation_in: Inches | None = None
     enabled: bool = True
 
 
@@ -126,6 +127,7 @@ class PassageTierInput(Record):
     passage_band_uid: str
     tier: Tier
     pathway_type: PathwayType
+    elevation_in: Inches | None = None
     enabled: bool = True
 
 
@@ -164,6 +166,7 @@ class SegmentAnnotationInput(Record):
     usable: bool = True
     cable_classes: list[CableClass] = Field(default_factory=list)
     notes: str | None = None
+    section_reference: Annotated[str, Field(min_length=1, max_length=200)] | None = None
 
     @model_validator(mode='after')
     def span(self):
@@ -177,6 +180,27 @@ class SegmentAnnotationInput(Record):
         if not valid:
             raise ValueError('Select a passage station interval or one cross-route span between adjacent passages.')
         self.cable_classes = sorted(set(self.cable_classes))
+        return self
+
+
+class BundlePlacementInput(Record):
+    segment_annotation_uid: str
+    tier: Tier
+    layer: Annotated[int, Field(strict=True, ge=1, le=64)]
+    position: Annotated[int, Field(strict=True, ge=1, le=64)]
+    source_kind: Literal['MANUAL', 'BUNDLE', 'GROUP'] = 'MANUAL'
+    source_uid: str | None = None
+    label: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    cable_class: CableClass | None = None
+    notes: str | None = None
+    enabled: bool = True
+
+    @model_validator(mode='after')
+    def source(self):
+        if self.source_kind == 'MANUAL' and (self.source_uid is not None or not self.label or not self.label.strip()):
+            raise ValueError('Manual bundle placement requires a label and no external reference.')
+        if self.source_kind != 'MANUAL' and not self.source_uid:
+            raise ValueError('Select an existing bundle or cable/bundle group.')
         return self
 
 
@@ -209,6 +233,8 @@ class GraphEdge(Record):
     planar_length_in: int = 0
     # Domain pathway width. Junctions/openings have no separately measured width.
     width_in: PositiveInches | None = None
+    elevation_in: Inches | None = None
+    label: str | None = None
     tier: int | None = None
     lower_tier: int | None = None
     upper_tier: int | None = None

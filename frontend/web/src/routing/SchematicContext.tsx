@@ -32,10 +32,10 @@ export function SchematicContext({ data, scale, selection, onSelect, tiledRows }
     })}
     {g.cabinet_rows.map(row => {
       const field = fields.find(f => f.uid === row.row_field_band_uid)!;
-      return <g key={row.uid} data-selectable="true" tabIndex={0} role="button" aria-label={`Select ${row.name}`} onClick={event => { event.stopPropagation(); onSelect({ kind: "row", uid: row.uid }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "row", uid: row.uid }); }}>
+      return <g key={row.uid} data-selectable="true" tabIndex={0} role="button" aria-label={`Select ${row.display_name ?? row.name}`} onClick={event => { event.stopPropagation(); onSelect({ kind: "row", uid: row.uid }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "row", uid: row.uid }); }}>
         <rect x={row.start_in} y={field.start_in} width={row.end_in - row.start_in} height={field.width_in} className={`routing-cabinet ${tiledRows?.has(row.uid) ? "tiled" : ""} ${selection?.kind === "row" && selection.uid === row.uid ? "selected" : ""}`} opacity={row.enabled ? 1 : 0.35} vectorEffect="non-scaling-stroke" />
-        {scale > 0.4 && !tiledRows?.has(row.uid) && <text className="routing-row-label" transform={`translate(${row.center_in} ${field.center_in}) rotate(-90)`} textAnchor="middle" fontSize={9 / scale}>{row.name} · {row.position_in_pair}</text>}
-        <title>{`${row.name} · ${row.position_in_pair} · ${field.code} · ${row.enabled ? "Enabled" : "Disabled"}`}</title>
+        {scale > 0.4 && !tiledRows?.has(row.uid) && <text className="routing-row-label" transform={`translate(${row.center_in} ${field.center_in}) rotate(-90)`} textAnchor="middle" fontSize={9 / scale}>{row.display_name ?? row.name} · {row.position_in_pair}</text>}
+        <title>{`${row.display_name ?? row.name} · ${row.position_in_pair} · ${field.code} · ${row.enabled ? "Enabled" : "Disabled"}`}</title>
       </g>;
     })}
   </g>;

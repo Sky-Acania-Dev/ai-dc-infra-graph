@@ -3,7 +3,8 @@ import test from "node:test";
 import { formatInches, parseInches } from "../src/routing/dimensions.ts";
 import { placeRoutingCabinets } from "../src/routing/cabinetPlacement.ts";
 import { conceptualLayout } from "../src/routing/conceptualLayout.ts";
-import { conceptualSegments, annotationFor, styleFixtures } from "../src/routing/conceptualSegments.ts";
+import { conceptualSegments, annotationFor, styleFixtures, rowName, passageName } from "../src/routing/conceptualSegments.ts";
+import { segmentTierModel } from "../src/routing/segmentTierModel.ts";
 import { cabinetFixtureRun, projectFixtureRun, offsetPolyline } from "../src/routing/cabinetFixtureRun.ts";
 
 test("formats integer inches without feet rounding", () => {
@@ -275,4 +276,77 @@ test("endpoint fixtures disappear when a cabinet or its configured cold route is
   unmapped.cabinets.forEach(c => c.source_col = null);
   const segments = conceptualSegments(unmapped), run = cabinetFixtureRun(unmapped, segments);
   assert.equal(projectFixtureRun(unmapped, conceptualLayout(unmapped, placeRoutingCabinets(unmapped)), run, segments), null);
+});
+
+function tierFixture() {
+  const data = cabinetRunFixture();
+  data.cross_route_tiers = [];
+  data.passage_tiers = [];
+  data.bundle_placements = [];
+  data.geometry.cabinet_rows.forEach((r, i) => { r.row_number = i + 1; r.display_name = `Row ${i + 1}`; });
+  data.geometry.cross_routes.forEach(r => { if (r.cabinet_row_uid) r.display_label = rowName(data, r.cabinet_row_uid); });
+  data.geometry.station_labels = data.bands.filter(b => b.kind === "PASSAGE").flatMap(b => [[108, "R1"], [276, "R2"], [372, "R3"], [540, "R4"]].map(([station, token]) => ({ passage_band_uid: b.uid, station_in: station, token })));
+  return data;
+}
+test("row and passage labels use backend row numbers and station tokens", () => {
+  const data = tierFixture();
+  assert.equal(rowName(data, "row21"), "Row 3");
+  assert.equal(passageName(data, "south-passage", 108, 276), "South R1–2");
+  assert.equal(passageName(data, "central", 108, 276), "Central R1–2");
+  assert.equal(passageName(data, "north-passage", 108, 372), "North R1–3");
+  assert.equal(conceptualSegments(data).find(s => s.cross_route_uid === "route-row21").label, "Row 3");
+});
+test("tier section demo positions are explicit, unique, and do not create heights, placements, or openings", () => {
+  const data = tierFixture(), segments = conceptualSegments(data), run = cabinetFixtureRun(data, segments), before = structuredClone(data);
+  const selected = segments.find(s => s.id === run.segmentIds[0]);
+  const model = segmentTierModel(data, selected, run.cables);
+  assert.equal(model.demoMode, true);
+  assert.deepEqual(model.tiers, [1, 2, 3]);
+  assert.equal(model.records.length, 0);
+  assert.equal(model.openings.length, 0);
+  const lc = model.blocks.find(b => b.cable_class === "LC");
+  assert.deepEqual([lc.tier, lc.layer, lc.position, lc.demo], [1, 1, 1, true]);
+  assert.equal(new Set(model.blocks.map(b => `${b.tier}:${b.layer}:${b.position}`)).size, 3);
+  assert.deepEqual(data, before);
+});
+test("saved sectional positions and AFF elevations replace demo placements and filter openings to the selected span", () => {
+  const data = tierFixture(), segments = conceptualSegments(data), selected = segments.find(s => s.passage_band_uid === "central" && s.start_station_in === 372);
+  data.passage_tiers = [1, 2, 3].map(tier => ({ uid: `t${tier}`, passage_band_uid: "central", tier, enabled: true, pathway_type: "LADDER_RACK", elevation_in: 96 + tier * 24 }));
+  data.segment_annotations = [{ uid: "section", passage_band_uid: "central", start_station_in: 372, end_station_in: 540, tier: null, section_reference: "Inner toward NORTH_FIELD; viewing +X", cable_classes: [], usable: true }];
+  data.bundle_placements = [{ uid: "bundle", segment_annotation_uid: "section", tier: 2, layer: 2, position: 3, enabled: true, cable_class: "LC", resolved_label: "LC group A", source_available: true }];
+  data.vertical_transitions = [
+    { uid: "hole12", passage_band_uid: "central", station_in: 372, lower_tier: 1, upper_tier: 2, enabled: true },
+    { uid: "hole23", passage_band_uid: "central", station_in: 372, lower_tier: 2, upper_tier: 3, enabled: true },
+    { uid: "outside", passage_band_uid: "central", station_in: 541, lower_tier: 1, upper_tier: 2, enabled: true },
+    { uid: "other", passage_band_uid: "south-passage", station_in: 400, lower_tier: 1, upper_tier: 2, enabled: true },
+  ];
+  const model = segmentTierModel(data, selected, [{ id: "fake", cableClass: "MPO" }]);
+  assert.equal(model.demoMode, false);
+  assert.deepEqual(model.openings.map(o => o.uid), ["hole12", "hole23"]);
+  assert.deepEqual(model.records.map(t => t.elevation_in), [120, 144, 168]);
+  assert.deepEqual([model.blocks[0].tier, model.blocks[0].layer, model.blocks[0].position], [2, 2, 3]);
+  assert.ok(model.blocks.every(b => !b.demo));
+});
+test("cross-route sections show only openings at their passage junctions and keep disabled records distinct", () => {
+  const data = tierFixture(), selected = conceptualSegments(data).find(s => s.cross_route_uid === "route-row21");
+  data.vertical_transitions = [
+    { uid: "central", passage_band_uid: "central", station_in: 372, lower_tier: 1, upper_tier: 2, enabled: true },
+    { uid: "south", passage_band_uid: "south-passage", station_in: 372, lower_tier: 2, upper_tier: 3, enabled: false },
+    { uid: "north", passage_band_uid: "north-passage", station_in: 372, lower_tier: 1, upper_tier: 2, enabled: true },
+  ];
+  const model = segmentTierModel(data, selected);
+  assert.deepEqual(model.openings.map(o => o.uid), ["central", "south"]);
+  assert.deepEqual(model.tiers, []);
+  assert.deepEqual(model.blocks, []);
+});
+
+test("tier markings show cable types without inventing sectional bundle positions", () => {
+  const data = tierFixture(), selected = conceptualSegments(data).find(s => s.passage_band_uid === "central" && s.start_station_in === 372);
+  data.passage_tiers = [1, 2].map(tier => ({ uid: `t${tier}`, passage_band_uid: "central", tier, enabled: true, pathway_type: "LADDER_RACK", elevation_in: null }));
+  data.segment_annotations = [{ uid: "types", passage_band_uid: "central", start_station_in: 372, end_station_in: 540, tier: 1, cable_classes: ["LC", "MPO"], usable: true }];
+  const model = segmentTierModel(data, selected);
+  assert.deepEqual(model.markedClasses[1], ["LC", "MPO"]);
+  assert.deepEqual(model.markedClasses[2], []);
+  assert.deepEqual(model.blocks, []);
+  assert.equal(model.demoMode, false);
 });

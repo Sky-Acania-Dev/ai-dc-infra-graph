@@ -21,6 +21,7 @@ RESOURCES = {
     'passage-tiers': (db.RoutingPassageTier, schema.PassageTierInput),
     'vertical-transitions': (db.RoutingVerticalTransition, schema.VerticalTransitionInput),
     'segment-annotations': (db.RoutingSegmentAnnotation, schema.SegmentAnnotationInput),
+    'bundle-placements': (db.RoutingBundlePlacement, schema.BundlePlacementInput),
 }
 
 
@@ -54,6 +55,9 @@ def snapshot(session: Session, uid: str) -> dict:
 def resolved_layout(session: Session, uid: str) -> dict:
     result = snapshot(session, uid)
     result['geometry'] = resolve_geometry(result)
+    from backend.services.routing_sections import resolve_source
+    for placement in result['bundle_placements']:
+        placement['resolved_label'], placement['source_available'] = resolve_source(session, get_layout(session, uid), placement)
     anchor = session.get(Room, result['layout']['room_uid'])
     rooms = {r.uid: r for r in session.scalars(select(Room).where(Room.building_uid == anchor.building_uid, Room.deleted_at.is_(None)))}
     sections = {s['uid']: s for s in result['sections']}
@@ -208,6 +212,7 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
     values = input_type.model_validate(values).model_dump()
     if resource == 'cross-routes' and existing and any(values[k] != getattr(existing, k) for k in ('kind', 'cabinet_row_uid', 'section_boundary_after_section_uid')):
         raise RoutingConfigurationError('Cross-route association cannot be changed. Edit its associated row instead.')
+    original_source = (existing.source_kind, existing.source_uid) if existing is not None and resource == 'bundle-placements' else None
     row = existing or model(uid=str(uuid4()), routing_layout_uid=layout_uid)
     for key, value in values.items():
         setattr(row, key, value)
@@ -220,6 +225,14 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
             referenced = session.get(target, values[field])
             if referenced is None or referenced.routing_layout_uid != layout_uid:
                 raise RoutingConfigurationError(f'{field} must reference a record in this layout.')
+    if resource == 'bundle-placements':
+        parent = session.get(db.RoutingSegmentAnnotation, values['segment_annotation_uid'])
+        if parent is None or parent.routing_layout_uid != layout_uid:
+            raise RoutingConfigurationError('Bundle placement must reference a segment marking in this layout.')
+        from backend.services.routing_sections import resolve_source
+        retired_disable = not values['enabled'] and original_source == (values['source_kind'], values['source_uid'])
+        if not resolve_source(session, layout, values)[1] and not retired_disable:
+            raise RoutingConfigurationError('Choose an existing bundle in this building or cable/bundle group in this project.')
     if values.get('room_uid'):
         room, anchor = session.get(Room, values['room_uid']), session.get(Room, layout.room_uid)
         if room is None or room.building_uid != anchor.building_uid:
@@ -260,6 +273,8 @@ def validate_layout(session: Session, uid: str) -> None:
     from backend.services.routing_annotations import validate_annotations
     try:
         validate_annotations(data, geometry)
+        from backend.services.routing_sections import validate_sections
+        validate_sections(data)
     except ValueError as exc:
         raise RoutingConfigurationError(str(exc)) from exc
     bands = {b['uid']: b for b in data['bands']}

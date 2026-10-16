@@ -61,6 +61,30 @@
 .routing-left-host[hidden] { display: none; }
 .routing-geometry-summary { border-top: 1px solid #dbe3ec; padding-top: 8px; }
 .routing-selection-section { margin: 8px 0; color: #64748b; font-size: 12px; }
+.routing-pathway-inspector .compact-pathway-title { margin: 6px 0; font-size: 16px; }
+.routing-pathway-inspector .routing-generic-info { margin: 5px 0 10px; }
+.routing-pathway-inspector .routing-generic-info > div { grid-template-columns: 108px minmax(0,1fr); padding: 2px 0; line-height: 17px; gap: 4px; font-size: 10px; }
+.routing-generic-info dt, .routing-generic-info dd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tier-demo-banner { margin: 6px 0; padding: 6px; background: #fff7df; color: #735416; border: 1px dashed #cfb571; font-size: 10px; line-height: 1.4; }
+.tier-sections h4 { margin: 10px 0 5px; }
+.tier-stack-svg { width: 100%; max-height: 145px; display: block; background: #fafcfe; border: 1px solid #e2e8f0; }
+.segment-opening-list { color: #64748b; font-size: 10px; padding: 5px 0; line-height: 1.5; }
+.segment-opening-list .disabled { opacity: .5; }
+.tier-section-card { margin: 7px 0; padding: 6px; border: 1px solid #d7e1eb; border-radius: 4px; background: #fff; }
+.tier-section-card > div { display: flex; justify-content: space-between; gap: 5px; font-size: 11px; }
+.tier-section-card > div > span { color: #64748b; font-size: 9px; }
+.tier-section-card svg { width: 100%; max-height: 104px; display: block; }
+.tier-section-card [role=button] { cursor: pointer; }
+.routing-page .section-bundle-label { display: inline-block; padding: 3px 4px; margin: 2px; max-width: 100%; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.section-selection-info { padding: 7px; background: #eef6ff; font-size: 11px; line-height: 1.5; }
+.section-configuration { border-top: 1px solid #dbe3ec; margin-top: 10px; padding-top: 5px; }
+.bundle-section-editor { display: grid; gap: 7px; font-size: 11px; }
+.bundle-section-editor label { display: grid; gap: 4px; }
+.section-slot-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.routing-tier-editor .tier-elevation-form { grid-column: 1 / -1; display: flex; align-items: end; gap: 5px; }
+.tier-elevation-form label { display: grid; gap: 3px; flex: 1; font-size: 10px; }
+.routing-page .tier-elevation-form button { padding: 6px; font-size: 10px; }
+.routing-page .compact-geometric-link { margin: 8px 0; font-size: 10px; }
 .routing-inspector-heading { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
 .routing-inspector-heading .eyebrow { padding-top: 7px; }
 .routing-segment-inspector h3 { line-height: 1.4; }

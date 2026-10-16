@@ -70,9 +70,9 @@ export function RoutingSchematic({ data, graph, tiers, selection, preview, start
           <title>{`${band.code} passage · ${formatInches(band.width_in)} wide`}</title>
         </g>)}
         {g.cross_routes.map(route => <rect key={route.uid} data-selectable="true" x={route.start_in} y={crossStart} width={route.width_in} height={crossEnd - crossStart} className={`routing-cross-envelope ${route.kind === "SECTION_GAP" ? "gap" : ""} ${selected("cross", route.uid) ? "selected" : ""}`}
-          opacity={route.effective_enabled ? 1 : 0.2} vectorEffect="non-scaling-stroke" role="button" tabIndex={0} aria-label={`Select ${route.label ?? data.cabinet_rows.find(r => r.uid === route.cabinet_row_uid)?.name ?? "cross route"}`}
+          opacity={route.effective_enabled ? 1 : 0.2} vectorEffect="non-scaling-stroke" role="button" tabIndex={0} aria-label={`Select ${route.display_label ?? route.label ?? data.cabinet_rows.find(r => r.uid === route.cabinet_row_uid)?.name ?? "cross route"}`}
           onClick={event => { event.stopPropagation(); onSelect({ kind: "cross", uid: route.uid }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "cross", uid: route.uid }); }}>
-          <title>{`${route.kind} · ${route.label ?? data.cabinet_rows.find(r => r.uid === route.cabinet_row_uid)?.name} · station ${formatInches(route.station_in)} · ${route.station_source}`}</title>
+          <title>{`${route.kind} · ${route.display_label ?? route.label ?? data.cabinet_rows.find(r => r.uid === route.cabinet_row_uid)?.name} · station ${formatInches(route.station_in)} · ${route.station_source}`}</title>
         </rect>)}
       </g>
       <g className="routing-graph">

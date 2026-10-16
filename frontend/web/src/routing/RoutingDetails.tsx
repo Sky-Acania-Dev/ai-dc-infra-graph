@@ -3,11 +3,12 @@ import { formatInches } from "./dimensions";
 import { TierEditor } from "./TierEditor";
 import { OpeningEditor } from "./OpeningEditor";
 import { PairEditor, RowEditor } from "./RowEditor";
+import { rowName, crossName as routingCrossName } from "./conceptualSegments";
 import { CrossRouteEditor } from "./CrossRouteEditor";
 
 type Props = { data: ResolvedLayout; graph: RoutingGraph; selection: Selection; onSelect: (s: Selection) => void; canManage: boolean; busy: boolean; mutate: Mutate };
 export function RoutingDetails({ data, graph, selection, onSelect, canManage, busy, mutate }: Props) {
-  const crossName = (uid: string) => { const route = data.cross_routes.find(r => r.uid === uid); return route?.label ?? data.cabinet_rows.find(r => r.uid === route?.cabinet_row_uid)?.name ?? "Cross route"; };
+  const crossName = (uid: string) => routingCrossName(data, uid);
   const field = (name: string, value: unknown) => <div key={name}><dt>{name}</dt><dd>{String(value ?? "—")}</dd></div>;
   if (!selection) return <div className="routing-empty"><h3>Inspect a pathway</h3><p>Select a passage, cold-side route, cabinet row, graph node, edge, or opening.</p><p>Tier 1 is solid, Tier 2 dashed, Tier 3 dash-dot.</p></div>;
   if (selection.kind === "cabinet") {
@@ -15,7 +16,7 @@ export function RoutingDetails({ data, graph, selection, onSelect, canManage, bu
     const row = data.geometry.cabinet_rows.find(r => r.existing_cabinet_uids.includes(selection.uid));
     if (!cabinet || !row) return null;
     const route = data.cross_routes.find(r => r.cabinet_row_uid === row.uid);
-    return <div><h3>Cabinet {cabinet.cabinet_id}</h3><dl>{field("Data hall", cabinet.data_hall_id)}{field("Category", cabinet.category)}{field("Group", cabinet.cabinet_group)}{field("Cabinet row", row.name)}{field("Pair position", row.position_in_pair)}{field("Section", data.sections.find(s => s.uid === row.section_uid)?.name)}</dl>
+    return <div><h3>Cabinet {cabinet.cabinet_id}</h3><dl>{field("Data hall", cabinet.data_hall_id)}{field("Category", cabinet.category)}{field("Group", cabinet.cabinet_group)}{field("Cabinet row", rowName(data, row.uid))}{field("Pair position", row.position_in_pair)}{field("Section", data.sections.find(s => s.uid === row.section_uid)?.name)}</dl>
       <button onClick={() => onSelect({ kind: "row", uid: row.uid })}>Inspect cabinet row</button>
       {route && <button onClick={() => onSelect({ kind: "cross", uid: route.uid })}>Inspect cold-side route</button>}
     </div>;
@@ -39,7 +40,7 @@ export function RoutingDetails({ data, graph, selection, onSelect, canManage, bu
     if (!row) return null;
     const pair = data.row_pairs.find(p => p.uid === row.row_pair_uid)!;
     const route = data.cross_routes.find(r => r.cabinet_row_uid === row.uid)!;
-    return <div><h3>{row.name}</h3><dl>{field("Pair", pair.name ?? pair.ordinal_in_section)}{field("Position", row.position_in_pair)}{field("Section", data.sections.find(s => s.uid === row.section_uid)?.name)}{field("Row field", data.bands.find(b => b.uid === row.row_field_band_uid)?.code)}{field("Cold side", row.position_in_pair === "A" ? "Preceding cold aisle" : "Following cold aisle")}{field("Existing cabinets linked", row.existing_cabinet_uids.length)}{field("Row reference", row.existing_row_reference)}</dl>
+    return <div><h3>{rowName(data, row.uid)}</h3><dl>{field("Pair", pair.name ?? pair.ordinal_in_section)}{field("Position", row.position_in_pair)}{field("Section", data.sections.find(s => s.uid === row.section_uid)?.name)}{field("Row field", data.bands.find(b => b.uid === row.row_field_band_uid)?.code)}{field("Cold side", row.position_in_pair === "A" ? "Preceding cold aisle" : "Following cold aisle")}{field("Existing cabinets linked", row.existing_cabinet_uids.length)}{field("Row reference", row.existing_row_reference)}</dl>
       <button onClick={() => onSelect({ kind: "cross", uid: route.uid })}>Inspect cold-side route</button>
       {canManage && <><RowEditor key={row.uid} data={data} row={row} disabled={busy} mutate={mutate} /><details><summary>Edit this row pair</summary><PairEditor key={pair.uid} data={data} pair={pair} disabled={busy} mutate={mutate} /></details></>}
     </div>;

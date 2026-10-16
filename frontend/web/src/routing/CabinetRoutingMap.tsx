@@ -62,7 +62,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const cables = runSelected ? cabinetRun.cables : [];
   const inspector = data && inspecting ? <aside className="side-pane routing-page routing-side routing-segment-inspector" aria-label="Routing segment cable details">
     <div className="routing-inspector-heading"><span className="eyebrow">Segment cables</span><button onClick={clearPath}>Close routing details</button></div>
-    {(segment || attachmentUid) && <SegmentCables cables={cables} selectedCableId={selectedFixtureCableId} onSelect={setSelectedFixtureCableId} />}
+    {(segment || attachmentUid) && <SegmentCables cables={cables} selectedCableId={selectedFixtureCableId} onSelect={setSelectedFixtureCableId} routeLabel={cabinetRun?.segmentIds.map(id => segments.find(s => s.id === id)?.label).join(" → ")} />}
     {!segment && !attachmentUid && <p className="routing-notice">Select a route segment to inspect its cables. Pathway metadata is shown on the left.</p>}
   </aside> : null;
   return <div className="routing-page routing-integrated">
@@ -85,7 +85,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
         cabinetInteraction={{ selected, connected, onSelect: (cabinet, event) => { clearPath(); onSelectCabinet(cabinet.cabinet_uid, event); }, onPrefetch: onPrefetchCabinet }} />
       {inspectorHost && inspector && createPortal(inspector, inspectorHost)}
       {pathwayInspectorHost && data && inspecting && createPortal(<PathwayInspector data={data} graph={graph} selection={selection} segment={segment} selectedEdge={selectedEdge}
-        attachmentUid={attachmentUid} fixture={fixtureMap.get(segment?.id ?? "")} canManage={canManage} busy={busy} mutate={mutate} onSelect={setSelection} onOpenRouting={onOpenRouting} />, pathwayInspectorHost)}
+        attachmentUid={attachmentUid} fixture={cables.length ? { cable_classes: cables.map(c => c.cableClass), usable: true } : fixtureMap.get(segment?.id ?? "")} canManage={canManage} busy={busy} mutate={mutate} onSelect={setSelection} onOpenRouting={onOpenRouting} demoCables={cables} />, pathwayInspectorHost)}
     </>}
   </div>;
 }

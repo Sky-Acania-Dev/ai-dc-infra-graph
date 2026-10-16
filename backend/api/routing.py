@@ -84,6 +84,13 @@ def get_graph(layout_uid: str, user: AuthUser = Depends(current_user)):
         return derive_graph(config.snapshot(session, layout_uid))
 
 
+@router.get('/layouts/{layout_uid}/placement-sources')
+def get_placement_sources(layout_uid: str, user: AuthUser = Depends(current_user)):
+    from backend.services.routing_sections import placement_sources
+    with routing_session() as session:
+        return placement_sources(session, config.get_layout(session, layout_uid))
+
+
 @router.post('/layouts/{layout_uid}/route-preview', response_model=RoutePreview)
 def route_preview(layout_uid: str, request: PreviewInput, user: AuthUser = Depends(current_user)):
     with routing_session() as session:

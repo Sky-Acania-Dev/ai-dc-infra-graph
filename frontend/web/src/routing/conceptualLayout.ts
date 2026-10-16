@@ -41,7 +41,7 @@ export function conceptualLayout(data: ResolvedLayout, inventoryTiles: CabinetTi
       if (!field) continue;
       hotAisles.push({ uid: pair.uid, x: field.x, y: a + DISPLAY.row, width: field.width, height: DISPLAY.hot });
       for (const row of g.cabinet_rows.filter(r => r.row_pair_uid === pair.uid)) {
-        rows.set(row.uid, { ...field, y: row.position_in_pair === "A" ? a : b, height: DISPLAY.row, name: row.name, enabled: row.enabled });
+        rows.set(row.uid, { ...field, y: row.position_in_pair === "A" ? a : b, height: DISPLAY.row, name: row.display_name ?? row.name, enabled: row.enabled });
       }
     }
     y += stations.length * MODULE;

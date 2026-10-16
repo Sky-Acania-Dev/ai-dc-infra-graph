@@ -85,10 +85,98 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(again['passage_tiers'], [])
         self.assertEqual(again['cross_route_tiers'], [])
         self.assertEqual(again['vertical_transitions'], [])
+        self.assertEqual(again['bundle_placements'], [])
         fields = {b['uid']: b['code'] for b in again['bands']}
         for row in again['geometry']['cabinet_rows']:
             self.assertEqual(row['cabinet_number_end'] - row['cabinet_number_start'] + 1, 10)
             self.assertEqual(row['cabinet_number_start'] >= 801, fields[row['row_field_band_uid']] == 'NORTH_FIELD')
+
+    def test_row_and_passage_names_use_explicit_pair_order(self):
+        from backend.services.routing_geometry import passage_span_label
+        rows = self.data['geometry']['cabinet_rows']
+        self.assertEqual(next(r['display_name'] for r in rows if r['cabinet_number_start'] == 21), 'Row 3')
+        self.assertEqual(next(r['display_name'] for r in rows if r['cabinet_number_start'] == 821), 'Row 3')
+        self.assertEqual(next(r['display_name'] for r in rows if r['cabinet_number_start'] == 161), 'Row 17')
+        self.assertEqual(passage_span_label(self.data['geometry'], self.north(), 108, 276), 'North R1–2')
+        self.assertEqual(passage_span_label(self.data['geometry'], self.north(), 108, 372), 'North R1–3')
+        data = copy.deepcopy(self.data)
+        for row in data['cabinet_rows']:
+            row['name'] = 'Arbitrary inventory reference'
+        self.assertEqual([r['row_number'] for r in resolve_geometry(data)['cabinet_rows']], [r['row_number'] for r in rows])
+
+    def test_elevations_are_nullable_integer_inches_and_do_not_change_planar_routing(self):
+        a = self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 1, 'pathway_type': 'LADDER_RACK', 'elevation_in': 120})
+        self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 2, 'pathway_type': 'BASKET_TRAY', 'elevation_in': 144})
+        self.save('vertical-transitions', {'passage_band_uid': self.north(), 'station_in': 100, 'lower_tier': 1, 'upper_tier': 2})
+        data = self.data_now()
+        result = preview_route(derive_graph(data), data, self.passage_id(1), self.passage_id(2))
+        self.assertEqual(result.planar_length_in, 200)
+        self.assertEqual(result.vertical_transition_count, 1)
+        self.assertEqual({e.elevation_in for e in result.edges if e.edge_type == 'PASSAGE'}, {120, 144})
+        self.assertTrue(all(e.planar_length_in == 0 for e in result.edges if e.edge_type == 'VERTICAL'))
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('passage-tiers', {'elevation_in': 160}, a['uid'])
+        self.save('passage-tiers', {'elevation_in': None}, a['uid'])
+        self.assertIsNone(next(t['elevation_in'] for t in self.data_now()['passage_tiers'] if t['uid'] == a['uid']))
+
+    def test_bundle_placement_requires_configured_tier_and_retains_ordinal_positions(self):
+        parent = self.save('segment-annotations', {'passage_band_uid': self.north(), 'start_station_in': 108, 'end_station_in': 276,
+            'section_reference': 'Inner = toward CENTRAL; viewed along increasing rows'})
+        values = {'segment_annotation_uid': parent['uid'], 'tier': 1, 'layer': 1, 'position': 1, 'label': 'LC bundle', 'cable_class': 'LC'}
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('bundle-placements', values)
+        self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 1, 'pathway_type': 'LADDER_RACK'})
+        item = self.save('bundle-placements', values)
+        self.assertEqual(self.data_now()['bundle_placements'][0]['resolved_label'], 'LC bundle')
+        self.assertEqual((item['layer'], item['position']), (1, 1))
+        self.assertTrue(any(e.cable_classes == ['LC'] for e in derive_graph(self.data_now()).edges))
+        with self.assertRaises(IntegrityError), self.session.begin_nested():
+            self.save('bundle-placements', {**values, 'label': 'Another bundle'})
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('segment-annotations', {'usable': False}, parent['uid'])
+        config.delete_resource(self.session, self.uid, 'segment-annotations', parent['uid'])
+        self.assertEqual(self.data_now()['bundle_placements'], [])
+
+    def test_bundle_group_references_are_scoped_and_unresolved_sources_remain_identifiable(self):
+        db.User.__table__.create(self.engine)
+        db.EntityGroup.__table__.create(self.engine)
+        self.session.add(db.EntityGroup(uid='group-lc', project_uid='LBB01', entity_type='cable', name='LC group'))
+        self.session.flush()
+        parent = self.save('segment-annotations', {'passage_band_uid': self.north(), 'start_station_in': 108, 'end_station_in': 276})
+        self.save('passage-tiers', {'passage_band_uid': self.north(), 'tier': 1, 'pathway_type': 'LADDER_RACK'})
+        item = self.save('bundle-placements', {'segment_annotation_uid': parent['uid'], 'tier': 1, 'layer': 1, 'position': 1,
+            'source_kind': 'GROUP', 'source_uid': 'group-lc'})
+        self.assertEqual(self.data_now()['bundle_placements'][0]['resolved_label'], 'LC group')
+        self.session.delete(self.session.get(db.EntityGroup, 'group-lc'))
+        self.session.flush()
+        unresolved = self.data_now()['bundle_placements'][0]
+        self.assertFalse(unresolved['source_available'])
+        self.assertEqual(unresolved['source_uid'], item['source_uid'])
+        self.save('bundle-placements', {'enabled': False}, item['uid'])
+        self.assertFalse(self.data_now()['bundle_placements'][0]['enabled'])
+        with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
+            self.save('bundle-placements', {'source_uid': 'foreign-unknown'}, item['uid'])
+
+    def test_tier_and_bundle_api_validation(self):
+        self.session.commit()
+        with patch('backend.api.routing.session_factory', return_value=self.factory):
+            client = TestClient(app)
+            base = f'/routing/layouts/{self.uid}'
+            values = {'passage_band_uid': self.north(), 'tier': 1, 'pathway_type': 'LADDER_RACK'}
+            for height in (-1, 120.5, '120'):
+                self.assertEqual(client.post(base + '/passage-tiers', json={**values, 'elevation_in': height}).status_code, 422)
+            tier = client.post(base + '/passage-tiers', json={**values, 'elevation_in': 120}).json()
+            parent = client.post(base + '/segment-annotations', json={'passage_band_uid': self.north(), 'start_station_in': 108, 'end_station_in': 276}).json()
+            placement = {'segment_annotation_uid': parent['uid'], 'tier': 1, 'layer': 1, 'position': 1, 'label': 'MPO bundle', 'cable_class': 'MPO'}
+            for invalid in ({'layer': 0}, {'position': 0}, {'tier': 2}, {'segment_annotation_uid': 'foreign'}, {'cable_class': 'UNKNOWN'}):
+                self.assertEqual(client.post(base + '/bundle-placements', json={**placement, **invalid}).status_code, 422)
+            self.assertEqual(client.post(base + '/bundle-placements', json=placement, headers={'x-user-role': 'viewer'}).status_code, 403)
+            saved = client.post(base + '/bundle-placements', json=placement)
+            self.assertEqual(saved.status_code, 200, saved.text)
+            uid = saved.json()['uid']
+            self.assertEqual(client.patch(base + '/bundle-placements/' + uid, json={'position': 2}).status_code, 200)
+            self.assertEqual(client.patch(base + '/passage-tiers/' + tier['uid'], json={'enabled': False}).status_code, 422)
+            self.assertEqual(client.delete(base + '/bundle-placements/' + uid).status_code, 204)
 
     def test_module_and_alternating_row_centers(self):
         layout = self.data['layout']

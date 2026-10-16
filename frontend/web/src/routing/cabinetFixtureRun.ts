@@ -53,12 +53,12 @@ export function projectFixtureRun(data: ResolvedLayout, view: ConceptualLayout, 
   const points = [sourceFace, start, startPassage, endPassage, end, destinationFace];
   const parts: FixtureRunPart[] = [
     { id: run.sourceCabinetUid, kind: "attachment", label: "Cabinet 021 cold-side attachment", a: sourceFace, b: start },
-    { id: run.segmentIds[0], kind: "segment", label: "021 cold-aisle fixture segment", a: start, b: startPassage },
+    { id: run.segmentIds[0], kind: "segment", label: `${data.geometry.cross_routes.find(r => r.uid === run.sourceRouteUid)?.display_label ?? "Row 3"} fixture segment`, a: start, b: startPassage },
     ...run.segmentIds.slice(1, -1).map(id => {
       const segment = segments.find(s => s.id === id)!;
       return { id, kind: "segment" as const, label: "CENTRAL passage fixture segment", a: { x, y: view.stationY(segment.start_station_in!) }, b: { x, y: view.stationY(segment.end_station_in!) } };
     }),
-    { id: run.segmentIds.at(-1)!, kind: "segment", label: "031 cold-aisle fixture segment", a: endPassage, b: end },
+    { id: run.segmentIds.at(-1)!, kind: "segment", label: `${data.geometry.cross_routes.find(r => r.uid === run.destinationRouteUid)?.display_label ?? "Row 4"} fixture segment`, a: endPassage, b: end },
     { id: run.destinationCabinetUid, kind: "attachment", label: "Cabinet 031 cold-side attachment", a: end, b: destinationFace },
   ];
   return { points, parts, sourceFace, destinationFace };

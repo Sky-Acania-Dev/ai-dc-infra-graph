@@ -1,7 +1,7 @@
 import type { FixtureCable } from "./cabinetFixtureRun";
 import { CABLE_STYLES } from "./RouteStroke";
 
-export function SegmentCables({ cables, selectedCableId, onSelect }: { cables: FixtureCable[]; selectedCableId: string | null; onSelect: (id: string | null) => void }) {
+export function SegmentCables({ cables, selectedCableId, onSelect, routeLabel }: { cables: FixtureCable[]; selectedCableId: string | null; onSelect: (id: string | null) => void; routeLabel?: string }) {
   return <section className="segment-cables" aria-label="Cables on selected segment">
     <h3>{cables.length} fixture cables</h3>
     {cables.length ? <>
@@ -16,7 +16,7 @@ export function SegmentCables({ cables, selectedCableId, onSelect }: { cables: F
         </button>;
       })}</div>
       <p className="routing-notice">Select a cable to highlight its entire sample run. These fixtures do not change inventory or saved routing data.</p>
-      <p className="routing-notice">Sample route: 021 cold-side route → CENTRAL passage → 031 cold-side route.</p>
+      <p className="routing-notice">Sample route: {routeLabel ?? "Row 3 → Central R3–4 → Row 4"}.</p>
     </> : <p className="routing-notice">No endpoint cable assignments on this segment. Style color samples are separate from inventory cables.</p>}
   </section>;
 }

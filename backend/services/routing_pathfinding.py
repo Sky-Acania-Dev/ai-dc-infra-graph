@@ -57,13 +57,15 @@ def route_steps(nodes, edges, data: dict) -> tuple[list[str], list[str]]:
     rows = {r['uid']: r for r in data['cabinet_rows']}
     sections = {s['uid']: s for s in data['sections']}
     transitions = {v['uid']: v for v in data['vertical_transitions']}
+    from backend.services.routing_geometry import resolve_geometry
+    display_routes = {r['uid']: r for r in resolve_geometry(data)['cross_routes']} if 'layout' in data else {}
 
     def cross_label(uid):
         route = routes[uid]
         if route['kind'] == 'SECTION_GAP':
             ordinal = sections[route['section_boundary_after_section_uid']]['ordinal']
             return route['label'] or f'Section {ordinal}-{ordinal + 1} gap route'
-        return route['label'] or f"Row {rows[route['cabinet_row_uid']]['name']} cold-aisle route"
+        return display_routes.get(uid, {}).get('display_label') or rows[route['cabinet_row_uid']]['name']
 
     def destination(node):
         if node.vertical_transition_uids:

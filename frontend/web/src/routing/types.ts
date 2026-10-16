@@ -6,7 +6,9 @@ export type SegmentSpan = {
   start_station_in: number | null; end_station_in: number | null;
   from_passage_band_uid: string | null; to_passage_band_uid: string | null;
 };
-export type SegmentAnnotation = RecordBase & SegmentSpan & { updated_at: string; tier: Tier | null; usable: boolean; cable_classes: CableClass[]; notes: string | null };
+export type SegmentAnnotation = RecordBase & SegmentSpan & { updated_at: string; tier: Tier | null; usable: boolean; cable_classes: CableClass[]; notes: string | null; section_reference: string | null };
+export type BundlePlacement = RecordBase & { segment_annotation_uid: string; tier: Tier; layer: number; position: number; source_kind: "MANUAL" | "BUNDLE" | "GROUP"; source_uid: string | null; label: string | null; resolved_label: string; source_available: boolean; cable_class: CableClass | null; notes: string | null; enabled: boolean };
+export type PlacementSource = { kind: "BUNDLE" | "GROUP"; uid: string; name: string };
 export type PassageCode = "NORTH" | "CENTRAL" | "SOUTH";
 export type RecordBase = { uid: string; routing_layout_uid: string };
 export type RoutingLayout = {
@@ -27,8 +29,8 @@ export type CrossRoute = RecordBase & {
   width_in: number; station_source: "DERIVED" | "MANUAL" | "FIELD_MEASURED"; manual_station_in: number | null;
   label: string | null; notes: string | null; enabled: boolean;
 };
-export type CrossRouteTier = RecordBase & { cross_route_uid: string; tier: Tier; pathway_type: PathwayType; enabled: boolean };
-export type PassageTier = RecordBase & { passage_band_uid: string; tier: Tier; pathway_type: PathwayType; enabled: boolean };
+export type CrossRouteTier = RecordBase & { cross_route_uid: string; tier: Tier; pathway_type: PathwayType; enabled: boolean; elevation_in: number | null };
+export type PassageTier = RecordBase & { passage_band_uid: string; tier: Tier; pathway_type: PathwayType; enabled: boolean; elevation_in: number | null };
 export type VerticalTransition = RecordBase & {
   passage_band_uid: string; station_in: number; lower_tier: Tier; upper_tier: Tier;
   label: string | null; notes: string | null; enabled: boolean;
@@ -44,14 +46,16 @@ export type ResolvedLayout = {
   cross_routes: CrossRoute[]; cross_route_tiers: CrossRouteTier[]; passage_tiers: PassageTier[];
   vertical_transitions: VerticalTransition[];
   segment_annotations: SegmentAnnotation[];
+  bundle_placements: BundlePlacement[];
   cabinets: RoutingCabinet[];
   geometry: {
     bands: Array<Band & Bounds>; sections: Array<Section & Omit<Bounds, "center_in"> & { data_hall_id: string | null }>;
     gaps: Array<Bounds & { after_section_uid: string; before_section_uid: string }>;
     row_pairs: Array<RowPair & Omit<Bounds, "center_in"> & { hot_aisle_start_in: number; hot_aisle_end_in: number }>;
-    cabinet_rows: Array<CabinetRow & Bounds & { section_uid: string; row_field_band_uid: string; existing_cabinet_uids: string[] }>;
+    cabinet_rows: Array<CabinetRow & Bounds & { section_uid: string; row_field_band_uid: string; existing_cabinet_uids: string[]; row_number: number; display_name: string }>;
     cold_aisles: Array<Omit<Bounds, "center_in"> & { section_uid: string; row_field_band_uid: string }>;
-    cross_routes: Array<CrossRoute & Omit<Bounds, "center_in"> & { station_in: number; effective_enabled: boolean }>;
+    cross_routes: Array<CrossRoute & Omit<Bounds, "center_in"> & { station_in: number; effective_enabled: boolean; display_label: string }>;
+    station_labels: Array<{ passage_band_uid: string; station_in: number; token: string }>;
     total_width_in: number; hall_length_in: number; module_end_in: number;
   };
 };
@@ -67,6 +71,7 @@ export type GraphEdge = {
   pathway_type: PathwayType | null; passage_code: PassageCode | null; cross_route_uid: string | null;
   cross_route_kind: string | null; cabinet_row_uid: string | null; vertical_transition_uid: string | null;
   usable: boolean; cable_classes: CableClass[];
+  elevation_in: number | null; label: string | null;
 };
 export type RoutingGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
 export type RoutePreview = RoutingGraph & {
@@ -74,5 +79,5 @@ export type RoutePreview = RoutingGraph & {
   steps: string[]; vertical_opening_labels: string[];
 };
 export type Selection = { kind: "passage" | "cross" | "row" | "transition" | "edge" | "node" | "cabinet"; uid: string } | null;
-export type Resource = "sections" | "bands" | "row-pairs" | "cabinet-rows" | "cross-routes" | "cross-route-tiers" | "passage-tiers" | "vertical-transitions" | "segment-annotations";
+export type Resource = "sections" | "bands" | "row-pairs" | "cabinet-rows" | "cross-routes" | "cross-route-tiers" | "passage-tiers" | "vertical-transitions" | "segment-annotations" | "bundle-placements";
 export type Mutate = (resource: Resource | "layout", values: object, uid?: string, remove?: boolean) => Promise<boolean>;

@@ -3,6 +3,22 @@ import type { CableClass, GraphEdge, ResolvedLayout, RoutingGraph, SegmentAnnota
 export type ConceptualSegment = SegmentSpan & { id: string; label: string; planar_length_in: number; width_in: number };
 const spanDefaults: SegmentSpan = { passage_band_uid: null, cross_route_uid: null, start_station_in: null, end_station_in: null, from_passage_band_uid: null, to_passage_band_uid: null };
 
+export function rowName(data: ResolvedLayout, uid: string | null | undefined) {
+  const row = data.geometry.cabinet_rows.find(r => r.uid === uid);
+  return row?.display_name ?? (row?.row_number ? `Row ${row.row_number}` : row?.name ?? "Row");
+}
+export function crossName(data: ResolvedLayout, uid: string) {
+  const route = data.geometry.cross_routes.find(r => r.uid === uid);
+  return route?.display_label ?? (route?.cabinet_row_uid ? rowName(data, route.cabinet_row_uid) : route?.label ?? "Section gap");
+}
+export function passageName(data: ResolvedLayout, uid: string, start: number, end: number) {
+  const code = data.bands.find(b => b.uid === uid)?.code ?? "Passage";
+  const title = code[0] + code.slice(1).toLowerCase();
+  const token = (station: number) => data.geometry.station_labels?.find(s => s.passage_band_uid === uid && s.station_in === station)?.token ?? `@${station} in`;
+  const a = token(start), b = token(end);
+  return `${title} ${a}–${/^R\d+$/.test(a) && /^R\d+$/.test(b) ? b.slice(1) : b}`;
+}
+
 // These are presentation spans derived from domain pathways, independent of enabled tiers.
 export function conceptualSegments(data: ResolvedLayout): ConceptualSegment[] {
   const bands = data.geometry.bands.filter(b => b.kind === "PASSAGE").sort((a, b) => a.ordinal - b.ordinal);
@@ -14,11 +30,11 @@ export function conceptualSegments(data: ResolvedLayout): ConceptualSegment[] {
       ...data.vertical_transitions.filter(v => v.enabled && v.passage_band_uid === band.uid).map(v => v.station_in),
       ...annotations.filter(a => a.passage_band_uid === band.uid).flatMap(a => [a.start_station_in!, a.end_station_in!])])].sort((a, b) => a - b);
     stations.slice(1).forEach((end, i) => segments.push({ ...spanDefaults, id: `guide:passage:${band.uid}:${stations[i]}:${end}`,
-      passage_band_uid: band.uid, start_station_in: stations[i], end_station_in: end, label: `${band.code} passage`,
+      passage_band_uid: band.uid, start_station_in: stations[i], end_station_in: end, label: passageName(data, band.uid, stations[i], end),
       planar_length_in: end - stations[i], width_in: band.width_in }));
   }
   for (const route of routes) {
-    const label = route.label ?? data.cabinet_rows.find(r => r.uid === route.cabinet_row_uid)?.name ?? "Cross route";
+    const label = crossName(data, route.uid);
     const row = data.geometry.cabinet_rows.find(r => r.uid === route.cabinet_row_uid);
     const field = data.bands.find(b => b.uid === row?.row_field_band_uid);
     bands.slice(1).forEach((band, i) => {
@@ -27,7 +43,7 @@ export function conceptualSegments(data: ResolvedLayout): ConceptualSegment[] {
       if (route.kind === "CABINET_COLD_AISLE" && field && (field.code === "NORTH_FIELD" ? i !== 0 : i !== 1)) return;
       segments.push({ ...spanDefaults, id: `guide:cross:${route.uid}:${bands[i].uid}:${band.uid}`,
       cross_route_uid: route.uid, from_passage_band_uid: bands[i].uid, to_passage_band_uid: band.uid,
-      label: `${route.kind === "SECTION_GAP" ? "Section-gap route" : "Cold-aisle route"} · ${label} · ${bands[i].code}–${band.code}`,
+      label,
       planar_length_in: band.center_in - bands[i].center_in, width_in: route.width_in });
     });
   }
@@ -45,7 +61,7 @@ export function edgeSegment(data: ResolvedLayout, graph: RoutingGraph, edge: Gra
   const a = graph.nodes.find(n => n.id === edge.source_node_id), b = graph.nodes.find(n => n.id === edge.target_node_id);
   if (!a || !b || !["PASSAGE", "CROSS_ROUTE"].includes(edge.edge_type)) return null;
   const ordered = [a, b].sort((a, b) => a.y_in - b.y_in);
-  return { ...spanDefaults, id: edge.id, label: edge.edge_type === "PASSAGE" ? `${edge.passage_code} passage` : "Cross-route segment",
+  return { ...spanDefaults, id: edge.id, label: edge.label ?? (edge.edge_type === "PASSAGE" ? passageName(data, a.passage_band_uid, Math.min(a.station_in, b.station_in), Math.max(a.station_in, b.station_in)) : crossName(data, edge.cross_route_uid!)),
     ...(edge.edge_type === "PASSAGE" ? { passage_band_uid: a.passage_band_uid, start_station_in: Math.min(a.station_in, b.station_in), end_station_in: Math.max(a.station_in, b.station_in) }
       : { cross_route_uid: edge.cross_route_uid, from_passage_band_uid: ordered[0].passage_band_uid, to_passage_band_uid: ordered[1].passage_band_uid }),
     planar_length_in: edge.planar_length_in, width_in: edge.width_in! };
