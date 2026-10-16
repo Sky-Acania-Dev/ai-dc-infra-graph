@@ -154,7 +154,7 @@ def initialize_lbb01(session: Session, building_id: str = 'A'):
         raise RoutingConfigurationError('Import the LBB01 DH1 rooms first. Initialization requires an existing DH1 or DH1-1 Room.')
     layout = find_layout(session, 'LBB01', building_id, 'DH1')
     if layout is None:
-        measured = {'bottom_basket_elevation_in': 98, 'north_south_top_elevation_in': 116} if building_id == 'A' else {}
+        measured = {'bottom_basket_elevation_in': 98, 'north_south_top_elevation_in': 116, 'longitudinal_direction': 'EAST'} if building_id == 'A' else {}
         layout = create_layout(session, {'room_uid': room.uid, **measured})
         initialize_confirmed_rows(session, layout)
     else:

@@ -172,6 +172,61 @@ class RoutingPostgreSQLTests(unittest.TestCase):
         self.assertEqual({p['effective_elevation_in'] for p in resolved['passage_tiers']}, {98, 116})
         self.assertTrue(all(p['elevation_reference'] is None for p in resolved['passage_tiers']))
 
+    def test_section_direction_persistence_and_central_validation(self):
+        data = routing.initialize_lbb01(self.session)
+        uid = data['layout']['uid']
+        self.assertEqual(data['layout']['longitudinal_direction'], 'EAST')
+        north = next(b['uid'] for b in data['bands'] if b['code'] == 'NORTH')
+        item = routing.save_resource(self.session, uid, 'segment-annotations', {'passage_band_uid': north,
+            'start_station_in': 0, 'end_station_in': 108, 'section_inner_direction': 'SOUTH'})
+        self.session.expire_all()
+        self.assertEqual(routing.resolved_layout(self.session, uid)['segment_annotations'][0]['section_inner_direction'], 'SOUTH')
+        # Direction revision also supports a populated downgrade/upgrade.
+        command.downgrade(self.alembic, 'd84e30b6f219')
+        command.upgrade(self.alembic, 'head')
+        self.session.expire_all()
+        self.assertIsNone(routing.resolved_layout(self.session, uid)['segment_annotations'][0]['section_inner_direction'])
+
+    def test_bundle_and_group_membership_uses_actual_cable_ids(self):
+        from datetime import datetime, timezone
+        from backend.services.routing_cables import placement_cables
+        data = routing.initialize_lbb01(self.session)
+        uid = data['layout']['uid']
+        north = next(b['uid'] for b in data['bands'] if b['code'] == 'NORTH')
+        routing.save_resource(self.session, uid, 'passage-tiers', {'passage_band_uid': north, 'tier': 1, 'pathway_type': 'BASKET_TRAY'})
+        parent = routing.save_resource(self.session, uid, 'segment-annotations', {'passage_band_uid': north, 'start_station_in': 0, 'end_station_in': 108})
+        for number in ('021', '031'):
+            self.session.add(db.Cabinet(uid=f'cab-{number}', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-1', cabinet_id=number))
+        self.session.flush()
+        for number in ('021', '031'):
+            self.session.add(db.Port(uid=f'port-{number}', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-1', cabinet_uid=f'cab-{number}', port_name=f'P-{number}'))
+        self.session.flush()
+        for index, cable_type in enumerate(('LC', 'LC', 'CAT6', 'LC')):
+            self.session.add(db.Cable(uid=f'actual-{index}', project_uid='LBB01', building_uid='LBB01:A', a_port_uid='port-021', z_port_uid='port-031', cable_type=cable_type, deleted_at=datetime.now(timezone.utc) if index == 3 else None))
+        self.session.add(db.CableBundle(uid='bundle-a', scoped_uid='LBB01:A:bundle-a', project_uid='LBB01', building_uid='LBB01:A', name='Actual bundle'))
+        self.session.add(db.EntityGroup(uid='group-a', project_uid='LBB01', name='Actual group', entity_type='bundle'))
+        self.session.flush()
+        self.session.add_all([db.CableBundleCable(cable_bundle_uid='bundle-a', cable_uid=f'actual-{i}') for i in (0, 1, 3)])
+        self.session.add_all([db.EntityGroupMember(group_uid='group-a', entity_type='bundle', entity_uid='bundle-a'),
+                              db.EntityGroupMember(group_uid='group-a', entity_type='cable', entity_uid='actual-0'),
+                              db.EntityGroupMember(group_uid='group-a', entity_type='cable', entity_uid='actual-2')])
+        self.session.flush()
+        bundle = routing.save_resource(self.session, uid, 'bundle-placements', {'segment_annotation_uid': parent['uid'], 'tier': 1, 'source_kind': 'BUNDLE', 'source_uid': 'bundle-a'})
+        group = routing.save_resource(self.session, uid, 'bundle-placements', {'segment_annotation_uid': parent['uid'], 'tier': 1, 'position': 2, 'source_kind': 'GROUP', 'source_uid': 'group-a'})
+        manual = routing.save_resource(self.session, uid, 'bundle-placements', {'segment_annotation_uid': parent['uid'], 'tier': 1, 'position': 3, 'label': 'LC x 100 021-031'})
+        actual = placement_cables(self.session, uid, bundle['uid'])
+        self.assertEqual([c['uid'] for c in actual['cables']], ['actual-0', 'actual-1'])
+        self.assertEqual(actual['summary'], [{'cable_type': 'LC', 'source_cabinet_id': '021', 'destination_cabinet_id': '031', 'count': 2}])
+        self.assertEqual(actual['cables'][0]['source_port_name'], 'P-021')
+        self.assertEqual([c['uid'] for c in placement_cables(self.session, uid, group['uid'])['cables']], ['actual-0', 'actual-1', 'actual-2'])
+        self.assertEqual(placement_cables(self.session, uid, manual['uid'])['cables'], [])
+        with self.assertRaises(routing.RoutingNotFound):
+            placement_cables(self.session, 'another-layout', bundle['uid'])
+        self.session.get(db.CableBundle, 'bundle-a').deleted_at = datetime.now(timezone.utc)
+        self.session.flush()
+        self.assertFalse(placement_cables(self.session, uid, bundle['uid'])['source_available'])
+        self.assertEqual([c['uid'] for c in placement_cables(self.session, uid, group['uid'])['cables']], ['actual-0', 'actual-2'])
+
 
 if __name__ == '__main__':
     unittest.main()

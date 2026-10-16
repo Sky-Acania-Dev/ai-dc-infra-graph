@@ -10,6 +10,7 @@ const DIMENSIONS = [
 export function LayoutSettings({ data, disabled, mutate }: { data: ResolvedLayout; disabled: boolean; mutate: Mutate }) {
   const [name, setName] = useState(data.layout.name);
   const [count, setCount] = useState(data.layout.cabinets_per_row);
+  const [longitudinal, setLongitudinal] = useState(data.layout.longitudinal_direction ?? "");
   const [dimensions, setDimensions] = useState(Object.fromEntries(DIMENSIONS.map(([key]) => [key, formatInches(data.layout[key])])));
   const [error, setError] = useState("");
   const [bottom, setBottom] = useState(data.layout.bottom_basket_elevation_in == null ? "" : formatInches(data.layout.bottom_basket_elevation_in));
@@ -17,11 +18,12 @@ export function LayoutSettings({ data, disabled, mutate }: { data: ResolvedLayou
   return <div>
     <form className="routing-form" onSubmit={event => {
       event.preventDefault();
-      try { void mutate("layout", { name, cabinets_per_row: count, bottom_basket_elevation_in: bottom.trim() ? parseInches(bottom) : null, north_south_top_elevation_in: top.trim() ? parseInches(top) : null, ...Object.fromEntries(Object.entries(dimensions).map(([key, value]) => [key, parseInches(value)])) }); setError(""); }
+      try { void mutate("layout", { name, cabinets_per_row: count, longitudinal_direction: longitudinal || null, bottom_basket_elevation_in: bottom.trim() ? parseInches(bottom) : null, north_south_top_elevation_in: top.trim() ? parseInches(top) : null, ...Object.fromEntries(Object.entries(dimensions).map(([key, value]) => [key, parseInches(value)])) }); setError(""); }
       catch (reason) { setError((reason as Error).message); }
     }}>
       <h3>Layout dimensions</h3>
       <label>Name<input value={name} onChange={e => setName(e.target.value)} required /></label>
+      <label>Section 1 → 5 direction<select value={longitudinal} onChange={e => setLongitudinal(e.target.value as "EAST" | "WEST" | "")}><option value="">Unconfirmed</option><option value="EAST">East · cabinet-map top is West</option><option value="WEST">West · cabinet-map top is East</option></select></label>
       <label>Cabinets per row<input type="number" min={1} step={1} value={count} onChange={e => setCount(Number(e.target.value))} required /></label>
       {DIMENSIONS.map(([key, label]) => <label key={key}>{label}<input value={dimensions[key]} onChange={e => setDimensions({ ...dimensions, [key]: e.target.value })} required /></label>)}
       <h4>Measured elevations above finished floor</h4><DimensionInput label="Bottom basket tier · all routes" value={bottom} onChange={setBottom} /><DimensionInput label="Top tier · NORTH / SOUTH passages only" value={top} onChange={setTop} />

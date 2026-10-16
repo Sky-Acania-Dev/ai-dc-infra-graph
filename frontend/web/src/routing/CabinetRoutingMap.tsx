@@ -11,6 +11,8 @@ import { PathwayInspector } from "./PathwayInspector";
 import { TierVisibility } from "./TierVisibility";
 import { cabinetFixtureRun } from "./cabinetFixtureRun";
 import { SegmentCables } from "./SegmentCables";
+import { useSegmentCableMembers } from "./useSegmentCableMembers";
+import { segmentTierModel } from "./segmentTierModel";
 import { useRoutingLayout, physicalHallCode } from "./useRoutingLayout";
 import type { Selection, Tier } from "./types";
 import "./routing.css";
@@ -31,6 +33,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const [segmentId, setSegmentId] = useState<string | null>(null);
   const [attachmentUid, setAttachmentUid] = useState<string | null>(null);
   const [selectedFixtureCableId, setSelectedFixtureCableId] = useState<string | null>(null);
+  const [selectedPlacementUid, setSelectedPlacementUid] = useState<string | null>(null);
   const [fixtures, setFixtures] = useState(true);
   const [inventory, setInventory] = useState<CabinetLayoutItem[]>([]);
   const [inventoryError, setInventoryError] = useState("");
@@ -52,6 +55,8 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const sectionUid = data?.geometry.sections.find(s => s.data_hall_id === hall)?.uid ?? "";
   const selectedEdge = selection?.kind === "edge" ? graph.edges.find(e => e.id === selection.uid) : undefined;
   const segment = segments.find(s => s.id === segmentId) ?? (data && selectedEdge ? edgeSegment(data, graph, selectedEdge) : null);
+  const cableMembers = useSegmentCableMembers(data, segment);
+  useEffect(() => { setSelectedPlacementUid(null); }, [segmentId, attachmentUid, selection?.uid, fixtures]);
   const clearPath = () => { setSelection(null); setSegmentId(null); setAttachmentUid(null); setSelectedFixtureCableId(null); };
   const inspecting = Boolean(selection || segment || attachmentUid);
   useEffect(() => {
@@ -60,9 +65,14 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   }, [inspecting, onInspectorActiveChange]);
   const runSelected = cabinetRun && (attachmentUid || (segment && cabinetRun.segmentIds.includes(segment.id)));
   const cables = runSelected ? cabinetRun.cables : [];
+  const sectionModel = data && segment ? segmentTierModel(data, segment, cables) : null;
+  const selectedBundle = sectionModel?.blocks.find(b => b.uid === selectedPlacementUid);
+  const demoCable = selectedPlacementUid?.startsWith("demo-section:") ? cables.find(c => `demo-section:${c.id}` === selectedPlacementUid) : undefined;
   const inspector = data && inspecting ? <aside className="side-pane routing-page routing-side routing-segment-inspector" aria-label="Routing segment cable details">
     <div className="routing-inspector-heading"><span className="eyebrow">Segment cables</span><button onClick={clearPath}>Close routing details</button></div>
-    {(segment || attachmentUid) && <SegmentCables cables={cables} selectedCableId={selectedFixtureCableId} onSelect={setSelectedFixtureCableId} routeLabel={cabinetRun?.segmentIds.map(id => segments.find(s => s.id === id)?.label).join(" → ")} />}
+    {(segment || attachmentUid) && <SegmentCables cables={cables} inventoryCables={cableMembers.cables} members={cableMembers.members} loading={cableMembers.loading} error={cableMembers.error}
+      bundleFilter={selectedPlacementUid ? {uid: selectedPlacementUid, label: selectedBundle?.label ?? (demoCable ? `Demo ${demoCable.cableClass} 021→031` : "Selected bundle"), fixtureCableIds: selectedBundle?.fixtureCableIds ?? (demoCable ? [demoCable.id] : undefined)} : null}
+      onClearFilter={() => setSelectedPlacementUid(null)} selectedCableId={selectedFixtureCableId} onSelect={setSelectedFixtureCableId} routeLabel={cabinetRun?.segmentIds.map(id => segments.find(s => s.id === id)?.label).join(" → ")} />}
     {!segment && !attachmentUid && <p className="routing-notice">Select a route segment to inspect its cables. Pathway metadata is shown on the left.</p>}
   </aside> : null;
   return <div className="routing-page routing-integrated">
@@ -85,7 +95,8 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
         cabinetInteraction={{ selected, connected, onSelect: (cabinet, event) => { clearPath(); onSelectCabinet(cabinet.cabinet_uid, event); }, onPrefetch: onPrefetchCabinet }} />
       {inspectorHost && inspector && createPortal(inspector, inspectorHost)}
       {pathwayInspectorHost && data && inspecting && createPortal(<PathwayInspector data={data} graph={graph} selection={selection} segment={segment} selectedEdge={selectedEdge}
-        attachmentUid={attachmentUid} fixture={cables.length ? { cable_classes: cables.map(c => c.cableClass), usable: true } : fixtureMap.get(segment?.id ?? "")} canManage={canManage} busy={busy} mutate={mutate} onSelect={setSelection} onOpenRouting={onOpenRouting} demoCables={cables} />, pathwayInspectorHost)}
+        attachmentUid={attachmentUid} fixture={cables.length ? { cable_classes: cables.map(c => c.cableClass), usable: true } : fixtureMap.get(segment?.id ?? "")} canManage={canManage} busy={busy} mutate={mutate} onSelect={setSelection} onOpenRouting={onOpenRouting} demoCables={cables}
+        selectedPlacementUid={selectedPlacementUid} onSelectPlacement={uid => { setSelectedPlacementUid(uid); setSelectedFixtureCableId(null); }} />, pathwayInspectorHost)}
     </>}
   </div>;
 }

@@ -98,6 +98,13 @@ def route_preview(layout_uid: str, request: PreviewInput, user: AuthUser = Depen
         return preview_route(derive_graph(data), data, request.start_node_id, request.end_node_id)
 
 
+@router.get('/layouts/{layout_uid}/bundle-placements/{placement_uid}/cables')
+def get_placement_cables(layout_uid: str, placement_uid: str, user: AuthUser = Depends(current_user)):
+    from backend.services.routing_cables import placement_cables
+    with routing_session() as session:
+        return placement_cables(session, layout_uid, placement_uid)
+
+
 @router.get('/layouts/{layout_uid}/{resource}')
 def list_resources(layout_uid: str, resource: str, user: AuthUser = Depends(current_user)):
     with routing_session() as session:

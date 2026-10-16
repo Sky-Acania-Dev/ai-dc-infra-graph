@@ -1,4 +1,5 @@
 export type Tier = 1 | 2 | 3;
+export type CardinalDirection = "NORTH" | "SOUTH" | "EAST" | "WEST";
 export type PathwayType = "LADDER_RACK" | "BASKET_TRAY";
 export type CableClass = "LC" | "CAT6" | "MPO" | "MPO_TRUNK_T2_T1_RO" | "CROSS_SECTION_CAT6" | "CROSS_SECTION_LC";
 export type SegmentSpan = {
@@ -6,7 +7,7 @@ export type SegmentSpan = {
   start_station_in: number | null; end_station_in: number | null;
   from_passage_band_uid: string | null; to_passage_band_uid: string | null;
 };
-export type SegmentAnnotation = RecordBase & SegmentSpan & { updated_at: string; tier: Tier | null; usable: boolean; cable_classes: CableClass[]; notes: string | null; section_reference: string | null; grid_columns: number; grid_rows: number; section_height_in: number | null };
+export type SegmentAnnotation = RecordBase & SegmentSpan & { updated_at: string; tier: Tier | null; usable: boolean; cable_classes: CableClass[]; notes: string | null; section_reference: string | null; section_inner_direction: CardinalDirection | null; grid_columns: number; grid_rows: number; section_height_in: number | null };
 export type Occupation = { layer: number | null; position: number | null; slot_width: number | null; slot_height: number | null; offset_across_in: number | null; offset_up_in: number | null; occupied_width_in: number | null; occupied_height_in: number | null };
 export type BundlePlacement = RecordBase & Occupation & { segment_annotation_uid: string; tier: Tier; source_kind: "MANUAL" | "BUNDLE" | "GROUP"; source_uid: string | null; label: string | null; resolved_label: string; source_available: boolean; cable_class: CableClass | null; notes: string | null; enabled: boolean };
 export type BundleConnection = RecordBase & { from_placement_uid: string; from_end: "START" | "END"; to_placement_uid: string; to_end: "START" | "END"; vertical_transition_uid: string | null; enabled: boolean; notes: string | null; from_node_id: string; to_node_id: string };
@@ -21,7 +22,15 @@ export type RoutingLayout = {
   row_pair_module_in: number; section_extra_gap_in: number; default_cross_route_width_in: number;
   max_tier: number; cabinets_per_row: number;
   bottom_basket_elevation_in: number | null; north_south_top_elevation_in: number | null;
+  longitudinal_direction: "EAST" | "WEST" | null;
 };
+export type InventoryCable = {
+  uid: string; cable_type: string; cable_group: string;
+  source_cabinet_uid: string | null; source_cabinet_id: string | null; destination_cabinet_uid: string | null; destination_cabinet_id: string | null;
+  source_port_uid: string; source_port_name: string | null; destination_port_uid: string; destination_port_name: string | null;
+  source_label: string; destination_label: string; notes: string;
+};
+export type PlacementCables = { placement_uid: string; label: string; source_available: boolean; cables: InventoryCable[]; summary: Array<{cable_type: string; source_cabinet_id: string | null; destination_cabinet_id: string | null; count: number}> };
 export type Section = RecordBase & { ordinal: number; name: string; room_uid: string | null };
 export type Band = RecordBase & { ordinal: number; kind: "PASSAGE" | "ROW_FIELD"; code: string; width_in: number };
 export type RowPair = RecordBase & { routing_section_uid: string; row_field_band_uid: string; ordinal_in_section: number; name: string | null };

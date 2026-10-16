@@ -8,8 +8,8 @@ from backend.services.routing_elevations import tier_elevation
 
 def placement_sources(session, layout):
     room = session.get(Room, layout.room_uid)
-    bundles = session.scalars(select(CableBundle).where(CableBundle.building_uid == room.building_uid).order_by(CableBundle.name, CableBundle.uid))
-    groups = session.scalars(select(EntityGroup).where(EntityGroup.project_uid == room.project_uid, EntityGroup.entity_type.in_(('cable', 'bundle'))).order_by(EntityGroup.name, EntityGroup.uid))
+    bundles = session.scalars(select(CableBundle).where(CableBundle.building_uid == room.building_uid, CableBundle.deleted_at.is_(None)).order_by(CableBundle.name, CableBundle.uid))
+    groups = session.scalars(select(EntityGroup).where(EntityGroup.project_uid == room.project_uid, EntityGroup.entity_type.in_(('cable', 'bundle')), EntityGroup.deleted_at.is_(None)).order_by(EntityGroup.name, EntityGroup.uid))
     return ([{'kind': 'BUNDLE', 'uid': b.uid, 'name': b.name or b.uid} for b in bundles]
             + [{'kind': 'GROUP', 'uid': g.uid, 'name': g.name} for g in groups])
 
@@ -20,7 +20,7 @@ def resolve_source(session, layout, placement):
     room = session.get(Room, layout.room_uid)
     model = CableBundle if placement['source_kind'] == 'BUNDLE' else EntityGroup
     row = session.get(model, placement['source_uid'])
-    valid = row is not None and row.project_uid == room.project_uid
+    valid = row is not None and row.deleted_at is None and row.project_uid == room.project_uid
     if valid and model is CableBundle:
         valid = row.building_uid == room.building_uid
     if valid and model is EntityGroup:
@@ -30,6 +30,9 @@ def resolve_source(session, layout, placement):
 
 def validate_sections(data, geometry):
     annotations = {a['uid']: a for a in data['segment_annotations']}
+    bands = {b['uid']: b for b in data['bands']}
+    if any(a.get('section_inner_direction') and bands.get(a['passage_band_uid'], {}).get('code') == 'CENTRAL' for a in annotations.values()):
+        raise ValueError('CENTRAL has NORTH/SOUTH section sides, without an inner side.')
     tiers = {}
     for kind, records, key in (('passage', data['passage_tiers'], 'passage_band_uid'), ('cross', data['cross_route_tiers'], 'cross_route_uid')):
         for record in records:

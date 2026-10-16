@@ -28,6 +28,7 @@ class LayoutInput(Record):
     cabinets_per_row: Annotated[int, Field(strict=True, ge=1, le=1600)] = 10
     bottom_basket_elevation_in: Inches | None = None
     north_south_top_elevation_in: Inches | None = None
+    longitudinal_direction: Literal['EAST', 'WEST'] | None = None
 
     @model_validator(mode='after')
     def geometry(self):
@@ -174,6 +175,7 @@ class SegmentAnnotationInput(Record):
     grid_columns: Annotated[int, Field(strict=True, ge=1, le=64)] = 12
     grid_rows: Annotated[int, Field(strict=True, ge=1, le=64)] = 8
     section_height_in: PositiveInches | None = None
+    section_inner_direction: Literal['NORTH', 'SOUTH', 'EAST', 'WEST'] | None = None
 
     @model_validator(mode='after')
     def span(self):
@@ -186,6 +188,8 @@ class SegmentAnnotationInput(Record):
                      and self.from_passage_band_uid != self.to_passage_band_uid)
         if not valid:
             raise ValueError('Select a passage station interval or one cross-route span between adjacent passages.')
+        if self.section_inner_direction is not None and self.section_inner_direction not in (('NORTH', 'SOUTH') if self.passage_band_uid else ('EAST', 'WEST')):
+            raise ValueError('Section inner direction must be across the pathway: NORTH/SOUTH for passages, EAST/WEST for cross routes.')
         self.cable_classes = sorted(set(self.cable_classes))
         return self
 

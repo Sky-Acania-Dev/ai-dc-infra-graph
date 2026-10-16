@@ -118,9 +118,25 @@ A placement can have a grid footprint, a physical rectangle, or both:
 
 Each set must be entirely specified or entirely null. At least one representation is required. Grid spans must fit the section grid; physical rectangles must fit the pathway width and optional `section_height_in`. The latter is a sectional height above the tray bed, separate from tier AFF elevation. Unknown section height remains null; the drawing labels its vertical extent as auto-fit. Touching rectangle edges are allowed; enabled footprints may not overlap within their respective representation. Grid and physical coordinates are independent; changing the grid does not rescale physical dimensions or infer inch measurements for a cell.
 
-The UI accepts integer inches or feet/inches and converts them to canonical integer inches before saving. Derived millimeter readouts use 25.4 mm/in; metric values are not persisted. No floating-point feet enter domain geometry. The sectional view shows the 12×8 grid and the physical rectangle view separately.
+The UI accepts integer inches or feet/inches and converts them to canonical integer inches before saving. Derived millimeter readouts use 25.4 mm/in; metric values are not persisted. No floating-point feet enter domain geometry. **Grid / Physical** switches the sectional display; only one representation is shown at a time. Empty pathways still show an empty section. An unconfigured pathway shows an unassigned-tier section, without manufacturing a saved tier.
 
-`GET /routing/layouts/{uid}` includes `section_occupations`: one entry per configured section/tier, with `cells[row][column]`, where row 0 is bottom, column 0 is inner, and 0 means empty. Positive integers reference the entry's `occupants` lookup (`value → placement_uid`). One bundle repeats its integer across every occupied cell. Physical-only rectangles do not manufacture grid cells. Arrays and rectangle projections are derived from placement records, rather than redundantly persisted. Graph edges carry covered `bundle_placement_uids` and `cabinet_attachment_uids`.
+`GET /routing/layouts/{uid}` includes `section_occupations`: one entry per configured section/tier, with `cells[row][column]`, where row 0 is bottom, column 0 is the reference edge (inner where applicable; North on CENTRAL), and 0 means empty. Positive integers reference the entry's `occupants` lookup (`value → placement_uid`). One bundle repeats its integer across every occupied cell. Physical-only rectangles do not manufacture grid cells. Arrays and rectangle projections are derived from placement records, rather than redundantly persisted. Graph edges carry covered `bundle_placement_uids` and `cabinet_attachment_uids`.
+
+## Actual cable membership and sectional selection
+
+Existing `CableBundleCable` links a `CableBundle` to actual `Cable.uid` values. `RoutingBundlePlacement` references that bundle (`source_kind=BUNDLE`) or an existing cable/bundle `EntityGroup` (`source_kind=GROUP`); it stores the footprint independently of membership. MANUAL labels and display-only fixtures do not imply actual cables. Cable type, count and rack-pair summaries are derived from cable members and their port/cabinet references.
+
+`GET /routing/layouts/{uid}/bundle-placements/{placement_uid}/cables` returns `placement_uid`, `label`, `source_available`, actual `cables` (UID, type, group, cabinet IDs/UIDs, port IDs/names, endpoint labels and notes), and a `summary` grouped by cable type and endpoint cabinet pair. It expands groups of bundles, deduplicates cable IDs, excludes retired sources/cables and enforces layout/project/building scope. Missing placements return 404; manual placements return empty member lists. This read-only endpoint is available to viewers.
+
+Selecting an occupation rectangle or grid footprint filters the right panel to its exact member IDs, opens an enlarged bundle footprint above the main sections and leaves configuration closed. **Show all segment cables** clears the filter and enlarged view. Per-cable positions inside a bundle remain unrecorded; the enlarged view does not invent their packing. The 021→031 fixtures follow the same interaction using explicit display-only fixture IDs.
+
+## Cardinal section directions
+
+Migration `e95f41c7a320` adds nullable layout `longitudinal_direction` (EAST/WEST) and annotation `section_inner_direction` (NORTH/SOUTH/EAST/WEST). The confirmed LBB01 Building A DH1 cabinet-map top is West, so increasing station / Section 1→5 is East. Other halls remain unconfirmed. Layout configuration allows changing the longitudinal direction.
+
+Inner is the cabinet/hot-aisle-facing side: NORTH passage inner is South, SOUTH passage inner is North, row A inner is increasing X and row B inner is decreasing X. CENTRAL has no inner/outer side and uses North/South labels; setting an inner side on CENTRAL is rejected. Section gaps have cardinal sides and leave inner unassigned unless explicitly configured. Passage section overrides must be North/South; cross-route overrides must be East/West.
+
+**Reverse view** mirrors all sectional footprints and swaps cardinal labels/view direction while keeping the tray bed at the bottom. It does not change stored grid cells, rectangles, cable membership, graph coordinates or lengths. Grid column 1 and rectangle across offsets remain anchored to their canonical reference edge.
 
 ## Bundle junction connections and cabinet attachments
 

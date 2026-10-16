@@ -17,17 +17,66 @@ const Section = await component("SectionOccupationDiagram", "SectionOccupationDi
 const Editor = await component("BundleSectionEditor", "BundleSectionEditor");
 const Connections = await component("ConnectionSettings", "ConnectionSettings");
 const TierEditor = await component("TierEditor", "TierEditor");
+const TierSections = await component("TierSectionDiagrams", "TierSectionDiagrams");
+const SegmentCables = await component("SegmentCables", "SegmentCables");
 const box = {uid: "g", tier: 1, label: "G1", cable_class: "LC", sourceAvailable: true, demo: true, layer: 1, position: 1, slot_width: 3, slot_height: 2, offset_across_in: 0, offset_up_in: 0, occupied_width_in: 4, occupied_height_in: 2};
 const span = {id: "span", passage_band_uid: "north", cross_route_uid: null, start_station_in: 0, end_station_in: 108, from_passage_band_uid: null, to_passage_band_uid: null};
 
-test("section SVG renders the default 12x8 grid and independent physical rectangle", () => {
-  const html = renderToStaticMarkup(React.createElement(Section, {tier: 1, model: {blocks: [box], parents: [], occupations: [], demoMode: true, width_in: 34, reference: "Demo only"}, onSelectPlacement: () => {}}));
+const directions = {inner: "SOUTH", hasInner: true, axisStart: "NORTH"};
+const sectionModel = {blocks: [box], parents: [], occupations: [], demoMode: true, width_in: 34, reference: "Demo only", directions};
+test("section display mode renders only the selected representation", () => {
+  const props = {tier: 1, model: sectionModel, mode: "GRID", reversed: false, onSelectPlacement: () => {}};
+  const html = renderToStaticMarkup(React.createElement(Section, props));
   assert.match(html, /12W × 8H grid/);
-  assert.match(html, /Physical rectangles/);
+  assert.doesNotMatch(html, /Physical rectangles/);
   assert.match(html, /3×2 cells/);
-  assert.match(html, /DEMO dimensions/);
   assert.equal((html.match(/stroke="#cbd5e1"/g) ?? []).length, 96);
   assert.doesNotMatch(html, /NaN|undefined|null/);
+  const physical = renderToStaticMarkup(React.createElement(Section, {...props, mode: "PHYSICAL"}));
+  assert.match(physical, /Physical rectangles/);
+  assert.match(physical, /DEMO dimensions/);
+  assert.doesNotMatch(physical, /occupation grid|stroke="#cbd5e1"/);
+  assert.match(physical, /Inspect rectangle G1/);
+});
+
+test("empty unconfigured segments still show an empty section in both display modes", () => {
+  for (const mode of ["GRID", "PHYSICAL"]) {
+    const html = renderToStaticMarkup(React.createElement(Section, {tier: null, model: {...sectionModel, blocks: [], demoMode: false}, mode, reversed: false, onSelectPlacement: () => {}}));
+    assert.match(html, /Unassigned tier section/);
+    assert.match(html, /Empty section/);
+    assert.match(html, /<svg/);
+    assert.doesNotMatch(html, /T1 section|NaN|undefined/);
+  }
+});
+
+test("reverse view mirrors a footprint and cardinal labels, without mirroring text", () => {
+  const props = {tier: 1, model: sectionModel, mode: "PHYSICAL", onSelectPlacement: () => {}};
+  const forward = renderToStaticMarkup(React.createElement(Section, {...props, reversed: false}));
+  const reverse = renderToStaticMarkup(React.createElement(Section, {...props, reversed: true}));
+  assert.match(forward, /Inner · South to Outer · North/);
+  assert.match(reverse, /Outer · North to Inner · South/);
+  assert.match(forward, /<rect x="45"/);
+  assert.doesNotMatch(reverse, /<rect x="45"/);
+  const central = renderToStaticMarkup(React.createElement(Section, {...props, model: {...sectionModel, directions: {...directions, inner: null, hasInner: false}}, reversed: false}));
+  assert.match(central, /North to South/);
+  assert.doesNotMatch(central, /Inner ·|Outer ·|Inner side not assigned/);
+});
+
+test("selected group opens the enlarged section above the main section and exposes view controls", () => {
+  const html = renderToStaticMarkup(React.createElement(TierSections, {data: {bands: []}, model: {...sectionModel, tiers: [1], records: [], markedClasses: {}, openings: []}, mode: "GRID", reversed: false, selectedPlacementUid: "g", onSelectPlacement: () => {}, onModeChange: () => {}, onReverse: () => {}}));
+  assert.match(html, /Reverse section viewing direction/);
+  assert.match(html, /Section display mode/);
+  assert.ok(html.indexOf("Enlarged bundle section") < html.indexOf("T1 section"));
+  assert.match(html, /Individual cable positions inside the bundle are not yet recorded/);
+});
+
+test("right panel filters fixtures by member ID and shows type count and rack pair", () => {
+  const cables = ["a", "b"].map(id => ({id, cableClass: "LC", sourceCabinetId: "021", destinationCabinetId: "031"}));
+  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables, selectedCableId: null, onSelect: () => {}, bundleFilter: {uid: "demo-group", label: "Group A", fixtureCableIds: ["a"]}}));
+  assert.match(html, /1 fixture cable in group/);
+  assert.match(html, /LC × 1 · 021 → 031/);
+  assert.equal((html.match(/class="segment-cable-card/g) ?? []).length, 1);
+  assert.match(html, /Show all segment cables/);
 });
 
 test("rectangle editor accepts feet/inches and does not treat rectangle-only records as grid placements", () => {

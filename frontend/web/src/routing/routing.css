@@ -78,6 +78,21 @@
 .tier-section-card [role=button] { cursor: pointer; }
 .routing-page .section-bundle-label { display: inline-block; padding: 3px 4px; margin: 2px; max-width: 100%; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .section-selection-info { padding: 7px; background: #eef6ff; font-size: 11px; line-height: 1.5; }
+.section-view-controls { display: flex; gap: 5px; flex-wrap: wrap; justify-content: space-between; }
+.section-view-controls [role=group] { display: flex; gap: 3px; }
+.routing-page .section-view-controls button { padding: 5px 7px; font-size: 10px; }
+.section-view-controls button[aria-pressed=true], .section-bundle-label[aria-pressed=true] { background: #e1edff; border-color: #41678e; }
+.section-view-caption, .tier-section-card > small { display: block; color: #64748b; font-size: 9px; line-height: 1.5; margin-top: 4px; }
+.selected-section-block > rect { stroke-width: 2.5; filter: drop-shadow(0 0 1px #334155); }
+.tier-section-card [role=button]:focus-visible { outline: 2px solid #334155; }
+.section-bundle-detail { border: 1px solid #7194bc; background: #f2f7ff; padding: 8px; border-radius: 4px; margin: 8px 0; }
+.section-bundle-detail > div { display: flex; align-items: center; justify-content: space-between; }
+.section-bundle-detail h4 { margin: 0; }
+.section-bundle-detail > b, .section-bundle-detail > small { display: block; font-size: 10px; line-height: 1.5; margin-top: 4px; }
+.section-bundle-detail svg { width: 100%; max-height: 165px; display: block; }
+.section-bundle-detail p { font-size: 10px; line-height: 1.5; margin: 4px 0; }
+.segment-bundle-filter { padding: 8px; border: 1px solid #b4cce7; background: #eff6ff; border-radius: 4px; display: grid; gap: 6px; font-size: 11px; }
+.segment-cable-summary { font-size: 11px; line-height: 1.7; padding-left: 17px; color: #475569; }
 .section-configuration { border-top: 1px solid #dbe3ec; margin-top: 10px; padding-top: 5px; }
 .bundle-section-editor { display: grid; gap: 7px; font-size: 11px; }
 .bundle-section-editor label { display: grid; gap: 4px; }

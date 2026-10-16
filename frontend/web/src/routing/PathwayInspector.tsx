@@ -10,12 +10,15 @@ import { TierSectionDiagrams } from "./TierSectionDiagrams";
 import { TierEditor } from "./TierEditor";
 import { BundleSectionEditor } from "./BundleSectionEditor";
 import { occupationLabel } from "./occupation";
+import type { SectionDisplayMode } from "./SectionOccupationDiagram";
+import { directionName } from "./sectionDirections";
 
-export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, fixture, canManage, busy, mutate, onSelect, onOpenRouting, demoCables = [] }: {
+export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, fixture, canManage, busy, mutate, onSelect, onOpenRouting, demoCables = [], selectedPlacementUid, onSelectPlacement }: {
   data: ResolvedLayout; graph: RoutingGraph; selection: Selection; segment: ConceptualSegment | null | undefined; selectedEdge?: GraphEdge;
   attachmentUid: string | null; fixture?: { cable_classes: CableClass[]; usable: boolean }; canManage: boolean; busy: boolean;
   mutate: Mutate; onSelect: (selection: Selection) => void; onOpenRouting: () => void;
   demoCables?: FixtureCable[];
+  selectedPlacementUid: string | null; onSelectPlacement: (uid: string | null) => void;
 }) {
   const row = attachmentUid ? data.geometry.cabinet_rows.find(r => r.existing_cabinet_uids.includes(attachmentUid))
     : selection?.kind === "row" ? data.geometry.cabinet_rows.find(r => r.uid === selection.uid) : undefined;
@@ -35,9 +38,10 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
       width_in: data.bands.find(b => b.uid === pointOwner)!.width_in, planar_length_in: 0 } : null);
   const model = useMemo(() => active ? segmentTierModel(data, active, demoCables) : null, [data, active?.id, demoCables]);
   const [selectedBlockUid, setSelectedBlockUid] = useState<string | null>(null);
+  const [sectionMode, setSectionMode] = useState<SectionDisplayMode>("GRID");
+  const [reversed, setReversed] = useState(false);
   const [configureOpen, setConfigureOpen] = useState(false);
   useEffect(() => { setSelectedBlockUid(null); setConfigureOpen(false); }, [active?.id]);
-  const selectedBlock = model?.blocks.find(b => b.uid === selectedBlockUid);
   const placement = data.bundle_placements?.find(p => p.uid === selectedBlockUid);
   const marking = active ? annotationFor(data, active, selectedEdge?.tier ?? null) : undefined;
   const field = (name: string, value: string) => <div key={name}><dt>{name}</dt><dd title={value}>{value}</dd></div>;
@@ -54,11 +58,10 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
         {field("Pathway types", model.records.length ? model.records.map(t => `T${t.tier} ${t.pathway_type === "LADDER_RACK" ? "Ladder" : "Basket"}${!t.enabled ? " (off)" : ""}`).join(" · ") : "Unconfigured")}
         {field("Marking / usability", `${marking ? "Manual" : "Unassigned"} · ${marking?.usable === false ? "Unusable" : "Usable"}`)}
         {field("Bundles / openings", `${model.blocks.length}${model.demoMode ? " demo" : " saved"} / ${model.openings.filter(o => o.enabled).length} configured`)}
-        {field("Section reference", model.reference ?? "Unknown · define inner side")}
+        {field("Section reference", model.reference ?? (!model.directions.hasInner ? "North / South · no inner side" : model.directions.inner ? `Inner ${directionName(model.directions.inner)} · toward cabinets` : "Inner side unassigned"))}
         {field("Notes / hall", attachmentUid ? "Schematic connector; no measured drop dimensions" : opening?.notes ?? marking?.notes ?? `${data.geometry.sections.length} sections · ${data.geometry.gaps.length} gaps · ${formatInches(data.geometry.total_width_in)} wide`)}
       </dl>
-      <TierSectionDiagrams data={data} model={model} onSelectPlacement={uid => { setSelectedBlockUid(uid); if (data.bundle_placements?.some(p => p.uid === uid)) setConfigureOpen(true); }} />
-      {selectedBlock && <p className="section-selection-info">{selectedBlock.demo ? "DEMO · " : ""}{selectedBlock.label} · T{selectedBlock.tier} · {occupationLabel(selectedBlock)}</p>}
+      <TierSectionDiagrams data={data} model={model} selectedPlacementUid={selectedPlacementUid} mode={sectionMode} onModeChange={setSectionMode} reversed={reversed} onReverse={() => setReversed(current => !current)} onSelectPlacement={onSelectPlacement} />
       {canManage && <details className="section-configuration" open={configureOpen} onToggle={e => setConfigureOpen(e.currentTarget.open)}><summary>Configure heights / bundle sections</summary>
         {configureOpen && <>
         <TierEditor kind={active.passage_band_uid ? "passage" : "cross"} owner={(active.passage_band_uid ?? active.cross_route_uid)!} records={model.records} mutate={mutate} disabled={busy} layout={data.layout} passageCode={data.bands.find(b => b.uid === active.passage_band_uid)?.code} />

@@ -6,6 +6,8 @@ import { placeRoutingCabinets } from "../src/routing/cabinetPlacement.ts";
 import { conceptualLayout } from "../src/routing/conceptualLayout.ts";
 import { conceptualSegments, annotationFor, styleFixtures, rowName, passageName } from "../src/routing/conceptualSegments.ts";
 import { segmentTierModel } from "../src/routing/segmentTierModel.ts";
+import { sectionDirections, sectionView } from "../src/routing/sectionDirections.ts";
+import { collectPlacementCables, filterCableMembers } from "../src/routing/segmentCableMembers.ts";
 import { cabinetFixtureRun, projectFixtureRun, offsetPolyline } from "../src/routing/cabinetFixtureRun.ts";
 
 test("formats integer inches without feet rounding", () => {
@@ -388,4 +390,40 @@ test("021 to 031 demonstrations include rectangular and multi-cell occupations w
   assert.deepEqual([lc.slot_width, lc.slot_height, lc.occupied_width_in, lc.occupied_height_in], [3, 2, 4, 2]);
   assert.equal(occupationGrid(12, 8, model.blocks.filter(b => b.tier === 1)).cells.flat().filter(v => v > 0).length, 12);
   assert.deepEqual(data, before);
+});
+
+test("inner faces cabinets/hot aisle; CENTRAL never receives inner/outer labels", () => {
+  const data = tierFixture(); data.layout.longitudinal_direction = "EAST";
+  const segments = conceptualSegments(data);
+  const a = segments.find(s => s.cross_route_uid === "route-row21");
+  const b = segments.find(s => s.cross_route_uid === "route-row31");
+  assert.equal(sectionDirections(data, a).inner, "EAST");
+  assert.equal(sectionDirections(data, b).inner, "WEST");
+  const north = {passage_band_uid: "north-passage"}, south = {passage_band_uid: "south-passage"};
+  assert.equal(sectionDirections(data, north).inner, "SOUTH");
+  assert.equal(sectionDirections(data, south).inner, "NORTH");
+  const central = sectionDirections(data, {passage_band_uid: "central"});
+  assert.equal(central.inner, null); assert.equal(central.hasInner, false);
+  assert.deepEqual([sectionView(central, "SOUTH", false).left, sectionView(central, "SOUTH", false).right], ["North", "South"]);
+});
+
+test("reversing a section swaps cardinal sides and viewing direction without changing occupations", () => {
+  const data = tierFixture(); data.layout.longitudinal_direction = "EAST";
+  const segments = conceptualSegments(data), run = cabinetFixtureRun(data, segments);
+  const model = segmentTierModel(data, segments.find(s => s.id === run.segmentIds[0]), run.cables), before = structuredClone(model);
+  const a = sectionView(model.directions, null, false), b = sectionView(model.directions, null, true);
+  assert.equal(a.left, b.right); assert.equal(a.right, b.left);
+  assert.equal(a.from, b.to); assert.equal(a.to, b.from);
+  assert.deepEqual(model, before);
+});
+
+test("real cable membership deduplicates overlapping placements and filters by reference, not cable type", () => {
+  const a = {uid: "actual-1", cable_type: "LC"}, b = {uid: "actual-2", cable_type: "LC"};
+  const {cables, members} = collectPlacementCables([{placement_uid: "group-a", cables: [a]}, {placement_uid: "group-b", cables: [a, b]}]);
+  assert.deepEqual(cables.map(c => c.uid), ["actual-1", "actual-2"]);
+  const visible = cables.map(c => ({...c, id: c.uid}));
+  assert.deepEqual(filterCableMembers(visible, "group-a", members).map(c => c.id), ["actual-1"]);
+  assert.deepEqual(filterCableMembers(visible, "manual-label", members), []);
+  assert.equal(filterCableMembers(visible, null, members).length, 2);
+  assert.deepEqual(filterCableMembers([{id: "fake-a"}, {id: "fake-b"}], "demo-a", {}, ["fake-b"]), [{id: "fake-b"}]);
 });

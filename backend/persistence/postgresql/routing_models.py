@@ -30,6 +30,7 @@ class RoutingLayout(RoutingRecord, Base):
         CheckConstraint("default_cross_route_width_in > 0 AND default_cross_route_width_in % 2 = 0", name="ck_routing_default_width"),
         CheckConstraint("max_tier = 3", name="ck_routing_max_tier"),
         CheckConstraint("cabinets_per_row > 0", name="ck_routing_cabinet_count"),
+        CheckConstraint("longitudinal_direction IS NULL OR longitudinal_direction IN ('EAST','WEST')", name="ck_routing_longitudinal_direction"),
         CheckConstraint("(bottom_basket_elevation_in IS NULL OR bottom_basket_elevation_in >= 0) AND (north_south_top_elevation_in IS NULL OR north_south_top_elevation_in >= 0)", name="ck_routing_measured_elevations"),
     )
     room_uid: Mapped[str] = mapped_column(ForeignKey("rooms.uid"), unique=True)
@@ -45,6 +46,7 @@ class RoutingLayout(RoutingRecord, Base):
     cabinets_per_row: Mapped[int] = mapped_column(Integer, default=10)
     bottom_basket_elevation_in: Mapped[int | None] = mapped_column(Integer)
     north_south_top_elevation_in: Mapped[int | None] = mapped_column(Integer)
+    longitudinal_direction: Mapped[str | None] = mapped_column(Text)
 
 
 class RoutingSection(LayoutChild, Base):
@@ -167,6 +169,7 @@ class RoutingSegmentAnnotation(LayoutChild, Base):
         CheckConstraint("tier IS NULL OR tier BETWEEN 1 AND 3", name="ck_routing_annotation_tier"),
         CheckConstraint("grid_columns BETWEEN 1 AND 64 AND grid_rows BETWEEN 1 AND 64", name="ck_routing_section_grid"),
         CheckConstraint("section_height_in IS NULL OR section_height_in > 0", name="ck_routing_section_height"),
+        CheckConstraint("section_inner_direction IS NULL OR section_inner_direction IN ('NORTH','SOUTH','EAST','WEST')", name="ck_routing_section_direction"),
         CheckConstraint("(passage_band_uid IS NOT NULL AND cross_route_uid IS NULL AND start_station_in IS NOT NULL AND end_station_in IS NOT NULL AND end_station_in > start_station_in AND start_station_in >= 0 AND from_passage_band_uid IS NULL AND to_passage_band_uid IS NULL) OR (passage_band_uid IS NULL AND cross_route_uid IS NOT NULL AND start_station_in IS NULL AND end_station_in IS NULL AND from_passage_band_uid IS NOT NULL AND to_passage_band_uid IS NOT NULL AND from_passage_band_uid <> to_passage_band_uid)", name="ck_routing_annotation_span"),
     )
     passage_band_uid: Mapped[str | None] = mapped_column(ForeignKey("routing_bands.uid", ondelete="CASCADE"), index=True)
@@ -183,6 +186,7 @@ class RoutingSegmentAnnotation(LayoutChild, Base):
     grid_columns: Mapped[int] = mapped_column(Integer, default=12)
     grid_rows: Mapped[int] = mapped_column(Integer, default=8)
     section_height_in: Mapped[int | None] = mapped_column(Integer)
+    section_inner_direction: Mapped[str | None] = mapped_column(Text)
 
 
 class RoutingBundlePlacement(LayoutChild, Base):

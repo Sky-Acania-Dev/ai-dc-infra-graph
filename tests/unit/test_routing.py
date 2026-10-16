@@ -54,6 +54,30 @@ class RoutingTests(unittest.TestCase):
     def data_now(self):
         return config.resolved_layout(self.session, self.uid)
 
+    def test_section_cardinal_direction_validation(self):
+        north = next(b['uid'] for b in self.data['bands'] if b['code'] == 'NORTH')
+        central = next(b['uid'] for b in self.data['bands'] if b['code'] == 'CENTRAL')
+        self.assertEqual(self.data['layout']['longitudinal_direction'], 'EAST')
+        with self.assertRaises(ValidationError):
+            self.save('segment-annotations', {'passage_band_uid': north, 'start_station_in': 0, 'end_station_in': 108, 'section_inner_direction': 'EAST'})
+        with self.assertRaises(config.RoutingConfigurationError):
+            self.save('segment-annotations', {'passage_band_uid': central, 'start_station_in': 0, 'end_station_in': 108, 'section_inner_direction': 'NORTH'})
+
+    def test_placement_cable_api_preserves_manual_membership_and_scope(self):
+        self.session.commit()
+        with patch('backend.api.routing.session_factory', return_value=self.factory):
+            client = TestClient(app)
+            base = f'/routing/layouts/{self.uid}'
+            client.post(base + '/passage-tiers', json={'passage_band_uid': self.north(), 'tier': 1, 'pathway_type': 'BASKET_TRAY'})
+            parent = client.post(base + '/segment-annotations', json={'passage_band_uid': self.north(), 'start_station_in': 0, 'end_station_in': 108}).json()
+            placement = client.post(base + '/bundle-placements', json={'segment_annotation_uid': parent['uid'], 'tier': 1, 'label': 'LC x 100, 021-031'}).json()
+            path = base + '/bundle-placements/' + placement['uid'] + '/cables'
+            response = client.get(path, headers={'x-user-role': 'viewer'})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()['cables'], [])
+            self.assertEqual(response.json()['summary'], [])
+            self.assertEqual(client.get(base + '/bundle-placements/missing/cables').status_code, 404)
+
     def configure_tiers(self, tiers=(1, 2, 3), cross_tiers=(1, 2, 3)):
         for band in self.data['bands']:
             if band['kind'] == 'PASSAGE':
