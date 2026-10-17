@@ -17,6 +17,8 @@ export const routingApi = {
   placementSources: (uid: string, signal?: AbortSignal) => request<PlacementSource[]>(`/layouts/${uid}/placement-sources`, "GET", undefined, signal),
   placementCables: (layout: string, uid: string, signal?: AbortSignal) => request<PlacementCables>(`/layouts/${layout}/bundle-placements/${uid}/cables`, "GET", undefined, signal),
   cableReview: (layout: string, signal?: AbortSignal) => request<CableReview>(`/layouts/${layout}/cable-review`, "GET", undefined, signal),
+  manualBatch: (layout: string, payload: {topology_revision: string; notes?: string; groups: Array<{group_uid: string; expected_version: string | null; segment_ids: string[]; start_tier: number; end_tier: number}>}, reset = false) => request<{review: CableReview; updated_group_uids: string[]}>(`/layouts/${layout}/manual-routes/${reset ? "reset" : "batch"}`, "POST", payload),
+  testTiers: (layout: string) => request<{review: CableReview; created_tier_count: number}>(`/layouts/${layout}/manual-routes/test-tiers`, "POST"),
   initialize: (building: string) => request<ResolvedLayout>("/initialize-lbb01", "POST", { building_id: building }),
   save: (layout: string, resource: Resource | "layout", values: object, uid?: string, remove = false) =>
     request<unknown>(`/layouts/${layout}${resource === "layout" ? "" : `/${resource}${uid ? `/${uid}` : ""}`}`, remove ? "DELETE" : uid || resource === "layout" ? "PATCH" : "POST", remove ? undefined : values),

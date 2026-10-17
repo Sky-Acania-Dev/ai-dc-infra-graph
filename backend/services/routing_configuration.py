@@ -191,6 +191,7 @@ def initialize_confirmed_rows(session: Session, layout) -> None:
 
 def update_layout(session: Session, uid: str, patch: dict):
     layout = get_layout(session, uid)
+    session.scalar(select(db.RoutingLayout).where(db.RoutingLayout.uid == uid).with_for_update())
     if any(k in patch for k in ('room_uid', 'physical_hall_code')):
         raise RoutingConfigurationError('The hall association cannot be changed after creation.')
     current = {key: getattr(layout, key) for key in schema.LayoutInput.model_fields}
@@ -271,6 +272,7 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
 
 def delete_resource(session: Session, layout_uid: str, resource: str, uid: str) -> None:
     get_layout(session, layout_uid)
+    session.scalar(select(db.RoutingLayout).where(db.RoutingLayout.uid == layout_uid).with_for_update())
     model, _ = resource_type(resource)
     row = session.get(model, uid)
     if row is None or row.routing_layout_uid != layout_uid:

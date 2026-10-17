@@ -14,6 +14,8 @@ from backend.schemas.routing import InitializeInput, LayoutInput, PreviewInput, 
 from backend.services import routing_configuration as config
 from backend.services.routing_graph import derive_graph
 from backend.services.routing_pathfinding import NoRoutingPath, preview_route
+from backend.schemas.routing_manual import ManualBatchInput, ManualPreviewInput
+from backend.services.routing_manual_routes import RoutingRouteConflict, preview_manual_route, update_manual_batch, initialize_test_tiers
 
 router = APIRouter(prefix='/routing', tags=['routing'])
 
@@ -25,6 +27,8 @@ def routing_session():
             yield session
     except config.RoutingNotFound as exc:
         raise HTTPException(404, str(exc)) from exc
+    except RoutingRouteConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     except (config.RoutingConfigurationError, NoRoutingPath) as exc:
         raise HTTPException(422, str(exc)) from exc
     except ValidationError as exc:
@@ -110,6 +114,41 @@ def get_cable_review(layout_uid: str, user: AuthUser = Depends(current_user)):
     from backend.services.routing_cable_review import cable_review
     with routing_session() as session:
         return cable_review(session, layout_uid)
+
+
+@router.post('/layouts/{layout_uid}/manual-route-preview')
+def manual_route_preview(layout_uid: str, request: ManualPreviewInput, user: AuthUser = Depends(current_user)):
+    with routing_session() as session:
+        return preview_manual_route(session, layout_uid, request)
+
+
+@router.get('/layouts/{layout_uid}/manual-routes')
+def list_manual_routes(layout_uid: str, user: AuthUser = Depends(current_user)):
+    with routing_session() as session:
+        config.get_layout(session, layout_uid)
+        return [config.record(row) for row in session.scalars(select(db.RoutingManualCableRoute)
+            .where(db.RoutingManualCableRoute.routing_layout_uid == layout_uid).order_by(db.RoutingManualCableRoute.uid))]
+
+
+@router.post('/layouts/{layout_uid}/manual-routes/test-tiers')
+def manual_test_tiers(layout_uid: str, user: AuthUser = Depends(current_user)):
+    require_manager(user)
+    with routing_session() as session:
+        return initialize_test_tiers(session, layout_uid)
+
+
+@router.post('/layouts/{layout_uid}/manual-routes/batch')
+def save_manual_routes(layout_uid: str, request: ManualBatchInput, user: AuthUser = Depends(current_user)):
+    require_manager(user)
+    with routing_session() as session:
+        return update_manual_batch(session, layout_uid, request, user.uid)
+
+
+@router.post('/layouts/{layout_uid}/manual-routes/reset')
+def reset_manual_routes(layout_uid: str, request: ManualBatchInput, user: AuthUser = Depends(current_user)):
+    require_manager(user)
+    with routing_session() as session:
+        return update_manual_batch(session, layout_uid, request, user.uid, reset=True)
 
 
 @router.get('/layouts/{layout_uid}/{resource}')

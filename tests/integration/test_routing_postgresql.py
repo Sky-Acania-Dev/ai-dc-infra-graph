@@ -87,6 +87,52 @@ class RoutingPostgreSQLTests(unittest.TestCase):
         self.assertEqual(result.vertical_transition_count, 0)
         self.assertEqual(len(resolved['geometry']['gaps']), 4)
 
+    def test_manual_tier_routes_persist_and_are_not_replaced_by_defaults(self):
+        from backend.services.routing_cable_review import cable_review
+        from backend.services.routing_manual_routes import initialize_test_tiers, update_manual_batch, RoutingRouteConflict
+        from backend.schemas.routing_manual import ManualBatchInput
+        from backend.persistence.postgresql.routing_models import RoutingManualCableRoute
+        data = routing.initialize_lbb01(self.session); uid = data['layout']['uid']
+        for number in list(range(1, 21)) + list(range(801, 821)):
+            offset = (number - 1) % 20
+            self.session.add(db.Cabinet(uid=f'pilot-cab-{number}', project_uid='LBB01', building_uid='LBB01:A',
+                room_uid='LBB01:A:DH1-1', cabinet_id=f'{number:03d}', source_col=offset if offset < 10 else 19-offset))
+        self.session.flush()
+        for number in (801, 811):
+            self.session.add(db.Port(uid=f'pilot-port-{number}', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-1', cabinet_uid=f'pilot-cab-{number}', port_name='P1'))
+        self.session.flush()
+        for index, cable_type in enumerate(('LC', 'CAT6')):
+            self.session.add(db.Cable(uid=f'pilot-cable-{index}', project_uid='LBB01', building_uid='LBB01:A',
+                a_port_uid='pilot-port-801', z_port_uid='pilot-port-811', cable_type=cable_type))
+        self.session.flush()
+        self.assertTrue(all(g['route'] is None for g in cable_review(self.session, uid)['groups']))
+        setup = initialize_test_tiers(self.session, uid)
+        self.assertGreater(setup['created_tier_count'], 0)
+        self.assertEqual(initialize_test_tiers(self.session, uid)['created_tier_count'], 0)
+        review = setup['review']
+        payload = ManualBatchInput(topology_revision=review['topology_revision'], groups=[dict(group_uid=g['uid'], expected_version=None,
+            segment_ids=g['route']['load_ids'], start_tier=1, end_tier=1) for g in review['groups']])
+        saved = update_manual_batch(self.session, uid, payload, 'postgres-tech')['review']
+        self.assertEqual(saved['manual_group_count'], 2)
+        self.session.expire_all()
+        again = cable_review(self.session, uid)
+        self.assertEqual(again['groups'], saved['groups'])
+        self.assertTrue(all(g['tier'] == 1 and g['route']['vertical_transition_count'] == 0 for g in again['groups']))
+        from sqlalchemy import select
+        rows = self.session.scalars(select(RoutingManualCableRoute)).all()
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(all(l['tier'] == 1 for l in r.legs) for r in rows))
+        with self.assertRaises(RoutingRouteConflict): update_manual_batch(self.session, uid, payload, 'stale-tech')
+        # Project-scoped inventory replacement must not delete manual intent or fail on retired identities.
+        versions = {r.uid: r.version for r in rows}
+        ingestion = ingest_cutsheet_rows([{'A_CABINET': '801', 'A_RACK_UNIT': '1', 'A_DEVICE_MODEL': 'sw', 'A_PORT_NAME': '1',
+            'A_CONNECTOR': 'LC', 'Z_CABINET': '811', 'Z_RACK_UNIT': '1', 'Z_DEVICE_MODEL': 'sw', 'Z_PORT_NAME': '1',
+            'Z_CONNECTOR': 'LC', 'CABLE_TYPE': 'LC', 'GROUP': 'Replacement', 'DATA_HALL': 'DH1-1'}], project_uid='LBB01')
+        database = build_topology_database_from_results(ingestion, OverheadIngestionResult(project_uid='LBB01', summary=OverheadIngestionSummary(cabinets=0, data_halls=0, unknown_category_cabinets=0)))
+        replace_project_topology(self.session, database, version_name='manual-route-reimport')
+        self.session.expire_all()
+        self.assertEqual({r.uid: r.version for r in self.session.scalars(select(RoutingManualCableRoute))}, versions)
+
     def test_reimport_retains_routing_and_existing_rooms(self):
         before = routing.initialize_lbb01(self.session)
         database = build_topology_database_from_results(
@@ -186,6 +232,8 @@ class RoutingPostgreSQLTests(unittest.TestCase):
         for index, (a, b, cable_type) in enumerate(((1, 2, 'LC-TO-LC SMF'), (2, 1, 'LC-TO-LC SMF'), (1, 11, 'CAT6a'), (1, 801, 'MPO12-SMF'), (1, 1, 'CAT6a'), (1, 21, 'LC-TO-LC SMF'))):
             self.session.add(db.Cable(uid=f'pilot-cable:{index}', project_uid='LBB01', building_uid='LBB01:A', a_port_uid=f'pilot-port:{a}', z_port_uid=f'pilot-port:{b}', cable_type=cable_type))
         self.session.flush()
+        from backend.services.routing_manual_routes import initialize_test_tiers
+        initialize_test_tiers(self.session, uid)
         before = routing.snapshot(self.session, uid)
         result = cable_review(self.session, uid)
         self.assertEqual((result['inventory_cable_count'], result['same_cabinet_count'], result['routed_cable_count']), (5, 1, 4))
@@ -193,7 +241,7 @@ class RoutingPostgreSQLTests(unittest.TestCase):
         self.assertEqual({g['route']['method'] for g in result['groups']}, {'SAME_ROW', 'ASTAR'})
         self.assertEqual({c['uid'] for c in result['cables']}, {f'pilot-cable:{i}' for i in range(4)})
         self.assertEqual({c['cable_class'] for c in result['cables']}, {'LC', 'CAT6', 'MPO'})
-        self.assertTrue(all(g['tier'] is None for g in result['groups']))
+        self.assertTrue(all(g['tier'] == 1 for g in result['groups']))
         self.assertEqual(before, routing.snapshot(self.session, uid))
         self.assertEqual(result, cable_review(self.session, uid))
 

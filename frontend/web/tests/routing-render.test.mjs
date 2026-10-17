@@ -24,11 +24,40 @@ const SegmentCables = await component("SegmentCables", "SegmentCables");
 const CableReviewPanel = await component("CableReviewPanel", "CableReviewPanel");
 const CableReviewLayer = await component("CableReviewLayer", "CableReviewLayer");
 const CabinetConnectionsPanel = await component("../components/CabinetConnectionsPanel", "CabinetConnectionsPanel", true);
+const ManualBatchPanel = await component("ManualRouteBatchPanel", "ManualRouteBatchPanel");
+const ManualLayer = await component("ManualRouteLayer", "ManualRouteLayer");
 const box = {uid: "g", tier: 1, label: "G1", cable_class: "LC", sourceAvailable: true, demo: true, layer: 1, position: 1, slot_width: 3, slot_height: 2, offset_across_in: 0, offset_up_in: 0, occupied_width_in: 4, occupied_height_in: 2};
 const span = {id: "span", passage_band_uid: "north", cross_route_uid: null, start_station_in: 0, end_station_in: 108, from_passage_band_uid: null, to_passage_band_uid: null};
 
 const directions = {inner: "SOUTH", hasInner: true, axisStart: "NORTH"};
 const sectionModel = {blocks: [box], parents: [], occupations: [], demoMode: true, width_in: 34, reference: "Demo only", directions};
+
+test("manual editor shows local next choices and disables incomplete batch saves", () => {
+  const p = {node_id:'start',x_in:0,y_in:382,tier:1,passage_band_uid:'central',cabinet_uid:'s'};
+  const path = {method:'MANUAL',points:[p],load_ids:[],segment_ids:[],planar_length_in:0,vertical_transition_count:0};
+  const group = {uid:'g',source_cabinet_uid:'s',destination_cabinet_uid:'z',source_cabinet_id:'801',destination_cabinet_id:'811',cable_type:'LC',count:4,route_source:'DEFAULT',start_tier:1,end_tier:1};
+  const editor = {selected:['g'],editing:true,active:group,activeUid:'g',groups:[group],complete:()=>false,completed:0,canSave:false,
+    draft:{ids:[],startTier:1,endTier:1},preview:{complete:false,prefix:path,suggestion:{...path,planar_length_in:120},next_chains:[]},notes:'',busy:false,error:'',message:''};
+  const html = renderToStaticMarkup(React.createElement(ManualBatchPanel,{editor,shownGroups:[group],canManage:true}));
+  assert.match(html,/All clicks and suggestions stay local/);
+  assert.match(html,/class="manual-save" disabled=""/);
+  assert.match(html,/Fill remainder with A\*/);
+  assert.match(html,/Source route tier/);
+  assert.match(html,/Destination route tier/);
+  const complete = renderToStaticMarkup(React.createElement(ManualBatchPanel,{editor:{...editor,canSave:true,completed:1,preview:{...editor.preview,complete:true,suggestion:null}},shownGroups:[group],canManage:true}));
+  assert.match(complete,/Complete chain/);
+  assert.doesNotMatch(complete,/class="manual-save" disabled=""/);
+});
+
+test("manual SVG provides keyboard-accessible connected chain choices", () => {
+  const p = x => ({node_id:`n-${x}`,x_in:x,y_in:382,tier:1,passage_band_uid:'central',passage_code:'CENTRAL',cabinet_uid:null});
+  const chain = {id:'choice',label:'Central R1–2',points:[p(0),p(120)],load_ids:['edge'],vertical_transition_count:0,planar_length_in:120};
+  const html = renderToStaticMarkup(React.createElement(ManualLayer,{data:{geometry:{bands:[]}},view:{cabinets:[],passageX:new Map([['central',10]]),stationY:x=>x},segments:[],preview:{prefix:{points:[p(0)]},suggestion:chain,next_chains:[chain],destination:p(120)},scale:1,onAppend:()=>{},disabled:false}));
+  assert.match(html,/Append Central R1–2 to CENTRAL · Tier 1/);
+  assert.match(html,/role="button" tabindex="0"/);
+  assert.match(html,/stroke-dasharray="7 6"/);
+  assert.match(html,/no request is sent/);
+});
 test("section display mode renders only the selected representation", () => {
   const props = {tier: 1, model: sectionModel, mode: "GRID", reversed: false, onSelectPlacement: () => {}};
   const html = renderToStaticMarkup(React.createElement(Section, props));
@@ -86,14 +115,15 @@ test("right panel filters fixtures by member ID and shows type count and rack pa
   assert.match(html, /Show all segment cables/);
 });
 
-test("actual review groups show type details actions without inline cables or fake tiers", () => {
+test("actual review groups show type detail actions and configured endpoint tiers without inline cables", () => {
   const group = {uid: 'g', source_cabinet_id: '001', destination_cabinet_id: '011', cable_type: 'LC-TO-LC SMF', cable_uids: ['actual-1'], count: 1, route: {method: 'ASTAR', planar_length_in: 120}};
   const cables = [{uid: 'actual-1', cable_type: 'LC-TO-LC SMF', cable_class: 'LC', source_cabinet_id: '001', destination_cabinet_id: '011', source_port_name: 'P1', destination_port_name: 'P2', source_label: 'A01', destination_label: 'Z01', notes: ''}];
   const html = renderToStaticMarkup(React.createElement(CableReviewPanel, {review: {cables}, groups: [group], selectedGroupUid: 'g', onGroup: () => {}, onViewCables: () => {}}));
   assert.match(html, /A\* cross-row placeholder/);
   assert.match(html, /View LC-TO-LC SMF cable details/);
   assert.doesNotMatch(html, /actual-1|A01|connection-cable-row|Cable details/);
-  assert.match(html, /unassigned/); assert.doesNotMatch(html, /fixture cable|Fake review|Tier 1/);
+  assert.match(html, /unassigned/); assert.doesNotMatch(html, /fixture cable|Fake review/);
+  assert.match(html, /Tier 1 → Tier 1/);
 });
 
 test("large real cable groups stay summarized until their detail table is requested", () => {

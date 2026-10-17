@@ -95,6 +95,26 @@
 .actual-review-notice { margin: 6px 0; padding: 8px 10px; background: #eef6ff; border: 1px solid #aac7e7; color: #254d76; font-size: 11px; line-height: 1.5; border-radius: 4px; }
 .cable-review-panel > label { display: grid; gap: 5px; font-size: 11px; }
 .cable-review-panel select { width: 100%; min-width: 0; }
+.manual-batch-panel { margin: 12px 0; padding: 10px; border: 1px solid #9eb3c6; background: #f6f9fc; }
+.manual-batch-panel h4 { margin: 0 0 8px; }
+.manual-batch-panel > label { display: grid; gap: 4px; margin: 8px 0; font-size: 11px; }
+.manual-group-picker summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+.manual-group-options { display: grid; gap: 6px; max-height: 220px; overflow-y: auto; margin: 8px 0; }
+.manual-group-options label { display: flex; gap: 6px; align-items: start; font-size: 10px; line-height: 1.5; }
+.manual-group-options small { display: block; color: #64748b; }
+.manual-actions { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0; }
+.routing-page .manual-actions button, .routing-page .manual-batch-panel > button { padding: 6px 7px; font-size: 10px; }
+.manual-edit-help { font-size: 11px; line-height: 1.5; }
+.manual-endpoint-tiers { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
+.manual-endpoint-tiers label { display: grid; gap: 4px; font-size: 10px; }
+.manual-progress { background: #fff5e4; border-left: 3px solid #ed8817; padding: 7px; font-size: 11px; line-height: 1.5; }
+.manual-next-choices { display: grid; gap: 5px; margin: 8px 0; }
+.routing-page .manual-next-choices button { border-color: #087e80; color: #075e60; text-align: left; font-size: 10px; padding: 6px; }
+.manual-next-choices small { display: block; color: #64748b; margin-top: 3px; }
+.manual-batch-panel textarea { min-height: 55px; width: 100%; resize: vertical; font: inherit; }
+.manual-feedback { color: #166534; font-size: 11px; line-height: 1.5; }
+.manual-complete-count { font-size: 11px; font-weight: 700; }
+.routing-page .manual-save { background: #164e63; border-color: #164e63; color: #fff; }
 .section-configuration { border-top: 1px solid #dbe3ec; margin-top: 10px; padding-top: 5px; }
 .bundle-section-editor { display: grid; gap: 7px; font-size: 11px; }
 .bundle-section-editor label { display: grid; gap: 4px; }

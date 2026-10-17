@@ -14,6 +14,7 @@ class CableReviewTests(unittest.TestCase):
     def setUp(self):
         self.case = routing_test_support.RoutingTests(); self.case.setUp()
         self.addCleanup(self.case.tearDown)
+        self.case.configure_tiers((1,), (1,))
         self.data = self.case.data_now()
         self.data['cabinets'] = []
         for row in self.data['geometry']['cabinet_rows']:
@@ -40,7 +41,7 @@ class CableReviewTests(unittest.TestCase):
         self.assertEqual(group['route']['method'], 'SAME_ROW')
         self.assertTrue(all(p['x_in'] == group['route']['points'][0]['x_in'] for p in group['route']['points']))
         self.assertTrue(all('guide:cross:' in uid for uid in group['route']['segment_ids']))
-        self.assertIsNone(group['tier'])
+        self.assertEqual(group['tier'], 1)
         self.assertEqual(result, build_cable_review(self.data, list(reversed(cables))))
         self.assertEqual(self.data, before)
 
@@ -70,13 +71,14 @@ class CableReviewTests(unittest.TestCase):
     def test_manual_obstruction_cannot_be_bypassed_by_unassigned_tier(self):
         planner = ReviewPlanner(self.data, ['cab:001', 'cab:002'])
         span = next(s for s in planner.spans if s['cross_route_uid'] == planner.attachments['cab:001']['cross_route_uid'])
-        self.data['segment_annotations'] = [{k: v for k, v in span.items() if k in ('passage_band_uid', 'cross_route_uid', 'start_station_in', 'end_station_in', 'from_passage_band_uid', 'to_passage_band_uid')} | {'tier': 2, 'usable': False}]
+        self.data['segment_annotations'] = [{k: v for k, v in span.items() if k in ('passage_band_uid', 'cross_route_uid', 'start_station_in', 'end_station_in', 'from_passage_band_uid', 'to_passage_band_uid')} | {'uid': 'blocked', 'tier': 1, 'usable': False, 'cable_classes': []}]
         self.assertIsNone(ReviewPlanner(self.data, ['cab:001', 'cab:002']).route('cab:001', 'cab:002'))
 
     def test_configured_north_route_never_creates_south_side_edges(self):
         case = self.case
-        for band in case.data['bands']:
-            if band['kind'] == 'PASSAGE': case.save('passage-tiers', {'passage_band_uid': band['uid'], 'tier': 1, 'pathway_type': 'LADDER_RACK'})
+        from backend.persistence.postgresql.routing_models import RoutingCrossRouteTier
+        from sqlalchemy import delete
+        case.session.execute(delete(RoutingCrossRouteTier)); case.session.flush()
         north_row = next(r for r in case.data['geometry']['cabinet_rows'] if r['cabinet_number_start'] == 801)
         route = next(r for r in case.data['cross_routes'] if r['cabinet_row_uid'] == north_row['uid'])
         case.save('cross-route-tiers', {'cross_route_uid': route['uid'], 'tier': 1, 'pathway_type': 'LADDER_RACK'})

@@ -49,6 +49,26 @@ class RoutingLayout(RoutingRecord, Base):
     longitudinal_direction: Mapped[str | None] = mapped_column(Text)
 
 
+class RoutingManualCableRoute(LayoutChild, Base):
+    """An explicit group route expressed as domain pathway intervals, never generated edges."""
+    __tablename__ = 'routing_manual_cable_routes'
+    __table_args__ = (
+        UniqueConstraint('routing_layout_uid', 'source_cabinet_uid', 'destination_cabinet_uid', 'cable_type', name='uq_routing_manual_group'),
+        CheckConstraint('source_cabinet_uid != destination_cabinet_uid AND revision > 0 AND start_tier BETWEEN 1 AND 3 AND end_tier BETWEEN 1 AND 3', name='ck_routing_manual_group'),
+    )
+    # Like cabinet attachments, retain identities across project-scoped cutsheet replacement.
+    source_cabinet_uid: Mapped[str] = mapped_column(Text, index=True)
+    destination_cabinet_uid: Mapped[str] = mapped_column(Text, index=True)
+    start_tier: Mapped[int] = mapped_column(Integer, default=1)
+    end_tier: Mapped[int] = mapped_column(Integer, default=1)
+    cable_type: Mapped[str] = mapped_column(Text)
+    legs: Mapped[list] = mapped_column(JSONB)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    version: Mapped[str] = mapped_column(Text)
+    updated_by: Mapped[str] = mapped_column(Text)
+    notes: Mapped[str] = mapped_column(Text, default='')
+
+
 class RoutingSection(LayoutChild, Base):
     __tablename__ = "routing_sections"
     __table_args__ = (UniqueConstraint("routing_layout_uid", "ordinal", name="uq_routing_section_ordinal"),

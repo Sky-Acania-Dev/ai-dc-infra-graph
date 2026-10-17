@@ -11,6 +11,59 @@ import { collectPlacementCables, filterCableMembers } from "../src/routing/segme
 import { projectReviewPoint, reviewConnector, reviewGroupsForPart } from "../src/routing/cableReviewProjection.ts";
 import { cabinetFixtureRun, projectFixtureRun, offsetPolyline } from "../src/routing/cabinetFixtureRun.ts";
 import { loadRoutingCableTable } from "../src/routing/routingCableDetails.ts";
+import { ManualRouteEngine } from "../src/routing/manualRouteEngine.ts";
+
+function manualFixture() {
+  const point = (name, x, y, tier = 1, cabinet = null) => ({node_id: `${name}-T${tier}`, x_in: x, y_in: y, tier, cabinet_uid: cabinet, passage_band_uid: cabinet ? null : name, passage_code: name});
+  const s = point('S', 0, 5, 1, 'source'), i = point('I', 0, 3, 1, 'middle'), n = point('NORTH', 0, 0), c = point('CENTRAL', 0, 10), ne = point('NORTH', 20, 0), ce = point('CENTRAL', 20, 10), end = point('E', 20, 5, 1, 'destination');
+  const edge = (id, source, target) => ({id, segment_id: id, source, target, edge_type: 'PASSAGE', tier: source.tier, planar_length_in: Math.abs(source.x_in-target.x_in)+Math.abs(source.y_in-target.y_in), label: id, vertical_transition_uid: null});
+  const segments = [edge('s-i', s, i), edge('i-n', i, n), edge('n-ne', n, ne), edge('n-tail', n, point('tail',0,-5)), edge('ne-end', ne, end), edge('s-c', s, c), edge('c-ce', c, ce), edge('ce-end', ce, end)];
+  return {segments, group: {uid:'g',source_cabinet_uid:'source',destination_cabinet_uid:'destination'}, draft:{ids:[],checkpoints:[],startTier:1,endTier:1}};
+}
+
+test("manual clicks, chain validation, and A* remainders work locally without requests", () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = () => {assert.fail('Incomplete route editing must not make network requests');};
+  try {
+    const {segments, group, draft} = manualFixture(), engine = new ManualRouteEngine(segments);
+    const first = engine.preview(group, draft);
+    assert.equal(first.complete, false);
+    const north = first.next_chains.find(c => c.load_ids.includes('i-n'));
+    assert.deepEqual(north.load_ids, ['s-i','i-n']);
+    const prefix = {...draft,ids:north.load_ids};
+    const next = engine.preview(group, prefix);
+    assert.deepEqual(next.prefix.points.at(-1), next.suggestion.points[0]);
+    assert.equal(engine.isComplete(group, prefix), false);
+    const full = {...draft,ids:[...prefix.ids,...next.suggestion.load_ids]};
+    assert.equal(engine.isComplete(group, full), true);
+    assert.equal(engine.preview(group, full).suggestion, null);
+    assert.deepEqual(engine.preview(group, full).next_chains, []);
+    assert.throws(() => engine.preview(group, {...draft,ids:['n-ne']}), /connected/);
+    assert.throws(() => engine.preview(group, {...draft,ids:['s-i','s-i']}), /loop|backtrack/);
+    assert.throws(() => engine.preview(group, {...draft,ids:['disabled']}), /unavailable/);
+    assert.deepEqual(engine.preview(group, draft).suggestion, new ManualRouteEngine([...segments].reverse()).preview(group, draft).suggestion);
+  } finally {globalThis.fetch = previousFetch;}
+});
+
+test("local tier-aware A* needs separate adjacent-tier physical openings and adds no vertical length", () => {
+  const {segments,group,draft} = manualFixture();
+  const layered = [...segments];
+  for (const tier of [2,3]) layered.push(...segments.map(e => ({...e,id:`${e.id}-T${tier}`,tier,source:{...e.source,tier},target:{...e.target,tier}})));
+  let engine = new ManualRouteEngine(layered);
+  assert.equal(engine.preview(group,{...draft,endTier:2}).suggestion,null);
+  const north = segments.find(e=>e.id==='n-ne').source;
+  const hole = (lower,upper) => ({id:`hole-${lower}-${upper}`,segment_id:'opening',label:'Physical opening',edge_type:'VERTICAL',tier:null,source:{...north,tier:lower},target:{...north,tier:upper},planar_length_in:0,vertical_transition_uid:`vt-${lower}-${upper}`});
+  layered.push(hole(1,2)); engine = new ManualRouteEngine(layered);
+  assert.equal(engine.preview(group,{...draft,endTier:2}).suggestion.vertical_transition_count,1);
+  assert.equal(engine.preview(group,{...draft,endTier:3}).suggestion,null);
+  layered.push(hole(2,3)); engine = new ManualRouteEngine(layered);
+  const result=engine.preview(group,{...draft,endTier:3}).suggestion;
+  assert.equal(result.vertical_transition_count,2);
+  assert.equal(result.planar_length_in,30);
+  assert.equal(engine.preview(group,draft).suggestion.vertical_transition_count,0);
+  assert.throws(()=>new ManualRouteEngine([...segments,hole(1,3)]),/Invalid tier opening/);
+  assert.throws(()=>new ManualRouteEngine([{...segments[0],target:{...segments[0].target,tier:2}}]),/requires a physical opening/);
+});
 
 test("route cable table loads real detail fields and strictly filters membership and type", async () => {
   const member = (uid, reverse = false) => ({uid, source_cabinet_uid: reverse ? "cab-b" : "cab-a", destination_cabinet_uid: reverse ? "cab-a" : "cab-b"});

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { useDragPan } from "../hooks/useDragPan";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useI18n } from "../i18n";
@@ -5,7 +6,7 @@ import type { CabinetLayoutItem, ChangeOrderCabinetStats } from "../types";
 import type { SelectionGesture } from "../App";
 import { CabinetGraphics } from "./CabinetGraphics";
 import { ViewerScaleSlider } from "./ViewerScaleSlider";
-import { CabinetRoutingMap } from "../routing/CabinetRoutingMap";
+const CabinetRoutingMap = lazy(() => import("../routing/CabinetRoutingMap").then(module => ({default: module.CabinetRoutingMap})));
 
 type PositionedCabinet = CabinetLayoutItem & {
   block: number;
@@ -280,13 +281,13 @@ export function CabinetMap(props: CabinetMapProps) {
           <span>{t("map.loadingData")}</span>
         </div>
       ) : null}
-      {showRoutes ? <CabinetRoutingMap project={project} building={building} hall={dataHall} selected={selectedCabinetUids} connected={connectedCabinetUids}
+      {showRoutes ? <Suspense fallback={<p className="empty-state">Loading routing map…</p>}><CabinetRoutingMap project={project} building={building} hall={dataHall} selected={selectedCabinetUids} connected={connectedCabinetUids}
         inspectorHost={props.routingInspectorHost} onInspectorActiveChange={props.onRoutingInspectorActiveChange}
         pathwayInspectorHost={props.pathwayInspectorHost}
         canManage={props.canManage} cabinets={cabinets} settings={settings}
         renderCabinets={(positions, clearPath) => <CabinetGraphics {...props} positions={positions} settings={settings}
           onSelectCabinet={(uid, gesture) => { clearPath(); onSelectCabinet(uid, gesture); }} />}
-        onSelectCabinet={onSelectCabinet} onPrefetchCabinet={onPrefetchCabinet} onClearSelection={onClearSelection} onOpenRouting={onOpenRouting} /> : <div className="map-scroll drag-pan-surface" {...mapPan}>
+        onSelectCabinet={onSelectCabinet} onPrefetchCabinet={onPrefetchCabinet} onClearSelection={onClearSelection} onOpenRouting={onOpenRouting} /></Suspense> : <div className="map-scroll drag-pan-surface" {...mapPan}>
         <svg
           className="cabinet-map"
           width={width}
