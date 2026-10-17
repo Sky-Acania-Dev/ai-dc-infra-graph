@@ -77,29 +77,31 @@ test("selected group opens the enlarged section above the main section and expos
 
 test("right panel filters fixtures by member ID and shows type count and rack pair", () => {
   const cables = ["a", "b"].map(id => ({id, cableClass: "LC", sourceCabinetId: "021", destinationCabinetId: "031"}));
-  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables, selectedCableId: null, onSelect: () => {}, bundleFilter: {uid: "demo-group", label: "Group A", fixtureCableIds: ["a"]}}));
+  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables, onViewCables: () => {}, bundleFilter: {uid: "demo-group", label: "Group A", fixtureCableIds: ["a"]}}));
   assert.match(html, /1 fixture cable in group/);
   assert.match(html, /<span>LC<\/span><b>1<\/b>/);
   assert.match(html, /021 ↔ 031/);
-  assert.equal((html.match(/class="connection-cable-row/g) ?? []).length, 1);
+  assert.match(html, /View LC cable details/);
+  assert.doesNotMatch(html, /connection-cable-row/);
   assert.match(html, /Show all segment cables/);
 });
 
-test("actual review group selection shows inventory cables and provisional routing without fake tiers", () => {
+test("actual review groups show type details actions without inline cables or fake tiers", () => {
   const group = {uid: 'g', source_cabinet_id: '001', destination_cabinet_id: '011', cable_type: 'LC-TO-LC SMF', cable_uids: ['actual-1'], count: 1, route: {method: 'ASTAR', planar_length_in: 120}};
   const cables = [{uid: 'actual-1', cable_type: 'LC-TO-LC SMF', cable_class: 'LC', source_cabinet_id: '001', destination_cabinet_id: '011', source_port_name: 'P1', destination_port_name: 'P2', source_label: 'A01', destination_label: 'Z01', notes: ''}];
-  const html = renderToStaticMarkup(React.createElement(CableReviewPanel, {review: {cables}, groups: [group], selectedGroupUid: 'g', onGroup: () => {}, selectedCableId: 'actual-1', onCable: () => {}}));
-  assert.match(html, /A\* cross-row placeholder/); assert.match(html, /actual-1/); assert.match(html, /A01/);
-  assert.match(html, /border-left-color:#246bfe/);
+  const html = renderToStaticMarkup(React.createElement(CableReviewPanel, {review: {cables}, groups: [group], selectedGroupUid: 'g', onGroup: () => {}, onViewCables: () => {}}));
+  assert.match(html, /A\* cross-row placeholder/);
+  assert.match(html, /View LC-TO-LC SMF cable details/);
+  assert.doesNotMatch(html, /actual-1|A01|connection-cable-row|Cable details/);
   assert.match(html, /unassigned/); assert.doesNotMatch(html, /fixture cable|Fake review|Tier 1/);
 });
 
-test("large real cable lists render an initial page without hiding the actual total", () => {
+test("large real cable groups stay summarized until their detail table is requested", () => {
   const cables = Array.from({length: 200}, (_, i) => ({uid: `actual-${i}`, cable_type: 'CAT6a', source_cabinet_id: '001', destination_cabinet_id: '002'}));
-  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables: cables, selectedCableId: null, onSelect: () => {}, autoShowCables: true}));
+  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables: cables, onViewCables: () => {}}));
   assert.match(html, /200 cables/);
-  assert.equal((html.match(/class="connection-cable-row/g) ?? []).length, 60);
-  assert.match(html, /Show 60 more cables/);
+  assert.match(html, /View CAT6a cable details/);
+  assert.doesNotMatch(html, /connection-cable-row|actual-\d|Show 60 more/);
 });
 
 test("pathway summaries combine both A/Z directions and defer individual cable lists", () => {
@@ -108,26 +110,26 @@ test("pathway summaries combine both A/Z directions and defer individual cable l
     {uid: "b", cable_type: "LC", source_cabinet_id: "811", destination_cabinet_id: "801"},
     {uid: "c", cable_type: "CAT6a", source_cabinet_id: "801", destination_cabinet_id: "820"},
   ];
-  const props = {cables: [], inventoryCables, selectedCableId: null, onSelect: () => {}};
+  const props = {cables: [], inventoryCables, onViewCables: () => {}};
   const html = renderToStaticMarkup(React.createElement(SegmentCables, props));
   assert.match(html, /3 cables/);
   assert.match(html, /2 rack pairs/);
   assert.match(html, /<span>LC<\/span><b>2<\/b>/);
   assert.match(html, /Show rack pairs \(2\)/);
-  assert.match(html, /View cables · selected pathway/);
   assert.doesNotMatch(html, /connection-cable-row|meter|complete/);
-  const detail = renderToStaticMarkup(React.createElement(SegmentCables, {...props, autoShowCables: true, selectedCableId: "b"}));
-  assert.match(detail, /811 → 801/);
-  assert.match(detail, /aria-pressed="true"/);
+  const pair = renderToStaticMarkup(React.createElement(SegmentCables, {...props, inventoryCables: inventoryCables.slice(0, 2)}));
+  assert.match(pair, /801 ↔ 811/);
+  assert.match(pair, /2 cables/);
+  assert.equal((pair.match(/View LC cable details/g) ?? []).length, 1);
 });
 
 test("saved bundle membership cannot leak other segment cables into the detail list", () => {
   const inventoryCables = ["included", "excluded"].map(uid => ({uid, cable_type: "LC", source_cabinet_id: "021", destination_cabinet_id: "031"}));
-  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables, members: {bundle: ["included"]}, bundleFilter: {uid: "bundle", label: "Saved bundle"}, selectedCableId: null, onSelect: () => {}}));
+  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables, members: {bundle: ["included"]}, bundleFilter: {uid: "bundle", label: "Saved bundle"}, onViewCables: () => {}}));
   assert.match(html, /1 cable in group/);
-  assert.match(html, /included/);
+  assert.match(html, /View LC cable details/);
   assert.doesNotMatch(html, /excluded|fixture cable/);
-  const empty = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables, members: {}, bundleFilter: {uid: "missing", label: "Empty bundle"}, selectedCableId: null, onSelect: () => {}}));
+  const empty = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables, members: {}, bundleFilter: {uid: "missing", label: "Empty bundle"}, onViewCables: () => {}}));
   assert.match(empty, /0 cables in group/);
   assert.match(empty, /No actual cable members linked/);
   assert.doesNotMatch(empty, /connection-cable-row/);

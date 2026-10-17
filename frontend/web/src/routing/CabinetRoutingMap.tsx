@@ -16,6 +16,8 @@ import { segmentTierModel } from "./segmentTierModel";
 import { useRoutingLayout, physicalHallCode } from "./useRoutingLayout";
 import { useCableReview } from "./useCableReview";
 import { CableReviewPanel } from "./CableReviewPanel";
+import { RoutingCableTable } from "./RoutingCableTable";
+import type { RoutingCableTableRequest } from "./routingCableDetails";
 import { reviewGroupsForPart } from "./cableReviewProjection";
 import type { Selection, Tier } from "./types";
 import "./routing.css";
@@ -36,6 +38,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const [segmentId, setSegmentId] = useState<string | null>(null);
   const [attachmentUid, setAttachmentUid] = useState<string | null>(null);
   const [selectedFixtureCableId, setSelectedFixtureCableId] = useState<string | null>(null);
+  const [cableTable, setCableTable] = useState<RoutingCableTableRequest | null>(null);
   const [selectedPlacementUid, setSelectedPlacementUid] = useState<string | null>(null);
   const [fixtures, setFixtures] = useState(false);
   const [realReview, setRealReview] = useState(false);
@@ -67,7 +70,8 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const segment = segments.find(s => s.id === segmentId) ?? (data && selectedEdge ? edgeSegment(data, graph, selectedEdge) : null);
   const cableMembers = useSegmentCableMembers(data, segment);
   useEffect(() => { setSelectedPlacementUid(null); }, [segmentId, attachmentUid, selection?.uid, fixtures]);
-  const clearPath = () => { setSelection(null); setSegmentId(null); setAttachmentUid(null); setSelectedFixtureCableId(null); setReviewLoadId(null); setReviewGroupUid(null); setReviewInspectorOpen(false); };
+  useEffect(() => { setCableTable(null); }, [project, building, hall, segmentId, attachmentUid, selection?.uid, selectedPlacementUid, reviewGroupUid, fixtures, realReview]);
+  const clearPath = () => { setCableTable(null); setSelection(null); setSegmentId(null); setAttachmentUid(null); setSelectedFixtureCableId(null); setReviewLoadId(null); setReviewGroupUid(null); setReviewInspectorOpen(false); };
   const inspecting = Boolean(selection || segment || attachmentUid || (review && reviewInspectorOpen));
   useEffect(() => {
     onInspectorActiveChange(inspecting);
@@ -82,9 +86,9 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const highlightGroupUid = reviewGroupUid ?? review?.groups.find(g => g.cable_uids.includes(selectedFixtureCableId ?? ""))?.uid ?? null;
   const inspector = data && inspecting ? <aside className="side-pane connections-pane routing-page routing-side routing-segment-inspector" aria-label="Routing segment cable details">
     <div className="routing-inspector-heading"><span className="eyebrow">Segment cables</span><button onClick={clearPath}>Close routing details</button></div>
-    {review ? <CableReviewPanel review={review} groups={reviewGroups} selectedGroupUid={reviewGroupUid} onGroup={uid => {setReviewGroupUid(uid); setSelectedFixtureCableId(null); onClearSelection();}} selectedCableId={selectedFixtureCableId} onCable={setSelectedFixtureCableId} /> : (segment || attachmentUid) && <SegmentCables cables={cables} inventoryCables={cableMembers.cables} members={cableMembers.members} loading={cableMembers.loading} error={cableMembers.error}
+    {review ? <CableReviewPanel review={review} groups={reviewGroups} selectedGroupUid={reviewGroupUid} onGroup={uid => {setReviewGroupUid(uid); setSelectedFixtureCableId(null); onClearSelection();}} onViewCables={setCableTable} /> : (segment || attachmentUid) && <SegmentCables cables={cables} inventoryCables={cableMembers.cables} members={cableMembers.members} loading={cableMembers.loading} error={cableMembers.error}
       bundleFilter={selectedPlacementUid ? {uid: selectedPlacementUid, label: selectedBundle?.label ?? (demoCable ? `Demo ${demoCable.cableClass} 021→031` : "Selected bundle"), fixtureCableIds: selectedBundle?.fixtureCableIds ?? (demoCable ? [demoCable.id] : undefined)} : null}
-      onClearFilter={() => setSelectedPlacementUid(null)} selectedCableId={selectedFixtureCableId} onSelect={setSelectedFixtureCableId} routeLabel={cabinetRun?.segmentIds.map(id => segments.find(s => s.id === id)?.label).join(" → ")} />}
+      onClearFilter={() => setSelectedPlacementUid(null)} onViewCables={setCableTable} routeLabel={cabinetRun?.segmentIds.map(id => segments.find(s => s.id === id)?.label).join(" → ")} />}
     {!review && !segment && !attachmentUid && <p className="routing-notice">Select a route segment to inspect its cables. Pathway metadata is shown on the left.</p>}
   </aside> : null;
   return <div className="routing-page routing-integrated">
@@ -113,6 +117,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
         initialSectionUid={sectionUid}
         onSelect={next => { setSelection(next); setSegmentId(null); setAttachmentUid(null); setSelectedFixtureCableId(null); setReviewLoadId(null); setReviewGroupUid(null); if (!next) {setReviewInspectorOpen(false); onClearSelection();} }}
         cabinetInteraction={{ selected, connected, onSelect: (cabinet, event) => { clearPath(); onSelectCabinet(cabinet.cabinet_uid, event); }, onPrefetch: onPrefetchCabinet }} />
+      {cableTable && createPortal(<RoutingCableTable key={JSON.stringify([cableTable.source, cableTable.target, cableTable.cableType])} request={cableTable} selectedCableId={selectedFixtureCableId} onSelect={setSelectedFixtureCableId} onClose={() => {setCableTable(null); setSelectedFixtureCableId(null);}} />, document.body)}
       {inspectorHost && inspector && createPortal(inspector, inspectorHost)}
       {pathwayInspectorHost && data && inspecting && createPortal(<PathwayInspector data={data} graph={graph} selection={selection} segment={segment} selectedEdge={selectedEdge}
         attachmentUid={attachmentUid} fixture={cables.length ? { cable_classes: cables.map(c => c.cableClass), usable: true } : fixtureMap.get(segment?.id ?? "")} canManage={canManage} busy={busy} mutate={mutate} onSelect={setSelection} onOpenRouting={onOpenRouting} demoCables={cables}

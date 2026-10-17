@@ -10,6 +10,42 @@ import { sectionDirections, sectionView } from "../src/routing/sectionDirections
 import { collectPlacementCables, filterCableMembers } from "../src/routing/segmentCableMembers.ts";
 import { projectReviewPoint, reviewConnector, reviewGroupsForPart } from "../src/routing/cableReviewProjection.ts";
 import { cabinetFixtureRun, projectFixtureRun, offsetPolyline } from "../src/routing/cabinetFixtureRun.ts";
+import { loadRoutingCableTable } from "../src/routing/routingCableDetails.ts";
+
+test("route cable table loads real detail fields and strictly filters membership and type", async () => {
+  const member = (uid, reverse = false) => ({uid, source_cabinet_uid: reverse ? "cab-b" : "cab-a", destination_cabinet_uid: reverse ? "cab-a" : "cab-b"});
+  const selected = {uid: "member-1", cable_type: "LC", progress: {pulled: "complete"}, status: "Cable Is Ran: Complete", length_used_meters: 12, group: "Actual group", a_port_uid: "actual-a", z_port_uid: "actual-z"};
+  const request = {source: "801", target: "811", cableType: "LC", inventoryCables: [member("member-1"), member("changed-type", true)], fixtureCables: []};
+  const calls = [];
+  const response = await loadRoutingCableTable(request, async (a, z) => {
+    calls.push([a, z]);
+    return {cables: [selected, {...selected, uid: "not-on-segment"}, {...selected, uid: "changed-type", cable_type: "MPO"}]};
+  });
+  assert.deepEqual(calls, [["cab-a", "cab-b"]]);
+  assert.deepEqual(response.cables, [selected]);
+  assert.equal(response.source_cabinet_uid, "801");
+  assert.equal(response.target_cabinet_uid, "811");
+});
+
+test("route cable tables do not truncate large groups and propagate load errors", async () => {
+  const inventoryCables = Array.from({length: 288}, (_, n) => ({uid: `mpo-${n}`, source_cabinet_uid: "a", destination_cabinet_uid: "z"}));
+  const request = {source: "801", target: "810", cableType: "MPO", inventoryCables, fixtureCables: []};
+  const response = await loadRoutingCableTable(request, async () => ({cables: inventoryCables.map(c => ({uid: c.uid, cable_type: "MPO"}))}));
+  assert.equal(response.cables.length, 288);
+  await assert.rejects(loadRoutingCableTable(request, async () => {throw new Error("API unavailable");}), /API unavailable/);
+  await assert.rejects(loadRoutingCableTable({...request, inventoryCables: [{uid: "missing-cabinet"}]}, async () => {assert.fail("No invented cabinet lookup");}), /Cabinet references are missing/);
+});
+
+test("fixture detail tables never query inventory or invent progress or measured lengths", async () => {
+  const response = await loadRoutingCableTable({source: "021", target: "031", cableType: "LC", inventoryCables: [], fixtureCables: [{id: "fixture-lc", cableClass: "LC", sourceCabinetId: "021", destinationCabinetId: "031"}]}, async () => {assert.fail("Fixtures must not query inventory");});
+  const [cable] = response.cables;
+  assert.equal(cable.uid, "fixture-lc");
+  assert.equal(cable.group, "Display-only fixture");
+  assert.deepEqual(cable.progress, {});
+  assert.equal(cable.current_phase, null);
+  assert.equal(cable.length_meters, null);
+  assert.match(cable.a_port_uid, /Port unassigned/);
+});
 
 test("formats integer inches without feet rounding", () => {
   for (const [value, text] of [[24, `2'-0"`], [34, `2'-10"`], [96, `8'-0"`], [120, `10'-0"`], [264, `22'-0"`], [336, `28'-0"`], [360, `30'-0"`], [788, `65'-8"`]]) {

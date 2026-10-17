@@ -114,16 +114,8 @@
 .routing-segment-inspector .detail-button, .routing-segment-inspector .expand-button.is-collapsed { background: #111827; border-color: #111827; color: #fff; border-radius: 0; }
 .routing-segment-inspector .detail-button:hover, .routing-segment-inspector .expand-button.is-collapsed:hover { background: #334155; }
 .routing-segment-inspector .expand-button.is-expanded { border-radius: 0; }
-.connection-cable-details { margin-top: 10px; border-top: 1px solid #dbe3ef; padding-top: 8px; }
-.routing-segment-inspector .connection-cable-details h4 { display: flex; justify-content: space-between; gap: 8px; margin: 0 0 8px; font-size: 11px; }
-.connection-cable-details h4 span { color: #64748b; font-weight: 400; }
-.connection-cable-list { display: grid; gap: 5px; }
-.routing-segment-inspector .connection-cable-row { display: block; width: 100%; border: 1px solid #dbe3ef; border-left: 3px solid; border-radius: 0; background: #fff; padding: 7px; text-align: left; }
-.connection-cable-heading { display: flex; justify-content: space-between; gap: 5px; font-size: 11px; }
-.connection-cable-heading > span { white-space: nowrap; color: #475569; }
-.connection-cable-row small { display: block; color: #64748b; font-size: 10px; line-height: 1.5; margin-top: 3px; overflow-wrap: anywhere; }
-.routing-segment-inspector .connection-cable-row.is-selected { background: #eff6ff; outline: 2px solid #334155; outline-offset: -1px; }
-.connection-cable-labels { display: block; border-top: 1px solid #cbd5e1; margin-top: 5px; padding-top: 3px; }
+.routing-segment-inspector .mini-detail-button { background: #111827; border: 0; border-radius: 0; color: #fff; margin: 0; padding: 4px 6px; font-size: 10px; }
+.routing-segment-inspector .mini-detail-button:hover { background: #334155; }
 .map-pane:has(.map-route-toggle) > .pane-header { flex-wrap: wrap; gap: 8px; height: auto; min-height: 40px; }
 .map-pane:has(.map-route-toggle) .map-title-line { flex-shrink: 0; }
 .map-pane:has(.map-route-toggle) .map-controls { flex-wrap: wrap; }
