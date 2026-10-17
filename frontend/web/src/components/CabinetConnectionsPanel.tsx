@@ -11,6 +11,7 @@ import type {
 } from "../types";
 import { useDragPan } from "../hooks/useDragPan";
 import { useI18n } from "../i18n";
+import { ConnectionCard } from "./ConnectionCard";
 
 export type CabinetCableRoute = {
   sourceCabinetUid: string;
@@ -582,21 +583,9 @@ function ConnectionSummaryCard({
 }) {
   const { formatNumber, t } = useI18n();
   return (
-    <article className={`connection-item ${className}`.trim()}>
-      <div className="connection-heading">
-        <strong>{title}</strong>
-        {headingMetric ? <span>{headingMetric}</span> : <ConnectionCountMetric diffStats={summary.change_order_stats} totalCables={summary.total_cables} />}
-      </div>
-      <StatusCompletion summary={summary.status_summary} />
-      <div className="connection-meta">{subtitle}</div>
-      <ul className="cable-types">
-        {Object.entries(summary.cable_type_counts).map(([type, count]) => (
-          <li key={type}>
-            <span>{type}</span>
-            <b>{formatNumber(count)}</b>
-          </li>
-        ))}
-      </ul>
+    <ConnectionCard className={className} title={title} subtitle={subtitle}
+      metric={headingMetric ? <span>{headingMetric}</span> : <ConnectionCountMetric diffStats={summary.change_order_stats} totalCables={summary.total_cables} />}
+      status={<StatusCompletion summary={summary.status_summary} />} cableTypeCounts={summary.cable_type_counts} formatNumber={formatNumber}>
       {onViewCables ? (
         <button className="detail-button" onClick={onViewCables}>
           {t("connections.viewCables")}
@@ -609,7 +598,7 @@ function ConnectionSummaryCard({
             : t("connections.expandPeers", { count: formatNumber(peerCount ?? 0) })}
         </button>
       ) : null}
-    </article>
+    </ConnectionCard>
   );
 }
 
@@ -622,27 +611,15 @@ function CabinetConnectionCard({
 }) {
   const { formatNumber, t } = useI18n();
   return (
-    <article className="connection-item">
-      <div className="connection-heading">
-        <strong>{connection.target_cabinet_uid}</strong>
-        <ConnectionCountMetric diffStats={connection.change_order_stats} totalCables={connection.total_cables} />
-      </div>
-      <StatusCompletion summary={connection.status_summary} />
-      <div className="connection-meta">
-        {connection.target_category} {connection.target_cabinet_group ? `- ${connection.target_cabinet_group}` : ""}
-      </div>
-      <ul className="cable-types">
-        {Object.entries(connection.cable_type_counts).map(([type, count]) => (
-          <li key={type}>
-            <span>{type}</span>
-            <b>{formatNumber(count)}</b>
-          </li>
-        ))}
-      </ul>
+    <ConnectionCard title={connection.target_cabinet_uid}
+      metric={<ConnectionCountMetric diffStats={connection.change_order_stats} totalCables={connection.total_cables} />}
+      status={<StatusCompletion summary={connection.status_summary} />}
+      subtitle={<>{connection.target_category} {connection.target_cabinet_group ? `- ${connection.target_cabinet_group}` : ""}</>}
+      cableTypeCounts={connection.cable_type_counts} formatNumber={formatNumber}>
       <button className="detail-button" onClick={() => onViewCables(connection.target_cabinet_uid)}>
         {t("connections.viewCables")}
       </button>
-    </article>
+    </ConnectionCard>
   );
 }
 

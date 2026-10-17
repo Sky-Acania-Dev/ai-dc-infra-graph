@@ -11,6 +11,6 @@ export function CableReviewPanel({review, groups, selectedGroupUid, onGroup, sel
     <label>Type / rack-pair group<select aria-label="Actual cable group" value={selected?.uid ?? ""} onChange={e => onGroup(e.target.value || null)}><option value="">All {groups.length} groups on selection</option>{groups.map(g => <option key={g.uid} value={g.uid}>{g.cable_type} × {g.count} · {g.source_cabinet_id} ↔ {g.destination_cabinet_id}{g.route ? g.route.method === "SAME_ROW" ? " · same row" : " · A*" : " · unrouted"}</option>)}</select></label>
     {selected && <p className="section-selection-info">{selected.cable_type} × {selected.count} · {selected.source_cabinet_id} ↔ {selected.destination_cabinet_id}<br />{selected.route ? `${selected.route.method === "SAME_ROW" ? "Direct cold-side row route" : "A* cross-row placeholder"} · Planar pathway length ${formatInches(selected.route.planar_length_in)}` : selected.reason}<br />Tier and individual bundle positions remain unassigned.</p>}
     {!groups.length && <p>No actual pilot cables use this part of the pathway.</p>}
-    <SegmentCables cables={[]} inventoryCables={cables} selectedCableId={selectedCableId} onSelect={onCable} />
+    <SegmentCables cables={[]} inventoryCables={cables} selectedCableId={selectedCableId} onSelect={onCable} autoShowCables={Boolean(selected)} />
   </section>;
 }

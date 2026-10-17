@@ -80,7 +80,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const demoCable = selectedPlacementUid?.startsWith("demo-section:") ? cables.find(c => `demo-section:${c.id}` === selectedPlacementUid) : undefined;
   const reviewGroups = review ? reviewGroupsForPart(review, segment?.id, reviewLoadId, attachmentUid) : [];
   const highlightGroupUid = reviewGroupUid ?? review?.groups.find(g => g.cable_uids.includes(selectedFixtureCableId ?? ""))?.uid ?? null;
-  const inspector = data && inspecting ? <aside className="side-pane routing-page routing-side routing-segment-inspector" aria-label="Routing segment cable details">
+  const inspector = data && inspecting ? <aside className="side-pane connections-pane routing-page routing-side routing-segment-inspector" aria-label="Routing segment cable details">
     <div className="routing-inspector-heading"><span className="eyebrow">Segment cables</span><button onClick={clearPath}>Close routing details</button></div>
     {review ? <CableReviewPanel review={review} groups={reviewGroups} selectedGroupUid={reviewGroupUid} onGroup={uid => {setReviewGroupUid(uid); setSelectedFixtureCableId(null); onClearSelection();}} selectedCableId={selectedFixtureCableId} onCable={setSelectedFixtureCableId} /> : (segment || attachmentUid) && <SegmentCables cables={cables} inventoryCables={cableMembers.cables} members={cableMembers.members} loading={cableMembers.loading} error={cableMembers.error}
       bundleFilter={selectedPlacementUid ? {uid: selectedPlacementUid, label: selectedBundle?.label ?? (demoCable ? `Demo ${demoCable.cableClass} 021→031` : "Selected bundle"), fixtureCableIds: selectedBundle?.fixtureCableIds ?? (demoCable ? [demoCable.id] : undefined)} : null}

@@ -92,7 +92,6 @@
 .section-bundle-detail svg { width: 100%; max-height: 165px; display: block; }
 .section-bundle-detail p { font-size: 10px; line-height: 1.5; margin: 4px 0; }
 .segment-bundle-filter { padding: 8px; border: 1px solid #b4cce7; background: #eff6ff; border-radius: 4px; display: grid; gap: 6px; font-size: 11px; }
-.segment-cable-summary { font-size: 11px; line-height: 1.7; padding-left: 17px; color: #475569; }
 .actual-review-notice { margin: 6px 0; padding: 8px 10px; background: #eef6ff; border: 1px solid #aac7e7; color: #254d76; font-size: 11px; line-height: 1.5; border-radius: 4px; }
 .cable-review-panel > label { display: grid; gap: 5px; font-size: 11px; }
 .cable-review-panel select { width: 100%; min-width: 0; }
@@ -109,11 +108,22 @@
 .routing-inspector-heading { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
 .routing-inspector-heading .eyebrow { padding-top: 7px; }
 .routing-segment-inspector h3 { line-height: 1.4; }
-.segment-cable-list { display: grid; gap: 9px; margin: 14px 0; }
-.routing-page .segment-cable-card { display: grid; grid-template-columns: 1fr auto; gap: 6px; border-left: 5px solid; background: #fff; text-align: left; padding: 11px; }
-.segment-cable-card strong { font-size: 14px; }
-.segment-cable-card small { grid-column: 1 / -1; color: #64748b; font-size: 10px; overflow-wrap: anywhere; }
-.routing-page .segment-cable-card.is-selected { background: #eff6ff; outline: 2px solid #334155; outline-offset: 1px; }
+.routing-segment-inspector .segment-connection-list { max-height: none; overflow: visible; }
+.routing-segment-inspector .connection-heading { gap: 8px; align-items: baseline; }
+.routing-segment-inspector .connection-heading > span { flex-shrink: 0; }
+.routing-segment-inspector .detail-button, .routing-segment-inspector .expand-button.is-collapsed { background: #111827; border-color: #111827; color: #fff; border-radius: 0; }
+.routing-segment-inspector .detail-button:hover, .routing-segment-inspector .expand-button.is-collapsed:hover { background: #334155; }
+.routing-segment-inspector .expand-button.is-expanded { border-radius: 0; }
+.connection-cable-details { margin-top: 10px; border-top: 1px solid #dbe3ef; padding-top: 8px; }
+.routing-segment-inspector .connection-cable-details h4 { display: flex; justify-content: space-between; gap: 8px; margin: 0 0 8px; font-size: 11px; }
+.connection-cable-details h4 span { color: #64748b; font-weight: 400; }
+.connection-cable-list { display: grid; gap: 5px; }
+.routing-segment-inspector .connection-cable-row { display: block; width: 100%; border: 1px solid #dbe3ef; border-left: 3px solid; border-radius: 0; background: #fff; padding: 7px; text-align: left; }
+.connection-cable-heading { display: flex; justify-content: space-between; gap: 5px; font-size: 11px; }
+.connection-cable-heading > span { white-space: nowrap; color: #475569; }
+.connection-cable-row small { display: block; color: #64748b; font-size: 10px; line-height: 1.5; margin-top: 3px; overflow-wrap: anywhere; }
+.routing-segment-inspector .connection-cable-row.is-selected { background: #eff6ff; outline: 2px solid #334155; outline-offset: -1px; }
+.connection-cable-labels { display: block; border-top: 1px solid #cbd5e1; margin-top: 5px; padding-top: 3px; }
 .map-pane:has(.map-route-toggle) > .pane-header { flex-wrap: wrap; gap: 8px; height: auto; min-height: 40px; }
 .map-pane:has(.map-route-toggle) .map-title-line { flex-shrink: 0; }
 .map-pane:has(.map-route-toggle) .map-controls { flex-wrap: wrap; }

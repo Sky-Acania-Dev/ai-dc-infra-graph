@@ -7,8 +7,10 @@ import {renderToStaticMarkup} from "react-dom/server";
 import {build} from "esbuild";
 
 const require = createRequire(import.meta.url);
-async function component(file, name) {
-  const result = await build({entryPoints: [resolve(`src/routing/${file}.tsx`)], bundle: true, platform: "node", format: "cjs", packages: "external", write: false, logLevel: "silent", define: {"import.meta.env": "{}"}});
+async function component(file, name, withI18n = false) {
+  const path = resolve(`src/routing/${file}.tsx`);
+  const entry = withI18n ? {stdin: {contents: `import React from 'react'; import {${name} as Component} from ${JSON.stringify(path)}; import {I18nProvider} from ${JSON.stringify(resolve('src/i18n.tsx'))}; export function ${name}(props) {return React.createElement(I18nProvider, null, React.createElement(Component, props));}`, loader: "tsx", resolveDir: resolve(".")}} : {entryPoints: [path]};
+  const result = await build({...entry, bundle: true, platform: "node", format: "cjs", packages: "external", write: false, logLevel: "silent", define: {"import.meta.env": "{}"}});
   const compiled = {exports: {}};
   new Function("require", "module", "exports", result.outputFiles[0].text)(require, compiled, compiled.exports);
   return compiled.exports[name];
@@ -21,6 +23,7 @@ const TierSections = await component("TierSectionDiagrams", "TierSectionDiagrams
 const SegmentCables = await component("SegmentCables", "SegmentCables");
 const CableReviewPanel = await component("CableReviewPanel", "CableReviewPanel");
 const CableReviewLayer = await component("CableReviewLayer", "CableReviewLayer");
+const CabinetConnectionsPanel = await component("../components/CabinetConnectionsPanel", "CabinetConnectionsPanel", true);
 const box = {uid: "g", tier: 1, label: "G1", cable_class: "LC", sourceAvailable: true, demo: true, layer: 1, position: 1, slot_width: 3, slot_height: 2, offset_across_in: 0, offset_up_in: 0, occupied_width_in: 4, occupied_height_in: 2};
 const span = {id: "span", passage_band_uid: "north", cross_route_uid: null, start_station_in: 0, end_station_in: 108, from_passage_band_uid: null, to_passage_band_uid: null};
 
@@ -76,15 +79,16 @@ test("right panel filters fixtures by member ID and shows type count and rack pa
   const cables = ["a", "b"].map(id => ({id, cableClass: "LC", sourceCabinetId: "021", destinationCabinetId: "031"}));
   const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables, selectedCableId: null, onSelect: () => {}, bundleFilter: {uid: "demo-group", label: "Group A", fixtureCableIds: ["a"]}}));
   assert.match(html, /1 fixture cable in group/);
-  assert.match(html, /LC × 1 · 021 → 031/);
-  assert.equal((html.match(/class="segment-cable-card/g) ?? []).length, 1);
+  assert.match(html, /<span>LC<\/span><b>1<\/b>/);
+  assert.match(html, /021 ↔ 031/);
+  assert.equal((html.match(/class="connection-cable-row/g) ?? []).length, 1);
   assert.match(html, /Show all segment cables/);
 });
 
 test("actual review group selection shows inventory cables and provisional routing without fake tiers", () => {
   const group = {uid: 'g', source_cabinet_id: '001', destination_cabinet_id: '011', cable_type: 'LC-TO-LC SMF', cable_uids: ['actual-1'], count: 1, route: {method: 'ASTAR', planar_length_in: 120}};
   const cables = [{uid: 'actual-1', cable_type: 'LC-TO-LC SMF', cable_class: 'LC', source_cabinet_id: '001', destination_cabinet_id: '011', source_port_name: 'P1', destination_port_name: 'P2', source_label: 'A01', destination_label: 'Z01', notes: ''}];
-  const html = renderToStaticMarkup(React.createElement(CableReviewPanel, {review: {cables}, groups: [group], selectedGroupUid: 'g', onGroup: () => {}, selectedCableId: null, onCable: () => {}}));
+  const html = renderToStaticMarkup(React.createElement(CableReviewPanel, {review: {cables}, groups: [group], selectedGroupUid: 'g', onGroup: () => {}, selectedCableId: 'actual-1', onCable: () => {}}));
   assert.match(html, /A\* cross-row placeholder/); assert.match(html, /actual-1/); assert.match(html, /A01/);
   assert.match(html, /border-left-color:#246bfe/);
   assert.match(html, /unassigned/); assert.doesNotMatch(html, /fixture cable|Fake review|Tier 1/);
@@ -92,10 +96,59 @@ test("actual review group selection shows inventory cables and provisional routi
 
 test("large real cable lists render an initial page without hiding the actual total", () => {
   const cables = Array.from({length: 200}, (_, i) => ({uid: `actual-${i}`, cable_type: 'CAT6a', source_cabinet_id: '001', destination_cabinet_id: '002'}));
-  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables: cables, selectedCableId: null, onSelect: () => {}}));
+  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables: cables, selectedCableId: null, onSelect: () => {}, autoShowCables: true}));
   assert.match(html, /200 cables/);
-  assert.equal((html.match(/class="segment-cable-card/g) ?? []).length, 60);
+  assert.equal((html.match(/class="connection-cable-row/g) ?? []).length, 60);
   assert.match(html, /Show 60 more cables/);
+});
+
+test("pathway summaries combine both A/Z directions and defer individual cable lists", () => {
+  const inventoryCables = [
+    {uid: "a", cable_type: "LC", source_cabinet_id: "801", destination_cabinet_id: "811"},
+    {uid: "b", cable_type: "LC", source_cabinet_id: "811", destination_cabinet_id: "801"},
+    {uid: "c", cable_type: "CAT6a", source_cabinet_id: "801", destination_cabinet_id: "820"},
+  ];
+  const props = {cables: [], inventoryCables, selectedCableId: null, onSelect: () => {}};
+  const html = renderToStaticMarkup(React.createElement(SegmentCables, props));
+  assert.match(html, /3 cables/);
+  assert.match(html, /2 rack pairs/);
+  assert.match(html, /<span>LC<\/span><b>2<\/b>/);
+  assert.match(html, /Show rack pairs \(2\)/);
+  assert.match(html, /View cables · selected pathway/);
+  assert.doesNotMatch(html, /connection-cable-row|meter|complete/);
+  const detail = renderToStaticMarkup(React.createElement(SegmentCables, {...props, autoShowCables: true, selectedCableId: "b"}));
+  assert.match(detail, /811 → 801/);
+  assert.match(detail, /aria-pressed="true"/);
+});
+
+test("saved bundle membership cannot leak other segment cables into the detail list", () => {
+  const inventoryCables = ["included", "excluded"].map(uid => ({uid, cable_type: "LC", source_cabinet_id: "021", destination_cabinet_id: "031"}));
+  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables, members: {bundle: ["included"]}, bundleFilter: {uid: "bundle", label: "Saved bundle"}, selectedCableId: null, onSelect: () => {}}));
+  assert.match(html, /1 cable in group/);
+  assert.match(html, /included/);
+  assert.doesNotMatch(html, /excluded|fixture cable/);
+  const empty = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables, members: {}, bundleFilter: {uid: "missing", label: "Empty bundle"}, selectedCableId: null, onSelect: () => {}}));
+  assert.match(empty, /0 cables in group/);
+  assert.match(empty, /No actual cable members linked/);
+  assert.doesNotMatch(empty, /connection-cable-row/);
+});
+
+test("cabinet cards preserve completion, type totals and cable actions after sharing presentation", () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {localStorage: {getItem: () => "en"}};
+  try {
+    const connection = {target_cabinet_uid: "LBB01:811", target_category: "Rack", target_cabinet_group: "Test", total_cables: 4, cable_type_counts: {LC: 4}, status_summary: {completed: 1, total: 4, status_counts: {}}};
+    const detail = {cabinet: {cabinet_uid: "LBB01:801"}, stats: {connected_cabinets: 1}, intra_cabinet_connection: null, connections: [connection]};
+    const html = renderToStaticMarkup(React.createElement(CabinetConnectionsPanel, {detail, selectedCabinetDetails: [], selectedDeviceDetails: [], deviceDetail: null, dataHallCableSummary: null, onViewCables: () => {}}));
+    assert.match(html, /LBB01:811/);
+    assert.match(html, /1\/4 complete/);
+    assert.match(html, /<span>LC<\/span><b>4<\/b>/);
+    assert.match(html, /class="detail-button"/);
+    assert.equal((html.match(/class="connection-item/g) ?? []).length, 2);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
 });
 
 test("a straight actual-cable segment has a nonzero rectangular mouse target", () => {
