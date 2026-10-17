@@ -36,6 +36,9 @@ def derive_graph(data: dict) -> RoutingGraph:
             continue
         previous = None
         for band in bands:
+            if band['uid'] not in route['passage_band_uids']:
+                previous = None
+                continue
             # A missing middle passage must not become a NORTH-to-SOUTH shortcut.
             if (band['uid'], rt['tier']) not in passage_tiers:
                 previous = None

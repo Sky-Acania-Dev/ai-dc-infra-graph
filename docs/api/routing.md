@@ -148,7 +148,17 @@ The geometric Routing configuration has a **Connections / attachments** tab for 
 
 Downgrade preserves old single-slot records. Rectangle/multi-cell occupations must be explicitly converted or removed before rolling back to the older schema, which cannot represent them.
 
-## Confirmed LBB01 elevations
+## Actual-cable pilot (feature branch)
+
+In the conceptual cabinet map, **Actual cable review · 001–020 / 801–820** loads real inventory cable IDs with both ends in these 40 Section 1 cabinets. The style fixtures are off by default and mutually exclusive with actual review. **Focus actual cable rows** frames these rows. Same-cabinet cables remain local and are counted separately. Cables with an endpoint outside this scope are excluded.
+
+`GET /routing/layouts/{uid}/cable-review` is a read-only LBB01 DH1 pilot. It requires all 40 cabinets to be mapped, reads active inventory cable/port/cabinet references, and returns actual inter-rack cable records, type/rack-pair groups, provisional paths and used subsegments. Selecting a used subsegment filters groups/cables to that precise part; selecting a type/rack-pair group highlights its route. **Focus cable group** frames that selected path. Cable cards retain actual IDs, port names and endpoint labels and are paged in the browser.
+
+Same-row pairs use their row's cold-side route directly, between schematic cabinet attachment positions. Cross-row pairs use deterministic A* with an admissible Manhattan heuristic and integer-inch planar costs. Temporary attachment vertices split the review graph only; they never alter the persistent domain or confirmed tier graph. Longitudinal travel occurs only on NORTH/CENTRAL/SOUTH passages. Row routes stay on their respective field: NORTH–CENTRAL or CENTRAL–SOUTH; section-gap routes still span both fields. Disabled routes, missing authoritative cabinet ordering and manually unusable spans cannot become implicit shortcuts.
+
+The review makes **no database writes**, creates no CableBundle/EntityGroup memberships, and assigns no pathway tiers, physical openings, sectional slots or rectangles. Existing tier-aware route preview remains separate and requires confirmed configured tiers/openings. Review lengths exclude cabinet drop/entry distance, vertical travel, slack and bend corrections; they are provisional planar pathway lengths, never cable lengths. This is a review aid, not saved cable-routing design policy. Main and deployed Docker application containers are not changed by enabling it.
+
+## Confirmed elevation references
 
 Migration `d84e30b6f219` adds nullable hall measurements `bottom_basket_elevation_in` and `north_south_top_elevation_in`, plus a tier's optional `elevation_reference`. The LBB01 Building A DH1 initializer now records the user-confirmed 98/116-inch references without creating pathway tiers. Other projects/buildings receive no measurement defaults.
 

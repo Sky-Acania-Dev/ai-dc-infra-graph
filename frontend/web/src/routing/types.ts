@@ -25,12 +25,17 @@ export type RoutingLayout = {
   longitudinal_direction: "EAST" | "WEST" | null;
 };
 export type InventoryCable = {
-  uid: string; cable_type: string; cable_group: string;
+  uid: string; cable_type: string; cable_group: string; cable_class?: CableClass | null;
   source_cabinet_uid: string | null; source_cabinet_id: string | null; destination_cabinet_uid: string | null; destination_cabinet_id: string | null;
   source_port_uid: string; source_port_name: string | null; destination_port_uid: string; destination_port_name: string | null;
   source_label: string; destination_label: string; notes: string;
 };
 export type PlacementCables = { placement_uid: string; label: string; source_available: boolean; cables: InventoryCable[]; summary: Array<{cable_type: string; source_cabinet_id: string | null; destination_cabinet_id: string | null; count: number}> };
+export type ReviewPoint = { x_in: number; y_in: number; passage_band_uid: string | null; cabinet_uid: string | null };
+export type ReviewGroup = { uid: string; source_cabinet_uid: string; destination_cabinet_uid: string; source_cabinet_id: string; destination_cabinet_id: string; cable_type: string; cable_class: CableClass | null; cable_uids: string[]; count: number; tier: null; reason: string | null;
+  route: { method: "SAME_ROW" | "ASTAR"; points: ReviewPoint[]; load_ids: string[]; segment_ids: string[]; planar_length_in: number } | null };
+export type ReviewLoad = { id: string; segment_id: string; source: ReviewPoint; target: ReviewPoint; planar_length_in: number; group_uids: string[]; cable_classes: CableClass[]; cable_count: number };
+export type CableReview = { label: string; provisional: true; tier: null; algorithm: string; cabinet_uids: string[]; inventory_cable_count: number; same_cabinet_count: number; routed_cable_count: number; unrouted_cable_count: number; cable_types: Record<string, number>; groups: ReviewGroup[]; loads: ReviewLoad[]; cables: InventoryCable[]; notes: string };
 export type Section = RecordBase & { ordinal: number; name: string; room_uid: string | null };
 export type Band = RecordBase & { ordinal: number; kind: "PASSAGE" | "ROW_FIELD"; code: string; width_in: number };
 export type RowPair = RecordBase & { routing_section_uid: string; row_field_band_uid: string; ordinal_in_section: number; name: string | null };
@@ -72,7 +77,7 @@ export type ResolvedLayout = {
     row_pairs: Array<RowPair & Omit<Bounds, "center_in"> & { hot_aisle_start_in: number; hot_aisle_end_in: number }>;
     cabinet_rows: Array<CabinetRow & Bounds & { section_uid: string; row_field_band_uid: string; existing_cabinet_uids: string[]; row_number: number; display_name: string }>;
     cold_aisles: Array<Omit<Bounds, "center_in"> & { section_uid: string; row_field_band_uid: string }>;
-    cross_routes: Array<CrossRoute & Omit<Bounds, "center_in"> & { station_in: number; effective_enabled: boolean; display_label: string }>;
+    cross_routes: Array<CrossRoute & Omit<Bounds, "center_in"> & { station_in: number; effective_enabled: boolean; display_label: string; passage_band_uids?: string[]; start_y_in: number; end_y_in: number }>;
     station_labels: Array<{ passage_band_uid: string; station_in: number; token: string }>;
     total_width_in: number; hall_length_in: number; module_end_in: number;
   };

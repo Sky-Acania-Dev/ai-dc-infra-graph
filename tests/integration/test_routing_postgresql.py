@@ -172,6 +172,31 @@ class RoutingPostgreSQLTests(unittest.TestCase):
         self.assertEqual({p['effective_elevation_in'] for p in resolved['passage_tiers']}, {98, 116})
         self.assertTrue(all(p['elevation_reference'] is None for p in resolved['passage_tiers']))
 
+    def test_actual_cable_pilot_is_read_only_and_uses_inventory_references(self):
+        from backend.services.routing_cable_review import cable_review
+        data = routing.initialize_lbb01(self.session)
+        uid = data['layout']['uid']
+        for n in [*range(1, 22), *range(801, 821)]:
+            col = (n - 1) % 10 if ((n - 1) // 10) % 2 == 0 else 9 - (n - 1) % 10
+            self.session.add(db.Cabinet(uid=f'pilot:{n}', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-1', cabinet_id=f'{n:03d}', source_col=col))
+        self.session.flush()
+        for n in [*range(1, 22), *range(801, 821)]:
+            self.session.add(db.Port(uid=f'pilot-port:{n}', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-1', cabinet_uid=f'pilot:{n}', port_name='P1'))
+        self.session.flush()
+        for index, (a, b, cable_type) in enumerate(((1, 2, 'LC-TO-LC SMF'), (2, 1, 'LC-TO-LC SMF'), (1, 11, 'CAT6a'), (1, 801, 'MPO12-SMF'), (1, 1, 'CAT6a'), (1, 21, 'LC-TO-LC SMF'))):
+            self.session.add(db.Cable(uid=f'pilot-cable:{index}', project_uid='LBB01', building_uid='LBB01:A', a_port_uid=f'pilot-port:{a}', z_port_uid=f'pilot-port:{b}', cable_type=cable_type))
+        self.session.flush()
+        before = routing.snapshot(self.session, uid)
+        result = cable_review(self.session, uid)
+        self.assertEqual((result['inventory_cable_count'], result['same_cabinet_count'], result['routed_cable_count']), (5, 1, 4))
+        self.assertEqual(result['unrouted_cable_count'], 0)
+        self.assertEqual({g['route']['method'] for g in result['groups']}, {'SAME_ROW', 'ASTAR'})
+        self.assertEqual({c['uid'] for c in result['cables']}, {f'pilot-cable:{i}' for i in range(4)})
+        self.assertEqual({c['cable_class'] for c in result['cables']}, {'LC', 'CAT6', 'MPO'})
+        self.assertTrue(all(g['tier'] is None for g in result['groups']))
+        self.assertEqual(before, routing.snapshot(self.session, uid))
+        self.assertEqual(result, cable_review(self.session, uid))
+
     def test_section_direction_persistence_and_central_validation(self):
         data = routing.initialize_lbb01(self.session)
         uid = data['layout']['uid']

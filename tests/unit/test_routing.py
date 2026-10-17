@@ -355,7 +355,7 @@ class RoutingTests(unittest.TestCase):
             reverse[key.replace('-', '_')].reverse()
         self.assertEqual(graph, derive_graph(reverse))
         self.assertEqual({e.planar_length_in for e in graph.edges if e.edge_type == 'CROSS_ROUTE'}, {365, 389})
-        self.assertEqual(len([e for e in graph.edges if e.edge_type == 'CROSS_ROUTE']), 164 * 2)
+        self.assertEqual(len([e for e in graph.edges if e.edge_type == 'CROSS_ROUTE']), 160 + 4 * 2)
         self.assertFalse(any(e.edge_type == 'JUNCTION' for e in graph.edges))
         self.assertEqual(len(graph.nodes), len({(n.x_in, n.y_in, n.tier) for n in graph.nodes}))
         nodes = {n.id: n for n in graph.nodes}
@@ -474,7 +474,7 @@ class RoutingTests(unittest.TestCase):
         config.delete_resource(self.session, self.uid, 'segment-annotations', item['uid'])
         self.assertFalse(any(e.cable_classes or not e.usable for e in derive_graph(self.data_now()).edges))
 
-    def test_obstruction_blocks_coincident_cross_route_representations(self):
+    def test_obstruction_stays_on_its_physical_row_field(self):
         self.configure_tiers(tiers=(1,), cross_tiers=(1,))
         routes = self.data['geometry']['cross_routes']
         row = next(r for r in self.data['geometry']['cabinet_rows'] if r['cabinet_number_start'] == 1)
@@ -486,7 +486,7 @@ class RoutingTests(unittest.TestCase):
         data = self.data_now()
         graph = derive_graph(data)
         blocked = [e for e in graph.edges if not e.usable]
-        self.assertEqual(len(blocked), 2)
+        self.assertEqual(len(blocked), 1)
         self.assertEqual({e.planar_length_in for e in blocked}, {389})
         alias = next(r for r in routes if r['uid'] != route['uid'] and r['station_in'] == route['station_in'])
         with self.assertRaises(config.RoutingConfigurationError), self.session.begin_nested():
@@ -673,7 +673,7 @@ class RoutingTests(unittest.TestCase):
         self.configure_tiers(tiers=(1,), cross_tiers=(1,))
         a = self.placement(self.section_span())
         central = next(b['uid'] for b in self.data['bands'] if b['code'] == 'CENTRAL')
-        route = next(r for r in self.data['geometry']['cross_routes'] if r['station_in'] == 108)
+        route = next(r for r in self.data['geometry']['cross_routes'] if r['station_in'] == 108 and self.north() in r['passage_band_uids'])
         parent = self.save('segment-annotations', {'cross_route_uid': route['uid'], 'from_passage_band_uid': self.north(), 'to_passage_band_uid': central})
         b = self.placement(parent)
         values = {'from_placement_uid': a['uid'], 'from_end': 'END', 'to_placement_uid': b['uid'], 'to_end': 'START'}

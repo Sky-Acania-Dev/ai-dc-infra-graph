@@ -1,4 +1,4 @@
-import type { ResolvedLayout, Resource, RoutingGraph, RoutingLayout, RoutePreview, PlacementSource, PlacementCables } from "./types";
+import type { ResolvedLayout, Resource, RoutingGraph, RoutingLayout, RoutePreview, PlacementSource, PlacementCables, CableReview } from "./types";
 
 const BASE = `${import.meta.env.VITE_API_BASE_URL ?? ""}/routing`;
 async function request<T>(path: string, method = "GET", payload?: object, signal?: AbortSignal): Promise<T> {
@@ -16,6 +16,7 @@ export const routingApi = {
   graph: (uid: string, signal?: AbortSignal) => request<RoutingGraph>(`/layouts/${uid}/graph`, "GET", undefined, signal),
   placementSources: (uid: string, signal?: AbortSignal) => request<PlacementSource[]>(`/layouts/${uid}/placement-sources`, "GET", undefined, signal),
   placementCables: (layout: string, uid: string, signal?: AbortSignal) => request<PlacementCables>(`/layouts/${layout}/bundle-placements/${uid}/cables`, "GET", undefined, signal),
+  cableReview: (layout: string, signal?: AbortSignal) => request<CableReview>(`/layouts/${layout}/cable-review`, "GET", undefined, signal),
   initialize: (building: string) => request<ResolvedLayout>("/initialize-lbb01", "POST", { building_id: building }),
   save: (layout: string, resource: Resource | "layout", values: object, uid?: string, remove = false) =>
     request<unknown>(`/layouts/${layout}${resource === "layout" ? "" : `/${resource}${uid ? `/${uid}` : ""}`}`, remove ? "DELETE" : uid || resource === "layout" ? "PATCH" : "POST", remove ? undefined : values),

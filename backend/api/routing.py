@@ -105,6 +105,13 @@ def get_placement_cables(layout_uid: str, placement_uid: str, user: AuthUser = D
         return placement_cables(session, layout_uid, placement_uid)
 
 
+@router.get('/layouts/{layout_uid}/cable-review')
+def get_cable_review(layout_uid: str, user: AuthUser = Depends(current_user)):
+    from backend.services.routing_cable_review import cable_review
+    with routing_session() as session:
+        return cable_review(session, layout_uid)
+
+
 @router.get('/layouts/{layout_uid}/{resource}')
 def list_resources(layout_uid: str, resource: str, user: AuthUser = Depends(current_user)):
     with routing_session() as session:

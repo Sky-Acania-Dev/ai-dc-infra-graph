@@ -26,7 +26,7 @@ export function conceptualSegments(data: ResolvedLayout): ConceptualSegment[] {
   const annotations = data.segment_annotations ?? [];
   const segments: ConceptualSegment[] = [];
   for (const band of bands) {
-    const stations = [...new Set([0, data.geometry.hall_length_in, ...routes.map(r => r.station_in),
+    const stations = [...new Set([0, data.geometry.hall_length_in, ...routes.filter(r => !r.passage_band_uids || r.passage_band_uids.includes(band.uid)).map(r => r.station_in),
       ...data.vertical_transitions.filter(v => v.enabled && v.passage_band_uid === band.uid).map(v => v.station_in),
       ...annotations.filter(a => a.passage_band_uid === band.uid).flatMap(a => [a.start_station_in!, a.end_station_in!])])].sort((a, b) => a - b);
     stations.slice(1).forEach((end, i) => segments.push({ ...spanDefaults, id: `guide:passage:${band.uid}:${stations[i]}:${end}`,
@@ -40,6 +40,7 @@ export function conceptualSegments(data: ResolvedLayout): ConceptualSegment[] {
     bands.slice(1).forEach((band, i) => {
       // Aligned rows have distinct routes on their respective cabinet fields.
       // Their coincident continuation is represented by the other field's route.
+      if (route.passage_band_uids && (!route.passage_band_uids.includes(bands[i].uid) || !route.passage_band_uids.includes(band.uid))) return;
       if (route.kind === "CABINET_COLD_AISLE" && field && (field.code === "NORTH_FIELD" ? i !== 0 : i !== 1)) return;
       segments.push({ ...spanDefaults, id: `guide:cross:${route.uid}:${bands[i].uid}:${band.uid}`,
       cross_route_uid: route.uid, from_passage_band_uid: bands[i].uid, to_passage_band_uid: band.uid,

@@ -51,10 +51,14 @@ def resolve_geometry(data: dict) -> dict:
         for field in (b for b in bands if b['kind'] == 'ROW_FIELD'):
             cold_aisles.append({'start_in': x, 'end_in': x + cold, 'section_uid': ordered_sections[-1]['uid'], 'row_field_band_uid': field['uid']})
     row_map = {r['uid']: r for r in rows}
+    band_map = {b['uid']: b for b in bands}
+    passages = [b for b in bands if b['kind'] == 'PASSAGE']
     gap_map = {g['after_section_uid']: g for g in gaps}
     routes = []
     for route in sorted(data['cross_routes'], key=lambda r: r['uid']):
         row = row_map.get(route['cabinet_row_uid'])
+        field = band_map[row['row_field_band_uid']] if row else None
+        route_passages = passages if field is None else [b for b in passages if abs(b['ordinal'] - field['ordinal']) == 1]
         if route['station_source'] != 'DERIVED':
             station = route['manual_station_in']
         elif route['kind'] == 'SECTION_GAP':
@@ -65,6 +69,8 @@ def resolve_geometry(data: dict) -> dict:
             station = row['end_in'] + row['cold_route_face_offset_in'] + route['width_in'] // 2
         routes.append({**route, 'station_in': station, 'start_in': station - route['width_in'] // 2,
                        'end_in': station + route['width_in'] // 2,
+                       'passage_band_uids': [b['uid'] for b in route_passages],
+                       'start_y_in': route_passages[0]['center_in'], 'end_y_in': route_passages[-1]['center_in'],
                        'display_label': row['display_name'] if row else f"Section {next(s['ordinal'] for s in sections if s['uid'] == route['section_boundary_after_section_uid'])}-{next(s['ordinal'] for s in sections if s['uid'] == route['section_boundary_after_section_uid']) + 1} gap",
                        'effective_enabled': route['enabled'] and (row is None or row['enabled'])})
     geometry = {'bands': bands, 'sections': sections, 'gaps': gaps, 'row_pairs': pairs, 'cabinet_rows': rows,
@@ -79,13 +85,13 @@ def station_labels(data, geometry):
     result = []
     for band in (b for b in geometry['bands'] if b['kind'] == 'PASSAGE'):
         stations = {0, geometry['hall_length_in']}
-        stations.update(r['station_in'] for r in geometry['cross_routes'] if r['effective_enabled'])
+        stations.update(r['station_in'] for r in geometry['cross_routes'] if r['effective_enabled'] and band['uid'] in r['passage_band_uids'])
         stations.update(v['station_in'] for v in data['vertical_transitions'] if v['passage_band_uid'] == band['uid'] and v['enabled'])
         for marking in data.get('segment_annotations', []):
             if marking['passage_band_uid'] == band['uid']:
                 stations.update((marking['start_station_in'], marking['end_station_in']))
         for station in sorted(stations):
-            matching = [r for r in geometry['cross_routes'] if r['station_in'] == station and r['effective_enabled']]
+            matching = [r for r in geometry['cross_routes'] if r['station_in'] == station and r['effective_enabled'] and band['uid'] in r['passage_band_uids']]
             gap = next((r for r in matching if r['kind'] == 'SECTION_GAP'), None)
             row_numbers = sorted({rows[r['cabinet_row_uid']]['row_number'] for r in matching if r['cabinet_row_uid']})
             opening = next((v for v in data['vertical_transitions'] if v['enabled'] and v['passage_band_uid'] == band['uid'] and v['station_in'] == station), None)

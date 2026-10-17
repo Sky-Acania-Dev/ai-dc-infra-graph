@@ -5,6 +5,7 @@ from backend.schemas.routing import SegmentAnnotationInput
 def validate_annotations(data: dict, geometry: dict) -> None:
     bands = {b['uid']: b for b in geometry['bands']}
     route_stations = {r['uid']: r['station_in'] for r in geometry['cross_routes']}
+    routes = {r['uid']: r for r in geometry['cross_routes']}
     seen = []
     for item in data.get('segment_annotations', []):
         SegmentAnnotationInput.model_validate({k: item[k] for k in SegmentAnnotationInput.model_fields})
@@ -16,6 +17,8 @@ def validate_annotations(data: dict, geometry: dict) -> None:
                 raise ValueError('Segment marking is outside the schematic hall.')
         elif bands[item['to_passage_band_uid']]['ordinal'] - bands[item['from_passage_band_uid']]['ordinal'] != 2:
             raise ValueError('Cross-route markings must follow NORTH-CENTRAL or CENTRAL-SOUTH.')
+        elif not {item['from_passage_band_uid'], item['to_passage_band_uid']} <= set(routes[item['cross_route_uid']]['passage_band_uids']):
+            raise ValueError('A cabinet cold-side span must stay within its own row field.')
         for other in seen:
             same_tier = item['tier'] is None or other['tier'] is None or item['tier'] == other['tier']
             if not same_tier:

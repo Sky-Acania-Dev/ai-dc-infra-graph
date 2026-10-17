@@ -8,6 +8,7 @@ import { conceptualSegments, annotationFor, styleFixtures, rowName, passageName 
 import { segmentTierModel } from "../src/routing/segmentTierModel.ts";
 import { sectionDirections, sectionView } from "../src/routing/sectionDirections.ts";
 import { collectPlacementCables, filterCableMembers } from "../src/routing/segmentCableMembers.ts";
+import { projectReviewPoint, reviewConnector, reviewGroupsForPart } from "../src/routing/cableReviewProjection.ts";
 import { cabinetFixtureRun, projectFixtureRun, offsetPolyline } from "../src/routing/cabinetFixtureRun.ts";
 
 test("formats integer inches without feet rounding", () => {
@@ -426,4 +427,27 @@ test("real cable membership deduplicates overlapping placements and filters by r
   assert.deepEqual(filterCableMembers(visible, "manual-label", members), []);
   assert.equal(filterCableMembers(visible, null, members).length, 2);
   assert.deepEqual(filterCableMembers([{id: "fake-a"}, {id: "fake-b"}], "demo-a", {}, ["fake-b"]), [{id: "fake-b"}]);
+});
+
+test("actual review projection uses cabinet tile centers and cold faces without changing inches", () => {
+  const data = conceptualFixture(), view = conceptualLayout(data, placeRoutingCabinets(data));
+  const before = structuredClone(data), tile = view.cabinets.find(c => c.cabinet.cabinet_uid === 'a1');
+  const point = {cabinet_uid: 'a1', passage_band_uid: null, x_in: 108, y_in: 736};
+  assert.equal(projectReviewPoint(data, view, point).x, tile.x + (tile.width - 2) / 2);
+  const connector = reviewConnector(data, view, 'a1', point);
+  assert.equal(connector.a.y, tile.y);
+  assert.equal(connector.a.x, connector.b.x);
+  assert.equal(projectReviewPoint(data, view, {...point, cabinet_uid: null, passage_band_uid: 'central'}).x, view.passageX.get('central'));
+  assert.equal(projectReviewPoint(data, view, {...point, cabinet_uid: null, passage_band_uid: null, y_in: -1}), null);
+  assert.deepEqual(data, before);
+});
+
+test("actual review filters precise used subsegments and preserves real member references", () => {
+  const a = {uid: 'a', source_cabinet_uid: 'c1', destination_cabinet_uid: 'c2', cable_uids: ['real1'], route: {segment_ids: ['s1', 's2']}};
+  const b = {uid: 'b', source_cabinet_uid: 'c2', destination_cabinet_uid: 'c3', cable_uids: ['real2'], route: {segment_ids: ['s1']}};
+  const review = {groups: [a,b], loads: [{id: 'partial-s1', segment_id: 's1', group_uids: ['a']}]};
+  assert.deepEqual(reviewGroupsForPart(review, 's1', 'partial-s1', null), [a]);
+  assert.deepEqual(reviewGroupsForPart(review, 's1', null, null), [a,b]);
+  assert.deepEqual(reviewGroupsForPart(review, null, null, 'c3'), [b]);
+  assert.deepEqual(reviewGroupsForPart(review, null, null, null), [a,b]);
 });

@@ -19,6 +19,8 @@ const Connections = await component("ConnectionSettings", "ConnectionSettings");
 const TierEditor = await component("TierEditor", "TierEditor");
 const TierSections = await component("TierSectionDiagrams", "TierSectionDiagrams");
 const SegmentCables = await component("SegmentCables", "SegmentCables");
+const CableReviewPanel = await component("CableReviewPanel", "CableReviewPanel");
+const CableReviewLayer = await component("CableReviewLayer", "CableReviewLayer");
 const box = {uid: "g", tier: 1, label: "G1", cable_class: "LC", sourceAvailable: true, demo: true, layer: 1, position: 1, slot_width: 3, slot_height: 2, offset_across_in: 0, offset_up_in: 0, occupied_width_in: 4, occupied_height_in: 2};
 const span = {id: "span", passage_band_uid: "north", cross_route_uid: null, start_station_in: 0, end_station_in: 108, from_passage_band_uid: null, to_passage_band_uid: null};
 
@@ -77,6 +79,31 @@ test("right panel filters fixtures by member ID and shows type count and rack pa
   assert.match(html, /LC × 1 · 021 → 031/);
   assert.equal((html.match(/class="segment-cable-card/g) ?? []).length, 1);
   assert.match(html, /Show all segment cables/);
+});
+
+test("actual review group selection shows inventory cables and provisional routing without fake tiers", () => {
+  const group = {uid: 'g', source_cabinet_id: '001', destination_cabinet_id: '011', cable_type: 'LC-TO-LC SMF', cable_uids: ['actual-1'], count: 1, route: {method: 'ASTAR', planar_length_in: 120}};
+  const cables = [{uid: 'actual-1', cable_type: 'LC-TO-LC SMF', cable_class: 'LC', source_cabinet_id: '001', destination_cabinet_id: '011', source_port_name: 'P1', destination_port_name: 'P2', source_label: 'A01', destination_label: 'Z01', notes: ''}];
+  const html = renderToStaticMarkup(React.createElement(CableReviewPanel, {review: {cables}, groups: [group], selectedGroupUid: 'g', onGroup: () => {}, selectedCableId: null, onCable: () => {}}));
+  assert.match(html, /A\* cross-row placeholder/); assert.match(html, /actual-1/); assert.match(html, /A01/);
+  assert.match(html, /border-left-color:#246bfe/);
+  assert.match(html, /unassigned/); assert.doesNotMatch(html, /fixture cable|Fake review|Tier 1/);
+});
+
+test("large real cable lists render an initial page without hiding the actual total", () => {
+  const cables = Array.from({length: 200}, (_, i) => ({uid: `actual-${i}`, cable_type: 'CAT6a', source_cabinet_id: '001', destination_cabinet_id: '002'}));
+  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables: cables, selectedCableId: null, onSelect: () => {}}));
+  assert.match(html, /200 cables/);
+  assert.equal((html.match(/class="segment-cable-card/g) ?? []).length, 60);
+  assert.match(html, /Show 60 more cables/);
+});
+
+test("a straight actual-cable segment has a nonzero rectangular mouse target", () => {
+  const point = x => ({x_in:x, y_in:382, passage_band_uid:'central', cabinet_uid:null});
+  const review = {groups:[], cabinet_uids:[], loads:[{id:'load', source:point(0), target:point(120), cable_classes:['LC'], group_uids:[], cable_count:4}]};
+  const view = {cabinets:[], passageX:new Map([['central',10]]), stationY:x=>x};
+  const html = renderToStaticMarkup(React.createElement(CableReviewLayer, {data:{geometry:{bands:[]}}, view, review, scale:1, selectedGroupUid:null, selectedLoadId:null, onLoad:()=>{}, onAttachment:()=>{}}));
+  assert.match(html, /<rect x="2" y="-8" width="16" height="136" fill="transparent"/);
 });
 
 test("rectangle editor accepts feet/inches and does not treat rectangle-only records as grid placements", () => {
