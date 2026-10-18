@@ -34,11 +34,13 @@ export type PlacementCables = { placement_uid: string; label: string; source_ava
 export type ReviewPoint = { node_id: string; x_in: number; y_in: number; tier: Tier; passage_band_uid: string | null; passage_code?: PassageCode; cabinet_uid: string | null };
 export type ReviewPath = { method: "SAME_ROW" | "ASTAR" | "MANUAL"; points: ReviewPoint[]; load_ids: string[]; segment_ids: string[]; planar_length_in: number; vertical_transition_count: number; length_label: "Planar pathway length" };
 export type ReviewGroup = { uid: string; source_cabinet_uid: string; destination_cabinet_uid: string; source_cabinet_id: string; destination_cabinet_id: string; cable_type: string; cable_class: CableClass | null; cable_uids: string[]; count: number; tier: Tier | null; reason: string | null;
+  policy?: string; occupation_hint?: "INNER" | null;
   route: ReviewPath | null; route_source: "MANUAL" | "DEFAULT"; manual_status: "VALID" | "INVALID" | null; manual_version: string | null; manual_revision: number; manual_notes: string; manual_updated_by: string | null; start_tier: Tier; end_tier: Tier };
 export type PlanningSegment = { id: string; segment_id: string; source: ReviewPoint; target: ReviewPoint; planar_length_in: number; label: string;
   edge_type: "PASSAGE" | "CROSS_ROUTE" | "VERTICAL"; tier: Tier | null; lower_tier: Tier | null; upper_tier: Tier | null; vertical_transition_uid: string | null; pathway_type: PathwayType | null; width_in: number | null };
 export type ReviewLoad = Pick<PlanningSegment, "id" | "segment_id" | "source" | "target" | "planar_length_in" | "tier" | "edge_type" | "lower_tier" | "upper_tier"> & { group_uids: string[]; cable_classes: CableClass[]; cable_count: number };
-export type CableReview = { label: string; provisional: true; tier: null; algorithm: string; cabinet_uids: string[]; inventory_cable_count: number; same_cabinet_count: number; routed_cable_count: number; unrouted_cable_count: number; cable_types: Record<string, number>; groups: ReviewGroup[]; loads: ReviewLoad[]; cables: InventoryCable[]; notes: string; planning_segments: PlanningSegment[]; topology_revision: string; manual_group_count: number };
+export type ReviewScope = "pilot" | "hall";
+export type CableReview = { scope?: ReviewScope; build_ms?: number; unmapped_cable_count?: number; unrouted_reasons?: Record<string, number>; policy_counts?: Record<string, number>; label: string; provisional: true; tier: null; algorithm: string; cabinet_uids: string[]; inventory_cable_count: number; same_cabinet_count: number; routed_cable_count: number; unrouted_cable_count: number; cable_types: Record<string, number>; groups: ReviewGroup[]; loads: ReviewLoad[]; cables: InventoryCable[]; notes: string; planning_segments: PlanningSegment[]; topology_revision: string; manual_group_count: number };
 export type ManualChain = ReviewPath & {id: string; label: string};
 export type ManualDraft = {ids: string[]; checkpoints: number[]; startTier: Tier; endTier: Tier};
 export type ManualPreview = {complete: boolean; prefix: ReviewPath; suggestion: ReviewPath | null; next_chains: ManualChain[]; destination: ReviewPoint};
@@ -58,6 +60,7 @@ export type TierElevation = { elevation_in: number | null; elevation_reference: 
 export type CrossRouteTier = RecordBase & TierElevation & { cross_route_uid: string; tier: Tier; pathway_type: PathwayType; enabled: boolean };
 export type PassageTier = RecordBase & TierElevation & { passage_band_uid: string; tier: Tier; pathway_type: PathwayType; enabled: boolean };
 export type VerticalTransition = RecordBase & {
+  cross_route_uid?: string | null;
   passage_band_uid: string; station_in: number; lower_tier: Tier; upper_tier: Tier;
   label: string | null; notes: string | null; enabled: boolean;
 };

@@ -208,5 +208,10 @@
 .routing-assumptions { color: #64748b; font-size: 12px; margin-top: 14px; }
 .routing-assumptions li { margin: 7px 0; }
 .routing-back { margin-bottom: 12px; }
+.route-pair-search { display: grid; gap: 5px; font-size: 12px; margin: 12px 0; }
+.route-pair-pagination { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; margin: 8px 0; color: #526579; }
+.route-pair-pagination span { margin-right: auto; }
+.routing-toolbar > select { width: auto; max-width: 320px; }
+.inventory-test-info { font-size: 12px; color: #526579; padding: 8px 0; }
 @media(max-width:1000px) { .routing-workspace { grid-template-columns: minmax(0,1fr) 285px; } .routing-page { padding: 12px; } }
 @media(max-width:760px) { .routing-workspace { grid-template-columns: 1fr; } .routing-side { max-height: none; } .routing-endpoints { grid-template-columns: 1fr; } .routing-svg { height: 380px; } }

@@ -36,7 +36,7 @@ def check_topology(review, revision):
 
 
 def preview_manual_route(session, layout_uid, request):
-    review, planner = review_context(session, layout_uid)
+    review, planner = review_context(session, layout_uid, request.scope)
     check_topology(review, request.topology_revision)
     group = next((g for g in review['groups'] if g['uid'] == request.group_uid), None)
     if not group:
@@ -49,7 +49,7 @@ def update_manual_batch(session, layout_uid, request, user_uid, reset=False):
     layout = session.scalar(select(RoutingLayout).where(RoutingLayout.uid == layout_uid).with_for_update())
     if not layout:
         raise RoutingNotFound('Routing layout was not found.')
-    review, planner = review_context(session, layout_uid)
+    review, planner = review_context(session, layout_uid, request.scope)
     check_topology(review, request.topology_revision)
     groups = {g['uid']: g for g in review['groups']}
     saved = {(r.source_cabinet_uid, r.destination_cabinet_uid, r.cable_type): r for r in session.scalars(
@@ -83,4 +83,4 @@ def update_manual_batch(session, layout_uid, request, user_uid, reset=False):
             row.start_tier, row.end_tier = start_tier, end_tier
             row.updated_by, row.notes = user_uid, request.notes
     session.flush()
-    return dict(updated_group_uids=[g.group_uid for g in request.groups], review=review_context(session, layout_uid)[0])
+    return dict(updated_group_uids=[g.group_uid for g in request.groups], review=review_context(session, layout_uid, request.scope)[0])

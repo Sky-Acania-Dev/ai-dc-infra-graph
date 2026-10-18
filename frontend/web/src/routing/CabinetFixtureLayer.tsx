@@ -1,18 +1,20 @@
 import { offsetPolyline, type CabinetFixtureRun, type FixtureRunPart, type projectFixtureRun } from "./cabinetFixtureRun";
 import { CABLE_STYLES, routeDetailScale } from "./RouteStroke";
 
-export function CabinetFixtureLayer({ run, geometry, scale, selectedPartId, selectedCableId, onSelect }: {
+export function CabinetFixtureLayer({ run, geometry, scale, selectedPartId, selectedCableId, onSelect, selectedCabinetUids }: {
   run: CabinetFixtureRun; geometry: NonNullable<ReturnType<typeof projectFixtureRun>>; scale: number;
   selectedPartId: string | null; selectedCableId: string | null; onSelect: (part: FixtureRunPart) => void;
+  selectedCabinetUids?: ReadonlySet<string>;
 }) {
   const detail = routeDetailScale(scale);
+  const muted = Boolean(selectedCabinetUids?.size && !selectedCabinetUids.has(run.sourceCabinetUid) && !selectedCabinetUids.has(run.destinationCabinetUid));
   const path = (offset: number) => offsetPolyline(geometry.points, offset).map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join(" ");
   return <g className="cabinet-fixture-run" data-fixture-run={run.id} aria-label="Display-only fixture cables from 021 to 031">
     {geometry.parts.filter(p => p.id === selectedPartId).map(p => <line key={p.id} x1={p.a.x} y1={p.a.y} x2={p.b.x} y2={p.b.y}
       stroke="#ffcc66" strokeWidth={Math.max(4, 27 * detail)} strokeLinecap="round" vectorEffect="non-scaling-stroke" pointerEvents="none" />)}
     {run.cables.map((cable, i) => <path key={cable.id} d={path((i - 1) * 7 * detail / scale)} data-fixture-cable={cable.id}
-      stroke={CABLE_STYLES[cable.cableClass].color} strokeWidth={(selectedCableId === cable.id ? 6.5 : 5) * detail}
-      opacity={selectedCableId && selectedCableId !== cable.id ? 0.2 : 1} fill="none" strokeLinejoin="round" strokeLinecap="butt" vectorEffect="non-scaling-stroke" pointerEvents="none" />)}
+      stroke={muted ? "#94a3b8" : CABLE_STYLES[cable.cableClass].color} strokeWidth={(selectedCableId === cable.id ? 6.5 : 5) * detail}
+      opacity={muted ? .35 : selectedCableId && selectedCableId !== cable.id ? 0.2 : 1} fill="none" strokeLinejoin="round" strokeLinecap="butt" vectorEffect="non-scaling-stroke" pointerEvents="none" />)}
     {geometry.parts.map(part => <g key={`${part.kind}:${part.id}`} data-selectable="true" role="button" tabIndex={0}
       aria-label={`Inspect ${part.label}`} onClick={event => { event.stopPropagation(); onSelect(part); }}
       onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onSelect(part); } }}>

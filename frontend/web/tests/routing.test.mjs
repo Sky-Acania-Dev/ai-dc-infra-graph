@@ -13,6 +13,30 @@ import { cabinetFixtureRun, projectFixtureRun, offsetPolyline } from "../src/rou
 import { loadRoutingCableTable } from "../src/routing/routingCableDetails.ts";
 import { ManualRouteEngine } from "../src/routing/manualRouteEngine.ts";
 import { reviewPairKey, rackPairCards, focusedRouteGroups, routeActionLabel } from "../src/routing/rackPairRoutes.ts";
+import { decodeCableReview } from "../src/routing/reviewEncoding.ts";
+
+test("full inventory hydrates indexed tier paths without fetching individual cables", () => {
+  const {segments} = manualFixture();
+  const group = {uid:'g',source_cabinet_uid:'source',destination_cabinet_uid:'destination',cable_uids:[],count:9000,
+    route:{method:'ASTAR',start:segments[0].source,edge_indices:[0,1,2,4],planar_length_in:30,vertical_transition_count:0,length_label:'Planar pathway length'}};
+  const wire = {encoding:'indexed-v1',scope:'hall',planning_segments:segments,groups:[group],cables:[],loads:[{edge_index:0,group_indices:[0],cable_classes:['LC'],cable_count:9000}]};
+  const original = structuredClone(wire), result = decodeCableReview(wire);
+  assert.deepEqual(result.groups[0].route.load_ids,['s-i','i-n','n-ne','ne-end']);
+  assert.equal(result.groups[0].route.points.length,5);
+  assert.equal(result.groups[0].route.points[1],segments[0].target);
+  assert.deepEqual(result.loads[0].group_uids,['g']);
+  assert.deepEqual(result.cables,[]);
+  assert.deepEqual(wire,original);
+  assert.throws(()=>decodeCableReview({...wire,groups:[{...group,route:{...group.route,edge_indices:[2]}}]}),/disconnected/);
+});
+
+test("full inventory detail loads exactly the selected actual rack pair and type on demand", async () => {
+  const calls=[];
+  const result=await loadRoutingCableTable({source:'801',target:'811',cableType:'LC',inventoryCables:[],fixtureCables:[],wholePair:['rack-801','rack-811']},async(a,b)=>{calls.push([a,b]); return {cables:[{uid:'actual-lc',cable_type:'LC',progress:{ran:'Complete'}},{uid:'actual-cat6',cable_type:'CAT6'}]};});
+  assert.deepEqual(calls,[['rack-801','rack-811']]);
+  assert.deepEqual(result.cables.map(c=>c.uid),['actual-lc']);
+  assert.deepEqual(result.cables[0].progress,{ran:'Complete'});
+});
 
 test("rack-pair focus includes every type even when the selected segment carries only one", () => {
   const base={source_cabinet_uid:'rack-801',destination_cabinet_uid:'rack-811',source_cabinet_id:'801',destination_cabinet_id:'811',route_source:'DEFAULT'};
@@ -27,6 +51,16 @@ test("rack-pair focus includes every type even when the selected segment carries
   assert.deepEqual(focusedRouteGroups(all,null,null),[]);
   assert.equal(routeActionLabel([cat6,lc]),'Set route');
   assert.equal(routeActionLabel([cat6,{...lc,route_source:'MANUAL'}]),'Change route');
+});
+
+test("cabinet focus keeps the union of incoming and outgoing groups and clears with selection", () => {
+  const group=(uid,a,b)=>({uid,source_cabinet_uid:a,destination_cabinet_uid:b});
+  const groups=[group('outgoing','801','811'),group('incoming','820','801'),group('second','021','031'),group('unrelated','100','110')];
+  assert.deepEqual(focusedRouteGroups(groups,null,null,new Set(['801'])).map(g=>g.uid),['outgoing','incoming']);
+  assert.deepEqual(focusedRouteGroups(groups,null,null,new Set(['801','031'])).map(g=>g.uid),['outgoing','incoming','second']);
+  assert.deepEqual(focusedRouteGroups(groups,null,null,new Set(['missing'])),[]);
+  assert.deepEqual(focusedRouteGroups(groups,null,null,new Set()),[]);
+  assert.deepEqual(focusedRouteGroups(groups,'second',null,new Set(['801'])).map(g=>g.uid),['second']);
 });
 
 function manualFixture() {

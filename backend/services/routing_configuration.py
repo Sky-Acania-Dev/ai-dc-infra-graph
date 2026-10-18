@@ -57,6 +57,10 @@ def snapshot(session: Session, uid: str) -> dict:
 def resolved_layout(session: Session, uid: str) -> dict:
     result = snapshot(session, uid)
     result['geometry'] = resolve_geometry(result)
+    cross_stations = {r['uid']: r['station_in'] for r in result['geometry']['cross_routes']}
+    for opening in result['vertical_transitions']:
+        if opening.get('cross_route_uid') in cross_stations:
+            opening['station_in'] = cross_stations[opening['cross_route_uid']]
     from backend.services.routing_elevations import resolve_elevations
     resolve_elevations(result)
     from backend.services.routing_sections import resolve_source, resolve_sections
@@ -314,6 +318,14 @@ def validate_layout(session: Session, uid: str) -> None:
         if bands[pathway['passage_band_uid']]['kind'] != 'PASSAGE':
             raise RoutingConfigurationError('Passage tiers and openings require a NORTH, CENTRAL or SOUTH PASSAGE band.')
     for opening in data['vertical_transitions']:
+        route = next((r for r in geometry['cross_routes'] if r['uid'] == opening.get('cross_route_uid')), None)
+        if opening.get('cross_route_uid'):
+            if not route or route['kind'] != 'CABINET_COLD_AISLE' or bands[opening['passage_band_uid']]['code'] not in ('NORTH', 'SOUTH') or opening['passage_band_uid'] not in route['passage_band_uids']:
+                raise RoutingConfigurationError('A row-end opening must link its cabinet route to its NORTH or SOUTH passage end.')
+            upper_exists = any(t['cross_route_uid'] == route['uid'] and t['tier'] == opening['upper_tier'] and t['enabled'] for t in data['cross_route_tiers'])
+            if opening['enabled'] and (not route['effective_enabled'] or not upper_exists or (opening['passage_band_uid'], opening['lower_tier']) not in tiers):
+                raise RoutingConfigurationError('An enabled row-end opening requires the upper row tier and lower passage tier.')
+            continue
         if opening['station_in'] > geometry['hall_length_in']:
             raise RoutingConfigurationError('Opening station is outside the schematic hall. Configure row pairs first.')
         if opening['enabled'] and any((opening['passage_band_uid'], t) not in tiers for t in (opening['lower_tier'], opening['upper_tier'])):

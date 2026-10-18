@@ -59,7 +59,7 @@ export function useManualRouteEditor(layoutUid: string | undefined, review: Cabl
     for (const g of groups) if (!engine.isComplete(g, drafts[g.uid])) return;
     setBusy(true); setError("");
     try {
-      const result = await routingApi.manualBatch(layoutUid, {topology_revision: revision, notes,
+      const result = await routingApi.manualBatch(layoutUid, {scope: review.scope ?? "pilot", topology_revision: revision, notes,
         groups: groups.map(g => ({group_uid: g.uid, expected_version: versions[g.uid], segment_ids: drafts[g.uid].ids, start_tier: drafts[g.uid].startTier, end_tier: drafts[g.uid].endTier}))});
       replace(result.review); setEditing(false); setMessage(`Saved ${groups.length} manual group routes. A* defaults cannot overwrite them.`);
     } catch (reason) {setError(String(reason));} finally {setBusy(false);}
@@ -69,7 +69,7 @@ export function useManualRouteEditor(layoutUid: string | undefined, review: Cabl
     if (!layoutUid || !review || busy || !manual.length || editing) return;
     setBusy(true); setError("");
     try {
-      const result = await routingApi.manualBatch(layoutUid, {topology_revision: review.topology_revision,
+      const result = await routingApi.manualBatch(layoutUid, {scope: review.scope ?? "pilot", topology_revision: review.topology_revision,
         groups: manual.map(g => ({group_uid: g.uid, expected_version: g.manual_version, segment_ids: [], start_tier: g.start_tier, end_tier: g.end_tier}))}, true);
       replace(result.review); setMessage(`Reset ${manual.length} manual routes to defaults.`);
     } catch (reason) {setError(String(reason));} finally {setBusy(false);}

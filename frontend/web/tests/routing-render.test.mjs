@@ -27,6 +27,15 @@ const CabinetConnectionsPanel = await component("../components/CabinetConnection
 const ManualBatchPanel = await component("ManualRouteBatchPanel", "ManualRouteBatchPanel");
 const ManualLayer = await component("ManualRouteLayer", "ManualRouteLayer");
 const RackPairCards = await component("RackPairRouteCards", "RackPairRouteCards");
+
+test("full inventory rack cards paginate and expose search instead of rendering the whole hall", () => {
+  const groups = Array.from({length:500},(_,i)=>({uid:`g${i}`,source_cabinet_uid:`s${i}`,destination_cabinet_uid:`z${i}`,source_cabinet_id:String(i),destination_cabinet_id:String(i+801),cable_type:'LC',count:100,cable_uids:[],route:null,start_tier:2,end_tier:2,route_source:'DEFAULT'}));
+  const html = renderToStaticMarkup(React.createElement(RackPairCards,{review:{groups,cables:[],scope:'hall'},groups,focusedKey:null,onFocus:()=>{},canManage:false,onViewCables:()=>{}}));
+  assert.equal((html.match(/<article class="connection-item/g) ?? []).length,40);
+  assert.match(html,/Find rack pair or cable type/);
+  assert.match(html,/500 rack pairs · page 1 \/ 13/);
+  assert.match(html,/Next rack pairs/);
+});
 const box = {uid: "g", tier: 1, label: "G1", cable_class: "LC", sourceAvailable: true, demo: true, layer: 1, position: 1, slot_width: 3, slot_height: 2, offset_across_in: 0, offset_up_in: 0, occupied_width_in: 4, occupied_height_in: 2};
 const span = {id: "span", passage_band_uid: "north", cross_route_uid: null, start_station_in: 0, end_station_in: 108, from_passage_band_uid: null, to_passage_band_uid: null};
 
@@ -179,6 +188,24 @@ test("rack-pair map focus keeps its cable classes and renders unrelated shared r
   const all=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,focusedPairKey:null}));
   assert.doesNotMatch(all,/data-route-muted/);
   assert.match(all,/data-cable-class="CAT6"/);
+});
+
+test("selecting cabinets mutes unrelated cable types even on shared route segments", () => {
+  const p=x=>({x_in:x,y_in:382,tier:2,passage_band_uid:'central',cabinet_uid:null});
+  const groups=[{uid:'selected',cable_class:'LC',source_cabinet_uid:'801',destination_cabinet_uid:'811'},
+    {uid:'incoming',cable_class:'MPO',source_cabinet_uid:'820',destination_cabinet_uid:'801'},
+    {uid:'other',cable_class:'CAT6',source_cabinet_uid:'021',destination_cabinet_uid:'031'}];
+  const load=(id,ids,classes,x)=>({id,source:p(x),target:p(x+120),group_uids:ids,cable_classes:classes,cable_count:10,tier:2,edge_type:'PASSAGE'});
+  const props={data:{geometry:{bands:[]}},view:{cabinets:[],passageX:new Map([['central',10]]),stationY:x=>x},
+    review:{groups,cabinet_uids:[],loads:[load('shared',['selected','other'],['LC','CAT6'],0),load('incoming',['incoming'],['MPO'],120),load('other',['other'],['CAT6'],240)]},
+    scale:1,selectedGroupUid:null,selectedLoadId:null,onLoad:()=>{},onAttachment:()=>{},selectedCabinetUids:new Set(['801'])};
+  const selected=renderToStaticMarkup(React.createElement(CableReviewLayer,props));
+  assert.equal((selected.match(/data-route-muted="true"/g)??[]).length,1);
+  assert.match(selected,/data-cable-class="LC"/); assert.match(selected,/data-cable-class="MPO"/); assert.doesNotMatch(selected,/data-cable-class="CAT6"/);
+  const multi=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,selectedCabinetUids:new Set(['801','021'])}));
+  assert.doesNotMatch(multi,/data-route-muted/); assert.match(multi,/data-cable-class="CAT6"/);
+  const empty=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,selectedCabinetUids:new Set(['missing'])}));
+  assert.equal((empty.match(/data-route-muted="true"/g)??[]).length,3); assert.doesNotMatch(empty,/data-cable-class=/);
 });
 
 test("large real cable groups stay summarized until their detail table is requested", () => {

@@ -87,6 +87,37 @@ class RoutingPostgreSQLTests(unittest.TestCase):
         self.assertEqual(result.vertical_transition_count, 0)
         self.assertEqual(len(resolved['geometry']['gaps']), 4)
 
+    def test_full_inventory_profile_openings_and_aggregate_membership(self):
+        from backend.services.routing_test_profile import configure_hall_test
+        from backend.services.routing_inventory_review import inventory_review_context
+        data = routing.initialize_lbb01(self.session); uid = data['layout']['uid']
+        for number, col, category in ((801, 0, 'T0-FE-v1a'), (802, 1, 'HD-GB3g'), (811, 9, 'HD-GB3g'), (812, 8, 'HD-GB3g')):
+            self.session.add(db.Cabinet(uid=f'full-cab-{number}', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-1', cabinet_id=str(number), source_col=col, category=category))
+        self.session.flush()
+        for number in (801, 811):
+            self.session.add(db.Port(uid=f'full-port-{number}', project_uid='LBB01', building_uid='LBB01:A', room_uid='LBB01:A:DH1-1', cabinet_uid=f'full-cab-{number}', port_name='P1'))
+        self.session.flush()
+        for index in range(3):
+            self.session.add(db.Cable(uid=f'full-cable-{index}', project_uid='LBB01', building_uid='LBB01:A', a_port_uid='full-port-801' if index % 2 else 'full-port-811', z_port_uid='full-port-811' if index % 2 else 'full-port-801', cable_type='LC', construction_phase='Management & Ethernet'))
+        self.session.flush()
+        setup = configure_hall_test(self.session, uid)
+        self.assertEqual(setup['created_opening_count'], 160)
+        self.assertEqual(configure_hall_test(self.session, uid)['created_opening_count'], 0)
+        self.session.expire_all()
+        review, planner = inventory_review_context(self.session, uid)
+        self.assertEqual((review['inventory_cable_count'], review['routed_cable_count'], len(review['groups'])), (3, 3, 1))
+        self.assertEqual(review['groups'][0]['policy'], 'FE_OUTER_TOP')
+        self.assertEqual(review['groups'][0]['route']['vertical_transition_count'], 2)
+        self.assertFalse(any(e['edge_type'] == 'PASSAGE' and e['tier'] == 3 and e['passage_code'] in ('NORTH', 'SOUTH') for e in planner.edges.values()))
+        from backend.schemas.routing_manual import ManualBatchInput
+        from backend.services.routing_manual_routes import update_manual_batch
+        group = review['groups'][0]
+        chain = [review['planning_segments'][i]['id'] for i in group['route']['edge_indices']]
+        request = ManualBatchInput(scope='hall',topology_revision=review['topology_revision'],groups=[dict(group_uid=group['uid'],expected_version=None,segment_ids=chain,start_tier=3,end_tier=3)])
+        saved = update_manual_batch(self.session,uid,request,'full-hall-technician')['review']
+        self.assertEqual(saved['manual_group_count'],1)
+        self.assertEqual((saved['groups'][0]['route_source'],saved['groups'][0]['manual_status']),('MANUAL','VALID'))
+
     def test_manual_tier_routes_persist_and_are_not_replaced_by_defaults(self):
         from backend.services.routing_cable_review import cable_review
         from backend.services.routing_manual_routes import initialize_test_tiers, update_manual_batch, RoutingRouteConflict

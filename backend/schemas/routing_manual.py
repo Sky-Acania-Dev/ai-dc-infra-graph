@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 from backend.schemas.routing import Record, Tier
@@ -8,6 +8,7 @@ Chain = Annotated[list[Identifier], Field(max_length=4000)]
 
 
 class ManualPreviewInput(Record):
+    scope: Literal['pilot', 'hall'] = 'pilot'
     group_uid: Identifier
     prefix_segment_ids: Chain = Field(default_factory=list)
     topology_revision: str | None = None
@@ -24,6 +25,7 @@ class ManualGroupUpdate(Record):
 
 
 class ManualBatchInput(Record):
+    scope: Literal['pilot', 'hall'] = 'pilot'
     topology_revision: Identifier
     groups: Annotated[list[ManualGroupUpdate], Field(min_length=1, max_length=200)]
     notes: Annotated[str, Field(max_length=2000)] = ''

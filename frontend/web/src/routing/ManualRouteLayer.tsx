@@ -1,12 +1,13 @@
-import { projectReviewPoint } from "./cableReviewProjection";
+import { projectReviewPoint, visibleLine, type Viewport } from "./cableReviewProjection";
 import { pointLabel } from "./manualRouteEngine";
 import { routeDetailScale } from "./RouteStroke";
 import type { ConceptualLayout } from "./conceptualLayout";
 import type { ManualPreview, PlanningSegment, ResolvedLayout, ReviewPath, Tier } from "./types";
 
-export function ManualRouteLayer({data, view, segments, preview, scale, onAppend, onSegment, disabled, tiers}: {
+export function ManualRouteLayer({data, view, segments, preview, scale, onAppend, onSegment, disabled, tiers, viewport}: {
   data: ResolvedLayout; view: ConceptualLayout; segments: PlanningSegment[]; preview: ManualPreview | null;
   scale: number; onAppend: (ids: string[]) => void; onSegment: (id: string) => void; disabled: boolean; tiers?: Set<Tier>;
+  viewport?: Viewport;
 }) {
   const detail = routeDetailScale(scale);
   const line = (route: ReviewPath, color: string, width: number, dash?: string) => route.points.slice(1).map((point, i) => {
@@ -20,8 +21,11 @@ export function ManualRouteLayer({data, view, segments, preview, scale, onAppend
     return a && b ? <rect key={i} x={Math.min(a.x,b.x) - 9/scale} y={Math.min(a.y,b.y) - 9/scale} width={Math.abs(a.x-b.x) + 18/scale} height={Math.abs(a.y-b.y) + 18/scale} fill="transparent" /> : null;
   });
   const segmentDisabled = disabled || !preview || preview.complete;
+  const currentTier = preview?.prefix.points.at(-1)?.tier;
   return <g className="manual-route-layer" aria-label="Manual route building paths">
-    {segments.filter(s => !tiers || tiers.has(s.source.tier) || tiers.has(s.target.tier)).map(segment => {
+    {segments.filter(s => !tiers || tiers.has(s.source.tier) || tiers.has(s.target.tier)).sort((a,b)=>Number(a.tier === currentTier)-Number(b.tier === currentTier)).map(segment => {
+      const a = projectReviewPoint(data,view,segment.source), b = projectReviewPoint(data,view,segment.target);
+      if (!a || !b || !visibleLine(a,b,viewport)) return null;
       const route = {points: [segment.source, segment.target]} as ReviewPath;
       return <g key={segment.id} className="manual-segment-target" data-planning-segment-id={segment.id} role="button" tabIndex={segmentDisabled ? -1 : 0} data-selectable="true"
         aria-label={`Route via ${segment.label} · ${segment.edge_type === "VERTICAL" ? `Tier ${segment.source.tier} ↔ Tier ${segment.target.tier}` : `Tier ${segment.source.tier}`}`} aria-disabled={segmentDisabled}

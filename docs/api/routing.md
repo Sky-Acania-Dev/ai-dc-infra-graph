@@ -148,7 +148,44 @@ The geometric Routing configuration has a **Connections / attachments** tab for 
 
 Downgrade preserves old single-slot records. Rectangle/multi-cell occupations must be explicitly converted or removed before rolling back to the older schema, which cannot represent them.
 
-## Actual-cable pilot (feature branch)
+## Full DH1 inventory stress test (feature branch)
+
+**Actual cable review** offers **All five DH1 sections · tier policies** and the original 40-rack pilot. Global/section zoom is independent of inventory scope. The searchable rack-pair list renders 40 cards per page. Cable details use the existing inventory table and load actual records on demand.
+
+`GET /routing/layouts/{uid}/cable-review?scope=hall` aggregates live project/building cable rows in PostgreSQL by cabinet pair, actual cable type and construction phase. It returns all mapped inter-cabinet groups, separate same-cabinet/unmapped counts, policy and unrouted reasons, and the enabled planning graph. It avoids loading all individual Cable ORM objects. The `indexed-v1` response represents group routes by a starting point and ordered `edge_indices` into `planning_segments`; loads reference the same edge table and group indices. The client validates and hydrates shared references. HTTP compression reduces transfer size. Full-scope detail requests resolve live inventory membership from actual cabinet UIDs and cable type.
+
+`POST /routing/layouts/{uid}/inventory-test-profile` is an explicit manager-only, idempotent configuration action, limited to LBB01 DH1:
+
+| Pathway | T1 AFF | T2 AFF | T3 AFF |
+| --- | --- | --- | --- |
+| Cabinet row / CENTRAL | 98 in | 110 in | 122 in |
+| NORTH / SOUTH | 98 in | 116 in | absent |
+| Section gaps (test assumption) | 98 in | 116 in | absent |
+
+Existing construction types and disabled pathways are retained. New bottom pathways use basket tray; new upper pathways use ladder rack as a test assumption. Gap upper-tier availability/height is a test assumption, not a field measurement. Manual assignments and sectional footprints are never overwritten.
+
+Migration `074ca9e2b613` adds nullable `RoutingVerticalTransition.cross_route_uid`. A linked row-end opening connects the upper row tier to the adjacent lower passage tier. Its effective station follows the row. The user confirmed openings at every row's NORTH or SOUTH end: row T3 connects to outer passage T2; row T2 also joins passage T2. Graph generation creates an upper landing and one explicit VERTICAL edge, without a third longitudinal outer tier, a bottom-tier opening, or invented vertical cable length. Ordinary passage openings retain their behavior. Bundle endpoint connections and the opening editor support linked landings.
+
+Default policies are read-only test suggestions:
+
+| Inventory group | Default |
+| --- | --- |
+| Same-row RoCE | T1 |
+| Same-row LC/Cat6/Y and confirmed same-row FE MPO | T2 |
+| Cross-row FE | Row T3 → explicit opening → NORTH/SOUTH T2 → destination opening → row T3. Cross-hall travel uses a gap T2 route; no longitudinal CENTRAL travel. INNER occupation is intent only, without an invented footprint. |
+| Cross-row RoCE network T0–T1 | T1; minimize the source T0-row exit distance before the remaining distance. |
+| Cross-row RoCE network T1–T2 | Stable rack-pair distribution over T2/T3; all passages permitted where configured, with explicit tier openings. |
+| Unmatched/mixed-phase groups | Unrouted with a reason; manual assignment remains available. |
+
+Construction phase and authoritative imported cabinet categories (`T0-RO-*`, `T1-RO-*`, `T2-RO-*`, `*-FE-*`) identify network roles; arbitrary cabinet name strings are not parsed. Actual MTP types retain their labels and use the MPO visual family. Group UIDs match the pilot, preserving manual precedence. Manual preview/batch/reset accepts `scope: "hall"`; omitted scope retains pilot compatibility. Complete local validation and optimistic atomic updates apply to both scopes.
+
+Selecting cabinets keeps the union of incoming/outgoing cable groups colored and greys unrelated groups, including other types on a shared segment. Shift/Multi adds cabinets; clearing selection restores colors. Rack-pair and individual-cable focus remain available. Cabinet graphics sit above padded route targets so a cabinet click does not select its attachment. Section zooms omit offscreen cabinets, graph elements and cable strokes. Tier offsets/patterns are visual only; opening labels compact at overview scale.
+
+Local validation on 2026-10-18 loaded 699,243 live cables, 9,482 mapped inter-cabinet groups, 6,047 planning subsegments and 3 preserved manual assignments. The confirmed rules route 612,550 inter-cabinet cables; 57,307 stay within cabinets, 29,378 lack a supplied policy and 8 have unmapped endpoints. All 8,999 routed groups passed complete chain validation. One local HTTP run took 5.57 seconds and transferred 681,408 compressed bytes. Local parse/hydration took 80 ms; 30 long-route local A* samples had a 2 ms p95 / 5 ms maximum. These are development measurements. Cross-row node↔RoCE-T0 and other unmatched groups remain pending-policy cases.
+
+Original schematic assumptions remain: NORTH/SOUTH widths stay 34 inches, without rounding to 36; cold-route placement against the cabinet face is schematic; derived gap stations use the midpoint of the extra 216-inch gap. AFF heights do not supply measured vertical cable travel, cabinet drops, bends or slack. Default routes do not generate sectional footprints.
+
+## Original actual-cable pilot
 
 In the conceptual cabinet map, **Actual cable review · 001–020 / 801–820** loads real inventory cable IDs with both ends in these 40 Section 1 cabinets. The style fixtures are off by default and mutually exclusive with actual review. **Focus actual cable rows** frames these rows. Same-cabinet cables remain local and are counted separately. Cables with an endpoint outside this scope are excluded.
 

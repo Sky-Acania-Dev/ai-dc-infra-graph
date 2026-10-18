@@ -11,7 +11,8 @@ def connection_points(data, geometry, connection):
         span = parents[placement['segment_annotation_uid']]
         point = span_geometry(geometry, span)[connection[f'{side}_end'].lower()]
         points.append(point)
-        node_ids.append(node_id(point, placement['tier']))
+        landing = span['cross_route_uid'] and not any(p['enabled'] and p['passage_band_uid'] == point[2] and p['tier'] == placement['tier'] for p in data['passage_tiers'])
+        node_ids.append(f"cross:{span['cross_route_uid']}:passage:{point[2]}:tier:{placement['tier']}" if landing else node_id(point, placement['tier']))
         endpoints.append({'placement_uid': placement['uid'], 'end': connection[f'{side}_end'], 'tier': placement['tier'],
                           'x_in': point[0], 'y_in': point[1], 'passage_band_uid': point[2]})
     return {'node_ids': node_ids, 'points': points, 'endpoints': endpoints}
@@ -38,12 +39,18 @@ def validate_connections(data, geometry):
             raise ValueError('Connected bundle span endpoints must meet at the same physical junction.')
         for placement, point in zip((a, b), points):
             parent = parents[placement['segment_annotation_uid']]
-            if (point[2], placement['tier']) not in passages or (parent['cross_route_uid'] and not routes[parent['cross_route_uid']]['effective_enabled']):
+            route_uid = parent['cross_route_uid']
+            landing = route_uid and any(v['enabled'] and v.get('cross_route_uid') == route_uid and v['passage_band_uid'] == point[2] and v['upper_tier'] == placement['tier'] for v in openings.values())
+            configured = (route_uid, placement['tier']) in cross_tiers and routes[route_uid]['effective_enabled'] if route_uid else (point[2], placement['tier']) in passages
+            if not configured or (point[2], placement['tier']) not in passages and not landing:
                 raise ValueError('Bundle connections require enabled pathways at their junction endpoints.')
         if a['tier'] != b['tier']:
             opening = openings.get(connection['vertical_transition_uid'])
-            if not opening or not opening['enabled'] or opening['passage_band_uid'] != points[0][2] or opening['station_in'] != points[0][0] or {opening['lower_tier'], opening['upper_tier']} != {a['tier'], b['tier']}:
+            station = routes[opening['cross_route_uid']]['station_in'] if opening and opening.get('cross_route_uid') else opening['station_in'] if opening else None
+            if not opening or not opening['enabled'] or opening['passage_band_uid'] != points[0][2] or station != points[0][0] or {opening['lower_tier'], opening['upper_tier']} != {a['tier'], b['tier']}:
                 raise ValueError('A tier-changing bundle connection requires the matching explicit adjacent-tier opening.')
+            if opening.get('cross_route_uid') and not any(p['tier'] == opening['upper_tier'] and parents[p['segment_annotation_uid']]['cross_route_uid'] == opening['cross_route_uid'] for p in (a,b)):
+                raise ValueError('The upper bundle must use the row route linked to this opening.')
         elif connection['vertical_transition_uid']:
             raise ValueError('A same-tier bundle connection must not reference a vertical opening.')
         identity = tuple(sorted(((a['uid'], connection['from_end']), (b['uid'], connection['to_end']))))

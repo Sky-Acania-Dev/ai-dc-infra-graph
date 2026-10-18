@@ -12,7 +12,7 @@ from backend.services.routing_sections import resolve_source
 
 def inventory_cable_class(cable_type):
     value = cable_type.upper()
-    return 'CAT6' if value.startswith('CAT6') else 'LC' if value.startswith('LC-') or value == 'LC' else 'MPO' if value.startswith('MPO') else None
+    return 'CAT6' if value.startswith('CAT6') else 'LC' if value.startswith('LC-') or value == 'LC' else 'MPO' if value.startswith(('MPO', 'MTP')) else None
 
 
 def placement_cables(session, layout_uid, placement_uid):

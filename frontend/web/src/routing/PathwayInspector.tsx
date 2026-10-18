@@ -3,7 +3,7 @@ import { RoutingDetails } from "./RoutingDetails";
 import { SegmentDetails } from "./SegmentDetails";
 import { conceptualSegments, rowName, annotationFor, type ConceptualSegment } from "./conceptualSegments";
 import { formatInches } from "./dimensions";
-import type { CableClass, GraphEdge, Mutate, ResolvedLayout, RoutingGraph, Selection } from "./types";
+import type { CableClass, GraphEdge, Mutate, ResolvedLayout, RoutingGraph, Selection, ReviewLoad } from "./types";
 import type { FixtureCable } from "./cabinetFixtureRun";
 import { segmentTierModel } from "./segmentTierModel";
 import { TierSectionDiagrams } from "./TierSectionDiagrams";
@@ -13,13 +13,14 @@ import { occupationLabel } from "./occupation";
 import type { SectionDisplayMode } from "./SectionOccupationDiagram";
 import { directionName } from "./sectionDirections";
 
-export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, fixture, canManage, busy, mutate, onSelect, onOpenRouting, demoCables = [], selectedPlacementUid, onSelectPlacement, reviewGroupCount = 0 }: {
+export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, fixture, canManage, busy, mutate, onSelect, onOpenRouting, demoCables = [], selectedPlacementUid, onSelectPlacement, reviewGroupCount = 0, reviewLoads = [] }: {
   data: ResolvedLayout; graph: RoutingGraph; selection: Selection; segment: ConceptualSegment | null | undefined; selectedEdge?: GraphEdge;
   attachmentUid: string | null; fixture?: { cable_classes: CableClass[]; usable: boolean }; canManage: boolean; busy: boolean;
   mutate: Mutate; onSelect: (selection: Selection) => void; onOpenRouting: () => void;
   demoCables?: FixtureCable[];
   selectedPlacementUid: string | null; onSelectPlacement: (uid: string | null) => void;
   reviewGroupCount?: number;
+  reviewLoads?: ReviewLoad[];
 }) {
   const row = attachmentUid ? data.geometry.cabinet_rows.find(r => r.existing_cabinet_uids.includes(attachmentUid))
     : selection?.kind === "row" ? data.geometry.cabinet_rows.find(r => r.uid === selection.uid) : undefined;
@@ -37,7 +38,12 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
     ?? (pointOwner && pointStation != null ? { id: selection!.uid, label: opening?.label ?? node?.label ?? "Passage station", passage_band_uid: pointOwner, cross_route_uid: null,
       start_station_in: pointStation, end_station_in: pointStation, from_passage_band_uid: null, to_passage_band_uid: null,
       width_in: data.bands.find(b => b.uid === pointOwner)!.width_in, planar_length_in: 0 } : null);
-  const model = useMemo(() => active ? segmentTierModel(data, active, demoCables) : null, [data, active?.id, demoCables]);
+  const model = useMemo(() => {
+    if (!active) return null;
+    const result = segmentTierModel(data, active, demoCables);
+    for (const load of reviewLoads) if (load.segment_id === active.id && load.tier) result.markedClasses[load.tier] = [...new Set([...(result.markedClasses[load.tier] ?? []), ...load.cable_classes])];
+    return result;
+  }, [data, active?.id, demoCables, reviewLoads]);
   const [selectedBlockUid, setSelectedBlockUid] = useState<string | null>(null);
   const [sectionMode, setSectionMode] = useState<SectionDisplayMode>("GRID");
   const [reversed, setReversed] = useState(false);

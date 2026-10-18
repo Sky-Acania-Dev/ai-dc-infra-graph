@@ -138,6 +138,7 @@ class PassageTierInput(Record):
 
 class VerticalTransitionInput(Record):
     passage_band_uid: str
+    cross_route_uid: str | None = None
     station_in: Inches
     lower_tier: Tier
     upper_tier: Tier

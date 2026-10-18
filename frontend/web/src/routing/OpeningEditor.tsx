@@ -17,7 +17,7 @@ export function OpeningEditor({ data, opening, disabled, mutate, onDone }: Props
     event.preventDefault();
     try {
       const station_in = parseInches(station); setError("");
-      if (await mutate("vertical-transitions", { passage_band_uid: passage, station_in, lower_tier: lower, upper_tier: lower + 1, label: label || null, notes: notes || null, enabled }, opening?.uid)) {
+      if (await mutate("vertical-transitions", { cross_route_uid: opening?.cross_route_uid ?? null, passage_band_uid: passage, station_in, lower_tier: lower, upper_tier: lower + 1, label: label || null, notes: notes || null, enabled }, opening?.uid)) {
         if (!opening) { setLabel(""); setNotes(""); }
         onDone?.();
       }
@@ -25,7 +25,8 @@ export function OpeningEditor({ data, opening, disabled, mutate, onDone }: Props
   }}>
     <h3>{opening ? "Edit physical opening" : "Add physical opening"}</h3>
     <label>Passage<select value={passage} onChange={event => setPassage(event.target.value)}>{passages.map(b => <option key={b.uid} value={b.uid}>{b.code}</option>)}</select></label>
-    <label>Station (feet/inches or inches)<input value={station} onChange={event => { setStation(event.target.value); try { setProposed(parseInches(event.target.value)); setError(""); } catch { setProposed(-1); } }} placeholder={'22\'-0"'} required /></label>
+    {opening?.cross_route_uid && <p>Row-end opening · station follows the linked row route.</p>}
+    <label>Station (feet/inches or inches)<input disabled={Boolean(opening?.cross_route_uid)} value={station} onChange={event => { setStation(event.target.value); try { setProposed(parseInches(event.target.value)); setError(""); } catch { setProposed(-1); } }} placeholder={'22\'-0"'} required /></label>
     {proposed >= 0 && <small>Proposed station: {formatInches(proposed)} ({proposed} in)</small>}
     <label>Tier pair<select value={lower} onChange={event => setLower(Number(event.target.value) as 1 | 2)}><option value={1}>T1 ↕ T2</option><option value={2}>T2 ↕ T3</option></select></label>
     <label>Opening label<input value={label} onChange={event => setLabel(event.target.value)} placeholder="VT-C-07" /></label>

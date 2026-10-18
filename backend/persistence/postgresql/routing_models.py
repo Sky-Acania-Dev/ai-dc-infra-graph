@@ -174,6 +174,9 @@ class RoutingVerticalTransition(LayoutChild, Base):
     __table_args__ = (CheckConstraint("lower_tier >= 1 AND upper_tier <= 3 AND upper_tier = lower_tier + 1", name="ck_routing_vertical_adjacent"),
                       CheckConstraint("station_in >= 0", name="ck_routing_vertical_station"))
     passage_band_uid: Mapped[str] = mapped_column(ForeignKey("routing_bands.uid", ondelete="CASCADE"), index=True)
+    # A row-end opening joins an upper cross-route landing to a lower passage tier.
+    # Its station follows the row; it does not create another longitudinal tier.
+    cross_route_uid: Mapped[str | None] = mapped_column(ForeignKey("routing_cross_routes.uid", ondelete="CASCADE"), index=True)
     station_in: Mapped[int] = mapped_column(Integer)
     lower_tier: Mapped[int] = mapped_column(Integer)
     upper_tier: Mapped[int] = mapped_column(Integer)

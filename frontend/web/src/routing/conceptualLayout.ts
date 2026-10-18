@@ -68,12 +68,14 @@ export function conceptualLayout(data: ResolvedLayout, inventoryTiles: CabinetTi
     }
   }
   const anchors = [...stationAnchors].sort((a, b) => a[0] - b[0]);
+  const stationCache = new Map<number, number>();
   function stationY(station: number) {
+    const cached = stationCache.get(station); if (cached !== undefined) return cached;
     if (!anchors.length) return 0;
     if (station <= anchors[0][0]) return anchors[0][1];
     for (let i = 1; i < anchors.length; i++) {
       const [end, displayEnd] = anchors[i], [start, displayStart] = anchors[i - 1];
-      if (station <= end) return displayStart + (station - start) / (end - start) * (displayEnd - displayStart);
+      if (station <= end) {const result = displayStart + (station - start) / (end - start) * (displayEnd - displayStart); stationCache.set(station,result); return result;}
     }
     return anchors[anchors.length - 1][1];
   }

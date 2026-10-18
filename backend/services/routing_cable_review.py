@@ -73,7 +73,10 @@ def build_cable_review(data, cables, manual_routes=(), planner=None):
         notes='Manual routes take precedence over defaults. Tier changes require explicit openings. Cabinet takeoffs and sectional packing remain schematic. Planar pathway length excludes vertical travel, drops and slack.')
 
 
-def review_context(session, layout_uid):
+def review_context(session, layout_uid, scope='pilot'):
+    if scope == 'hall':
+        from backend.services.routing_inventory_review import inventory_review_context
+        return inventory_review_context(session, layout_uid)
     layout = get_layout(session, layout_uid)
     room = session.get(Room, layout.room_uid)
     if room.project_uid != 'LBB01' or layout.physical_hall_code != 'DH1':
@@ -88,5 +91,5 @@ def review_context(session, layout_uid):
     return review, planner
 
 
-def cable_review(session, layout_uid):
-    return review_context(session, layout_uid)[0]
+def cable_review(session, layout_uid, scope='pilot'):
+    return review_context(session, layout_uid, scope)[0]

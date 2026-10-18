@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, ProgrammingError
@@ -110,10 +112,19 @@ def get_placement_cables(layout_uid: str, placement_uid: str, user: AuthUser = D
 
 
 @router.get('/layouts/{layout_uid}/cable-review')
-def get_cable_review(layout_uid: str, user: AuthUser = Depends(current_user)):
+def get_cable_review(layout_uid: str, scope: Literal['pilot', 'hall'] = 'pilot', user: AuthUser = Depends(current_user)):
     from backend.services.routing_cable_review import cable_review
     with routing_session() as session:
-        return cable_review(session, layout_uid)
+        result = cable_review(session, layout_uid, scope)
+        return JSONResponse(result) if scope == 'hall' else result
+
+
+@router.post('/layouts/{layout_uid}/inventory-test-profile')
+def configure_inventory_test(layout_uid: str, user: AuthUser = Depends(current_user)):
+    require_manager(user)
+    from backend.services.routing_test_profile import configure_hall_test
+    with routing_session() as session:
+        return configure_hall_test(session, layout_uid)
 
 
 @router.post('/layouts/{layout_uid}/manual-route-preview')

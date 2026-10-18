@@ -14,6 +14,9 @@ def derive_graph(data: dict) -> RoutingGraph:
     nodes: dict[str, GraphNode] = {}
     edges: dict[str, GraphEdge] = {}
     stations: dict[tuple[str, int], set[int]] = {key: {0, geometry['hall_length_in']} for key in passage_tiers}
+    row_openings = {(v.get('cross_route_uid'), v['passage_band_uid'], v['upper_tier']): v
+                    for v in data['vertical_transitions'] if v['enabled'] and v.get('cross_route_uid')
+                    and (v['passage_band_uid'], v['lower_tier']) in passage_tiers}
     # Domain interval endpoints split the generated passage without storing edges.
     for item in data.get('segment_annotations', []):
         if item['passage_band_uid']:
@@ -21,13 +24,14 @@ def derive_graph(data: dict) -> RoutingGraph:
                 if band_uid == item['passage_band_uid'] and item['tier'] in (None, tier):
                     station_set.update((item['start_station_in'], item['end_station_in']))
 
-    def passage_node(band: dict, station: int, tier: int) -> str:
-        uid = f"passage:{band['uid']}:station:{station}:tier:{tier}"
+    def passage_node(band: dict, station: int, tier: int, landing: str | None = None) -> str:
+        uid = f"cross:{landing}:passage:{band['uid']}:tier:{tier}" if landing else f"passage:{band['uid']}:station:{station}:tier:{tier}"
         if uid not in nodes:
             nodes[uid] = GraphNode(id=uid, node_type='PASSAGE_STATION', x_in=station, y_in=band['center_in'],
                                   station_in=station, tier=tier, passage_code=band['code'], passage_band_uid=band['uid'],
                                   roles=['ENDPOINT'] if station in (0, geometry['hall_length_in']) else [])
-        stations[(band['uid'], tier)].add(station)
+        if not landing:
+            stations[(band['uid'], tier)].add(station)
         return uid
 
     for rt in sorted(data['cross_route_tiers'], key=lambda r: r['uid']):
@@ -40,10 +44,11 @@ def derive_graph(data: dict) -> RoutingGraph:
                 previous = None
                 continue
             # A missing middle passage must not become a NORTH-to-SOUTH shortcut.
-            if (band['uid'], rt['tier']) not in passage_tiers:
+            landing = (band['uid'], rt['tier']) not in passage_tiers
+            if landing and (route['uid'], band['uid'], rt['tier']) not in row_openings:
                 previous = None
                 continue
-            nid = passage_node(band, route['station_in'], rt['tier'])
+            nid = passage_node(band, route['station_in'], rt['tier'], route['uid'] if landing else None)
             node = nodes[nid]
             node.node_type = 'JUNCTION'
             node.roles.append('JUNCTION')
@@ -68,10 +73,20 @@ def derive_graph(data: dict) -> RoutingGraph:
         if not vt['enabled']:
             continue
         band = next(b for b in bands if b['uid'] == vt['passage_band_uid'])
-        if any((band['uid'], t) not in passage_tiers for t in (vt['lower_tier'], vt['upper_tier'])):
-            continue
-        source = passage_node(band, vt['station_in'], vt['lower_tier'])
-        target = passage_node(band, vt['station_in'], vt['upper_tier'])
+        route = routes.get(vt.get('cross_route_uid'))
+        if vt.get('cross_route_uid'):
+            target = f"cross:{vt['cross_route_uid']}:passage:{band['uid']}:tier:{vt['upper_tier']}"
+            # When both tiers are passages the upper intersection already has its passage ID.
+            if (band['uid'], vt['upper_tier']) in passage_tiers and route:
+                target = f"passage:{band['uid']}:station:{route['station_in']}:tier:{vt['upper_tier']}"
+            if not route or target not in nodes or (band['uid'], vt['lower_tier']) not in passage_tiers:
+                continue
+            source = passage_node(band, route['station_in'], vt['lower_tier'])
+        else:
+            if any((band['uid'], t) not in passage_tiers for t in (vt['lower_tier'], vt['upper_tier'])):
+                continue
+            source = passage_node(band, vt['station_in'], vt['lower_tier'])
+            target = passage_node(band, vt['station_in'], vt['upper_tier'])
         for nid in (source, target):
             nodes[nid].vertical_transition_uids.append(vt['uid'])
             nodes[nid].roles.append('TIER_OPENING')

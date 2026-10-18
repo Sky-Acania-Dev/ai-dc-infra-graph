@@ -78,6 +78,7 @@ class ReviewPlanner:
             for x, y in zip(ordered, ordered[1:]):
                 eid = edge.id if len(ordered) == 2 else f'{edge.id}:takeoff:{x[0]},{x[1]}:{y[0]},{y[1]}'
                 item = dict(id=eid, segment_id=sid, source=x, target=y, edge_type=edge.edge_type, tier=edge.tier,
+                    passage_code=edge.passage_code, cross_route_uid=edge.cross_route_uid,
                     lower_tier=edge.lower_tier, upper_tier=edge.upper_tier, vertical_transition_uid=edge.vertical_transition_uid,
                     pathway_type=edge.pathway_type, width_in=edge.width_in,
                     planar_length_in=0 if edge.edge_type == 'VERTICAL' else abs(x[0]-y[0])+abs(x[1]-y[1]))
@@ -109,7 +110,7 @@ class ReviewPlanner:
             return self.result(points, edges, 'SAME_ROW')
         return self.shortest(start, end)
 
-    def shortest(self, start, end, forbidden=()):
+    def shortest(self, start, end, forbidden=(), allow_edge=None):
         if start not in self.nodes or end not in self.nodes:
             return None
         forbidden = set(forbidden) - {start}
@@ -122,6 +123,7 @@ class ReviewPlanner:
             if point == end: break
             for target, eid in sorted(self.adjacency[point], key=lambda item: item[1]):
                 if target in forbidden: continue
+                if allow_edge is not None and not allow_edge(self.edges[eid]): continue
                 candidate = (vertical + (self.edges[eid]['edge_type'] == 'VERTICAL'), length + self.edges[eid]['planar_length_in'], count + 1, ids + (eid,))
                 if target not in best or candidate < best[target]:
                     best[target], previous[target] = candidate, (point, eid)
