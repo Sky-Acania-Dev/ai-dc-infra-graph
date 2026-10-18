@@ -2,17 +2,18 @@ import { useMemo } from "react";
 import type { ConceptualLayout } from "./conceptualLayout";
 import type { ResolvedLayout, RoutingGraph, Selection, Tier } from "./types";
 import { formatInches } from "./dimensions";
-import { RouteStroke } from "./RouteStroke";
+import { RouteStroke, routeDetailScale } from "./RouteStroke";
 
 type Props = { data: ResolvedLayout; graph: RoutingGraph; view: ConceptualLayout; scale: number; tiers: Set<Tier>; selection: Selection; onSelect: (s: Selection) => void };
 export function ConceptualGraph({ data, graph, view, scale, tiers, selection, onSelect }: Props) {
   const nodes = useMemo(() => new Map(graph.nodes.map(n => [n.id, n])), [graph]);
+  const detail = routeDetailScale(scale);
   const selected = (kind: string, uid: string) => selection?.kind === kind && selection.uid === uid;
   return <g className="conceptual-graph">
     {graph.edges.filter(e => e.edge_type !== "VERTICAL" && e.tier && tiers.has(e.tier)).map(edge => {
       const source = nodes.get(edge.source_node_id), target = nodes.get(edge.target_node_id);
       if (!source || !target) return null;
-      const a = view.projectNode(source), b = view.projectNode(target), offset = (source.tier - 2) * 4 / scale;
+      const a = view.projectNode(source), b = view.projectNode(target), offset = (source.tier - 2) * 4 * detail / scale;
       const active = selected("edge", edge.id);
       return <g key={edge.id} data-selectable="true" role="button" tabIndex={0} aria-label={`Select segment ${edge.id}`} className={`routing-tier-${source.tier}`}
         onClick={event => { event.stopPropagation(); onSelect({ kind: "edge", uid: edge.id }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "edge", uid: edge.id }); }}>
@@ -22,12 +23,14 @@ export function ConceptualGraph({ data, graph, view, scale, tiers, selection, on
       </g>;
     })}
     {graph.nodes.filter(node => tiers.has(node.tier)).map(node => {
-      const point = view.projectNode(node), offset = (node.tier - 2) * 4 / scale;
-      return <circle key={node.id} data-selectable="true" role="button" tabIndex={0} aria-label={`Select node ${node.id}`} cx={point.x + offset} cy={point.y + offset} r={3 / scale}
-        className={`conceptual-station routing-tier-${node.tier} ${selected("node", node.id) ? "selected" : ""}`} vectorEffect="non-scaling-stroke"
+      const point = view.projectNode(node), offset = (node.tier - 2) * 4 * detail / scale;
+      return <g key={node.id} data-selectable="true" role="button" tabIndex={0} aria-label={`Select node ${node.id}`}
         onClick={event => { event.stopPropagation(); onSelect({ kind: "node", uid: node.id }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "node", uid: node.id }); }}>
+        <circle cx={point.x + offset} cy={point.y + offset} r={6 / scale} fill="transparent" />
+        <circle cx={point.x + offset} cy={point.y + offset} r={3 * detail / scale} pointerEvents="none"
+          className={`conceptual-station routing-tier-${node.tier} ${selected("node", node.id) ? "selected" : ""}`} style={{strokeWidth: 1.5 * detail}} vectorEffect="non-scaling-stroke" />
         <title>{`${node.passage_code} · Tier ${node.tier} · ${node.label ?? "Passage station"}`}</title>
-      </circle>;
+      </g>;
     })}
     {data.vertical_transitions.map((opening, index) => {
       if (!tiers.has(opening.lower_tier) && !tiers.has(opening.upper_tier)) return null;

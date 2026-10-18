@@ -1,5 +1,6 @@
 import { projectReviewPoint } from "./cableReviewProjection";
 import { pointLabel } from "./manualRouteEngine";
+import { routeDetailScale } from "./RouteStroke";
 import type { ConceptualLayout } from "./conceptualLayout";
 import type { ManualPreview, PlanningSegment, ResolvedLayout, ReviewPath } from "./types";
 
@@ -7,11 +8,12 @@ export function ManualRouteLayer({data, view, segments, preview, scale, onAppend
   data: ResolvedLayout; view: ConceptualLayout; segments: PlanningSegment[]; preview: ManualPreview | null;
   scale: number; onAppend: (ids: string[]) => void; disabled: boolean;
 }) {
+  const detail = routeDetailScale(scale);
   const line = (route: ReviewPath, color: string, width: number, dash?: string) => route.points.slice(1).map((point, i) => {
     const a = projectReviewPoint(data, view, route.points[i]), b = projectReviewPoint(data, view, point);
     if (!a || !b) return null;
     return point.tier !== route.points[i].tier ? <g key={i}><circle cx={a.x} cy={a.y} r={6 / scale} fill="#fff" stroke={color} vectorEffect="non-scaling-stroke" /><text x={a.x + 8 / scale} y={a.y - 6 / scale} fontSize={10 / scale}>T{route.points[i].tier} ↕ T{point.tier}</text></g>
-      : <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={width} strokeDasharray={dash ?? (point.tier === 2 ? "9 5" : point.tier === 3 ? "9 4 2 4" : undefined)} vectorEffect="non-scaling-stroke" strokeLinecap="round" />;
+      : <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={width * detail} strokeDasharray={dash ?? (point.tier === 2 ? "9 5" : point.tier === 3 ? "9 4 2 4" : undefined)} vectorEffect="non-scaling-stroke" strokeLinecap="round" />;
   });
   return <g className="manual-route-layer" aria-label="Manual route building paths">
     <g opacity={.45} pointerEvents="none">{segments.map(segment => <g key={segment.id}>{line({points: [segment.source, segment.target]} as ReviewPath, "#94a3b8", 1.5)}</g>)}</g>
