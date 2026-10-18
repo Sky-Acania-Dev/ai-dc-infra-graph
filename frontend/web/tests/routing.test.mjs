@@ -45,6 +45,69 @@ test("manual clicks, chain validation, and A* remainders work locally without re
   } finally {globalThis.fetch = previousFetch;}
 });
 
+test("disconnected segment clicks bridge locally, include the clicked edge, and preserve a single undo checkpoint", () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = () => {assert.fail('Segment bridging must stay local');};
+  try {
+    const {segments,group,draft} = manualFixture(), engine = new ManualRouteEngine(segments);
+    const prefix = {...draft,ids:['s-i'],checkpoints:[0]}, before = structuredClone(prefix);
+    const result = engine.connectSegment(group,prefix,'n-ne');
+    assert.deepEqual(result.bridge.load_ids,['i-n']);
+    assert.deepEqual(result.draft.ids,['s-i','i-n','n-ne']);
+    assert.deepEqual(result.draft.checkpoints,[0,1]);
+    assert.deepEqual(result.draft.ids.slice(0,result.draft.checkpoints.at(-1)),prefix.ids);
+    assert.deepEqual(prefix,before);
+    const preview = engine.preview(group,result.draft);
+    assert.equal(preview.complete,false);
+    assert.deepEqual(preview.suggestion.load_ids,['ne-end']);
+    assert.equal(engine.isComplete(group,{...result.draft,ids:[...result.draft.ids,...preview.suggestion.load_ids]}),true);
+    const reversed = new ManualRouteEngine([...segments].reverse().map(e=>e.id==='n-ne'?{...e,source:e.target,target:e.source}:e));
+    assert.deepEqual(reversed.connectSegment(group,prefix,'n-ne').draft,result.draft);
+    const connected = engine.connectSegment(group,{...draft,ids:['s-i','i-n']},'n-ne');
+    assert.deepEqual(connected.bridge.load_ids,[]);
+    assert.deepEqual(connected.draft.ids,['s-i','i-n','n-ne']);
+  } finally {globalThis.fetch = previousFetch;}
+});
+
+test("segment bridging compares routed costs to both endpoints instead of straight-line proximity", () => {
+  const p = (name,x,y,cabinet=null) => ({node_id:name,x_in:x,y_in:y,tier:1,cabinet_uid:cabinet});
+  const s=p('s',0,0,'source'), a=p('a',10,0), b=p('b',10,20), c=p('c',0,20), u=p('u',-10,0), v=p('v',-10,30), w=p('w',10,30), z=p('z',30,0,'destination');
+  const edge = (id,source,target) => ({id,segment_id:id,source,target,edge_type:'PASSAGE',planar_length_in:Math.abs(source.x_in-target.x_in)+Math.abs(source.y_in-target.y_in),label:id});
+  const segments=[edge('s-u',s,u),edge('u-v',u,v),edge('v-w',v,w),edge('w-a',w,a),edge('s-c',s,c),edge('c-b',c,b),edge('clicked',a,b),edge('a-z',a,z)];
+  const {group,draft}=manualFixture(), result=new ManualRouteEngine(segments).connectSegment(group,draft,'clicked');
+  assert.deepEqual(result.bridge.load_ids,['s-c','c-b']);
+  assert.equal(result.bridge.planar_length_in,30);
+  assert.deepEqual(result.draft.ids,['s-c','c-b','clicked']);
+  assert.equal(new ManualRouteEngine(segments).preview(group,result.draft).prefix.points.at(-1).node_id,'a');
+});
+
+test("segment bridging rejects unreachable, already-used and post-destination paths without changing the draft", () => {
+  const {segments,group,draft}=manualFixture(), engine=new ManualRouteEngine(segments);
+  const north={...draft,ids:['s-i','i-n']}, before=structuredClone(north);
+  assert.throws(()=>engine.connectSegment(group,north,'s-i'),/Cannot connect/);
+  assert.deepEqual(north,before);
+  assert.throws(()=>engine.connectSegment(group,draft,'missing'),/unavailable/);
+  // The only alternative approach would revisit the source or pass the final destination.
+  assert.throws(()=>engine.connectSegment(group,{...draft,ids:['s-c']},'n-ne'),/Cannot connect/);
+  const full={...draft,ids:['s-i','i-n','n-ne','ne-end']};
+  assert.throws(()=>engine.connectSegment(group,full,'c-ce'),/complete/);
+  const remote={...segments[0],id:'island',source:{...segments[0].source,x_in:100},target:{...segments[0].target,x_in:100}};
+  assert.throws(()=>new ManualRouteEngine([...segments,remote]).connectSegment(group,draft,'island'),/Cannot connect/);
+});
+
+test("bridging to another tier requires its physical opening and never invents vertical distance", () => {
+  const {segments,group,draft}=manualFixture();
+  const layered=[...segments,...segments.map(e=>({...e,id:`${e.id}-T2`,tier:2,source:{...e.source,tier:2},target:{...e.target,tier:2}}))];
+  assert.throws(()=>new ManualRouteEngine(layered).connectSegment(group,{...draft,endTier:2},'n-ne-T2'),/Cannot connect/);
+  const n=segments.find(e=>e.id==='n-ne').source;
+  layered.push({id:'hole',segment_id:'hole',label:'N opening',edge_type:'VERTICAL',source:n,target:{...n,tier:2},planar_length_in:0,vertical_transition_uid:'vt-1-2'});
+  const engine=new ManualRouteEngine(layered), result=engine.connectSegment(group,{...draft,endTier:2},'n-ne-T2');
+  assert.deepEqual(result.bridge.load_ids,['s-i','i-n','hole']);
+  assert.equal(result.bridge.vertical_transition_count,1);
+  assert.equal(result.bridge.planar_length_in,5);
+  assert.equal(engine.preview(group,result.draft).prefix.planar_length_in,25);
+});
+
 test("local tier-aware A* needs separate adjacent-tier physical openings and adds no vertical length", () => {
   const {segments,group,draft} = manualFixture();
   const layered = [...segments];

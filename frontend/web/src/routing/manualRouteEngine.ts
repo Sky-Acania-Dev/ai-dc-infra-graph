@@ -46,7 +46,7 @@ export class ManualRouteEngine {
       planar_length_in: ids.reduce((sum, id) => sum + this.edges.get(id)!.planar_length_in, 0),
       vertical_transition_count: ids.filter(id => this.edges.get(id)!.edge_type === "VERTICAL").length, length_label: "Planar pathway length"};
   }
-  shortest(start: string, end: string, forbidden: Set<string>): ReviewPath | null {
+  shortest(start: string, end: string, forbidden: Set<string>, blockedEdges = new Set<string>()): ReviewPath | null {
     const destination = this.nodes.get(end)!;
     const heuristic = (id: string) => {const p = this.nodes.get(id)!; return Math.abs(p.x_in - destination.x_in) + Math.abs(p.y_in - destination.y_in);};
     const initial: Cost = {vertical: 0, length: 0, ids: []};
@@ -58,13 +58,35 @@ export class ManualRouteEngine {
       if (best.get(node) !== cost) continue;
       if (node === end) return this.path(start, cost.ids, "ASTAR");
       for (const {target, id} of this.adjacency.get(node) ?? []) {
-        if (forbidden.has(target)) continue;
+        if (forbidden.has(target) || blockedEdges.has(id)) continue;
         const edge = this.edges.get(id)!;
         const candidate = {vertical: cost.vertical + Number(edge.edge_type === "VERTICAL"), length: cost.length + edge.planar_length_in, ids: [...cost.ids, id]};
         if (!best.has(target) || compareCost(candidate, best.get(target)!) < 0) {best.set(target, candidate); queue.push({node: target, cost: candidate});}
       }
     }
     return null;
+  }
+  connectSegment(group: ReviewGroup, draft: ManualDraft, segmentId: string) {
+    const {current, end, visited} = this.validate(group, draft);
+    if (current === end) throw new Error("This route is complete. Use Undo or Start over to change it.");
+    const segment = this.edges.get(segmentId);
+    if (!segment) throw new Error("This segment is unavailable. Reload the routing graph.");
+    const candidates: Array<{draft: ManualDraft; bridge: ReviewPath; cost: Cost}> = [];
+    // Approach each end without traversing the clicked edge, touching its exit first,
+    // reusing the chosen prefix, or passing the cable's destination.
+    for (const [entry, exit] of [[key(segment.source), key(segment.target)], [key(segment.target), key(segment.source)]]) {
+      if (entry === end || visited.has(exit) || visited.has(entry) && entry !== current) continue;
+      const forbidden = new Set(visited); forbidden.delete(current); forbidden.add(exit); forbidden.add(end);
+      const bridge = this.shortest(current, entry, forbidden, new Set([segmentId]));
+      if (!bridge) continue;
+      const next = {...draft, ids: [...draft.ids, ...bridge.load_ids, segmentId], checkpoints: [...draft.checkpoints, draft.ids.length]};
+      this.validate(group, next);
+      candidates.push({draft: next, bridge, cost: {vertical: bridge.vertical_transition_count, length: bridge.planar_length_in, ids: bridge.load_ids}});
+    }
+    candidates.sort((a, b) => compareCost(a.cost, b.cost) || compareIds(a.draft.ids, b.draft.ids));
+    if (!candidates.length) throw new Error("Cannot connect that segment without backtracking or passing the destination. Check enabled pathways and tier openings, or use Undo.");
+    const {draft: next, bridge} = candidates[0];
+    return {draft: next, bridge, segment};
   }
   validate(group: ReviewGroup, draft: ManualDraft) {
     const start = this.endpoint(group.source_cabinet_uid, draft.startTier), end = this.endpoint(group.destination_cabinet_uid, draft.endTier);

@@ -119,7 +119,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
         segments={segments} fixtures={fixtureMap} selectedSegmentId={segmentId}
         cabinetRun={cabinetRun} selectedAttachmentUid={attachmentUid} selectedFixtureCableId={selectedFixtureCableId}
         review={review} selectedReviewGroupUid={manual.editing ? manual.activeUid : highlightGroupUid} selectedReviewLoadId={reviewLoadId}
-        manual={manual.editing ? {preview: manual.preview, segments: review?.planning_segments ?? [], append: manual.append, disabled: manual.busy} : null}
+        manual={manual.editing ? {preview: manual.preview, segments: review?.planning_segments ?? [], append: manual.append, chooseSegment: manual.chooseSegment, disabled: manual.busy} : null}
         onReviewLoad={load => {if (manual.editing) return; setReviewInspectorOpen(true); setReviewLoadId(load.id); setReviewGroupUid(null); setSegmentId(load.segment_id); setAttachmentUid(null); setSelection(null); setSelectedFixtureCableId(null); onClearSelection();}}
         onReviewAttachment={uid => {if (manual.editing) return; setReviewInspectorOpen(true); setReviewLoadId(null); setReviewGroupUid(null); setSegmentId(null); setAttachmentUid(uid); setSelection(null); setSelectedFixtureCableId(null); onClearSelection();}}
         onSelectRunPart={part => { setSelection(null); setSelectedFixtureCableId(null); setSegmentId(part.kind === "segment" ? part.id : null); setAttachmentUid(part.kind === "attachment" ? part.id : null); }}

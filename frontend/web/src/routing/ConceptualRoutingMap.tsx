@@ -23,7 +23,7 @@ type Props = { data: ResolvedLayout; graph: RoutingGraph; tiers: Set<Tier>; sele
   onSelectRunPart: (part: FixtureRunPart) => void;
   review?: CableReview | null; selectedReviewGroupUid?: string | null; selectedReviewLoadId?: string | null;
   onReviewLoad?: (load: ReviewLoad) => void; onReviewAttachment?: (uid: string) => void;
-  manual?: {preview: ManualPreview | null; segments: PlanningSegment[]; append: (ids: string[]) => void; disabled: boolean} | null;
+  manual?: {preview: ManualPreview | null; segments: PlanningSegment[]; append: (ids: string[]) => void; chooseSegment: (id: string) => void; disabled: boolean} | null;
 };
 export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, fixtures, cabinetRun, selectedAttachmentUid, selectedFixtureCableId, onSelectRunPart, review, selectedReviewGroupUid = null, selectedReviewLoadId = null, onReviewLoad, onReviewAttachment, manual }: Props) {
   const display = useMemo(() => conceptualLayout(data, placeRoutingCabinets(data), settings), [data, settings]);
@@ -92,8 +92,8 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
       <ConceptualGraph data={data} graph={graph} view={display} scale={v.scale} tiers={tiers} selection={selection} onSelect={onSelect} />
       {cabinetRun && fixtureGeometry && <CabinetFixtureLayer run={cabinetRun} geometry={fixtureGeometry} scale={v.scale}
         selectedPartId={selectedAttachmentUid ?? selectedSegmentId} selectedCableId={selectedFixtureCableId} onSelect={onSelectRunPart} />}
-      {review && onReviewLoad && onReviewAttachment && <CableReviewLayer data={data} view={display} review={review} scale={v.scale} tiers={tiers} selectedGroupUid={selectedReviewGroupUid} selectedLoadId={selectedReviewLoadId} onLoad={onReviewLoad} onAttachment={onReviewAttachment} />}
-      {manual && <ManualRouteLayer data={data} view={display} segments={manual.segments} preview={manual.preview} scale={v.scale} onAppend={manual.append} disabled={manual.disabled} />}
+      {!manual && review && onReviewLoad && onReviewAttachment && <CableReviewLayer data={data} view={display} review={review} scale={v.scale} tiers={tiers} selectedGroupUid={selectedReviewGroupUid} selectedLoadId={selectedReviewLoadId} onLoad={onReviewLoad} onAttachment={onReviewAttachment} />}
+      {manual && <ManualRouteLayer data={data} view={display} segments={manual.segments} preview={manual.preview} scale={v.scale} onAppend={manual.append} onSegment={manual.chooseSegment} disabled={manual.disabled} tiers={tiers} />}
     </svg>
     <footer className="routing-view-footer">Conceptual positions and stroke widths are visual only. Segment details retain model lengths and widths.</footer>
   </section>;

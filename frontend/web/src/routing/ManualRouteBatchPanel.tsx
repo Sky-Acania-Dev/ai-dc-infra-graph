@@ -17,7 +17,7 @@ export function ManualRouteBatchPanel({editor: e, shownGroups, canManage}: {edit
       <div className="manual-actions"><button disabled={!e.groups.length || e.busy} onClick={e.begin}>Edit selected routes</button>
         <button disabled={!e.groups.some(g => g.route_source === "MANUAL") || e.busy} onClick={() => void e.reset()}>Reset selected manual routes to defaults</button></div>
     </> : <>
-      <p className="manual-edit-help">Click a teal next path. Orange is your chosen chain; dashed cyan suggests the remainder. All clicks and suggestions stay local.</p>
+      <p className="manual-edit-help">Click a teal next path, or any other segment to connect it with A*. Orange is your chosen chain; dashed cyan suggests the remainder. All clicks and suggestions stay local.</p>
       <label>Editing cable group<select aria-label="Editing cable group" value={e.activeUid} disabled={e.busy} onChange={event => e.setActiveUid(event.target.value)}>{e.groups.map(g => <option key={g.uid} value={g.uid}>{e.complete(g) ? "✓ " : "○ "}{groupLabel(g)}</option>)}</select></label>
       {e.draft && <div className="manual-endpoint-tiers">{(["Source", "Destination"] as const).map((label, index) => <label key={label}>{label} tier<select aria-label={`${label} route tier`} disabled={e.busy} value={index ? e.draft!.endTier : e.draft!.startTier}
         onChange={event => e.setTiers(index ? e.draft!.startTier : Number(event.target.value) as Tier, index ? Number(event.target.value) as Tier : e.draft!.endTier)}>{[1, 2, 3].map(t => <option key={t} value={t}>Tier {t}</option>)}</select></label>)}</div>}

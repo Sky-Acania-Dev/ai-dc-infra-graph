@@ -58,6 +58,22 @@ test("manual SVG provides keyboard-accessible connected chain choices", () => {
   assert.match(html,/stroke-dasharray="7 6"/);
   assert.match(html,/no request is sent/);
 });
+test("manual SVG makes distant enabled segments accessible and locks them after completion", () => {
+  const p = (x,tier=1) => ({node_id:`n-${x}-${tier}`,x_in:x,y_in:382,tier,passage_band_uid:'central',passage_code:'CENTRAL',cabinet_uid:null});
+  const segment={id:'remote',label:'Central R3–4',source:p(240),target:p(360),edge_type:'PASSAGE'};
+  const props={data:{geometry:{bands:[]}},view:{cabinets:[],passageX:new Map([['central',10]]),stationY:x=>x},segments:[segment,{...segment,id:'hidden',source:p(240,2),target:p(360,2)}],
+    preview:{complete:false,prefix:{points:[p(0)]},next_chains:[],destination:p(480)},scale:1,onAppend:()=>{},onSegment:()=>{},disabled:false,tiers:new Set([1])};
+  const html=renderToStaticMarkup(React.createElement(ManualLayer,props));
+  assert.match(html,/data-planning-segment-id="remote" role="button" tabindex="0"/);
+  assert.match(html,/Route via Central R3–4 · Tier 1/);
+  assert.match(html,/local A\* connects the closer reachable endpoint/);
+  assert.match(html,/<rect x="1" y="231" width="18" height="138" fill="transparent"/);
+  assert.doesNotMatch(html,/data-planning-segment-id="hidden"/);
+  const complete=renderToStaticMarkup(React.createElement(ManualLayer,{...props,preview:{...props.preview,complete:true}}));
+  assert.match(complete,/data-planning-segment-id="remote" role="button" tabindex="-1"/);
+  assert.match(complete,/aria-disabled="true"/);
+});
+
 test("section display mode renders only the selected representation", () => {
   const props = {tier: 1, model: sectionModel, mode: "GRID", reversed: false, onSelectPlacement: () => {}};
   const html = renderToStaticMarkup(React.createElement(Section, props));
