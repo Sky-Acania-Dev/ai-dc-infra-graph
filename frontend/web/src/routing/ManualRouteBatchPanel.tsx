@@ -1,22 +1,15 @@
 import { formatInches } from "./dimensions";
 import { groupLabel, pointLabel, sameRackPair } from "./manualRouteEngine";
 import type { ManualRouteEditor } from "./useManualRouteEditor";
-import type { ReviewGroup, Tier } from "./types";
+import type { Tier } from "./types";
 
-export function ManualRouteBatchPanel({editor: e, shownGroups, canManage}: {editor: ManualRouteEditor; shownGroups: ReviewGroup[]; canManage: boolean}) {
-  if (!canManage) return <p className="routing-notice">Managers can batch-edit manual routes.</p>;
+export function ManualRouteBatchPanel({editor: e, canManage}: {editor: ManualRouteEditor; canManage: boolean}) {
+  if (!canManage || !e.editing) return null;
   const preview = e.preview;
   const samePairCount = e.active ? e.groups.filter(g => sameRackPair(e.active!, g)).length : 0;
   return <section className="manual-batch-panel" aria-label="Batch manual route editor">
-    <h4>Batch manual routes</h4>
-    {!e.editing ? <>
-      <details className="manual-group-picker"><summary>Select groups · {e.selected.length} selected</summary>
-        <div className="manual-actions"><button disabled={e.busy} onClick={() => e.selectShown(shownGroups)}>Select shown groups</button><button disabled={e.busy} onClick={e.clearSelected}>Clear selected</button></div>
-        <div className="manual-group-options">{shownGroups.map(g => <label key={g.uid}><input type="checkbox" aria-label={`Batch select ${groupLabel(g)}`} checked={e.selected.includes(g.uid)} disabled={e.busy} onChange={() => e.toggle(g.uid)} /><span>{groupLabel(g)}<small>{g.route_source === "MANUAL" ? `Manual r${g.manual_revision}${g.manual_status === "INVALID" ? " · INVALID" : ""}` : "Default"} · Tier {g.start_tier ?? 1} → Tier {g.end_tier ?? 1}</small></span></label>)}</div>
-      </details>
-      <div className="manual-actions"><button disabled={!e.groups.length || e.busy} onClick={e.begin}>Edit selected routes</button>
-        <button disabled={!e.groups.some(g => g.route_source === "MANUAL") || e.busy} onClick={() => void e.reset()}>Reset selected manual routes to defaults</button></div>
-    </> : <>
+    <h4>Route editor</h4>
+    <>
       <p className="manual-edit-help">Click a teal next path, or any other segment to connect it with A*. Orange is your chosen chain; dashed cyan suggests the remainder. All clicks and suggestions stay local.</p>
       <label>Editing cable group<select aria-label="Editing cable group" value={e.activeUid} disabled={e.busy} onChange={event => e.setActiveUid(event.target.value)}>{e.groups.map(g => <option key={g.uid} value={g.uid}>{e.complete(g) ? "✓ " : "○ "}{groupLabel(g)}</option>)}</select></label>
       {e.draft && <div className="manual-endpoint-tiers">{(["Source", "Destination"] as const).map((label, index) => <label key={label}>{label} tier<select aria-label={`${label} route tier`} disabled={e.busy} value={index ? e.draft!.endTier : e.draft!.startTier}
@@ -34,7 +27,7 @@ export function ManualRouteBatchPanel({editor: e, shownGroups, canManage}: {edit
       <label>Batch notes<textarea aria-label="Manual route batch notes" maxLength={2000} value={e.notes} disabled={e.busy} onChange={event => e.setNotes(event.target.value)} placeholder="Pattern, inventory constraint, or reason for this route" /></label>
       <p className="manual-complete-count">{e.completed} / {e.groups.length} selected group routes complete</p>
       <div className="manual-actions"><button className="manual-save" disabled={!e.canSave} onClick={() => void e.save()}>Save manual batch</button><button disabled={e.busy} onClick={e.cancel}>Cancel editing</button></div>
-    </>}
+    </>
     {e.busy && <p role="status">Saving batch…</p>}
     {e.error && <div className="routing-error" role="alert">{e.error}<button disabled={e.busy} onClick={e.reload}>Reload cable review</button></div>}
     {e.message && <p className="manual-feedback" role="status">{e.message}</p>}

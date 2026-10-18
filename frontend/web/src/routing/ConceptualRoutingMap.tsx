@@ -13,6 +13,7 @@ import { CabinetFixtureLayer } from "./CabinetFixtureLayer";
 import { CableReviewLayer } from "./CableReviewLayer";
 import { ManualRouteLayer } from "./ManualRouteLayer";
 import { projectReviewPoint, reviewConnector } from "./cableReviewProjection";
+import { focusedRouteGroups } from "./rackPairRoutes";
 import type { CableClass, CableReview, ResolvedLayout, ReviewLoad, RoutingGraph, Selection, Tier, ManualPreview, PlanningSegment } from "./types";
 
 type Props = { data: ResolvedLayout; graph: RoutingGraph; tiers: Set<Tier>; selection: Selection; onSelect: (s: Selection) => void; initialSectionUid: string; cabinetInteraction: CabinetInteraction;
@@ -21,11 +22,11 @@ type Props = { data: ResolvedLayout; graph: RoutingGraph; tiers: Set<Tier>; sele
   fixtures: Map<string, { cable_classes: CableClass[]; usable: boolean }>;
   cabinetRun: CabinetFixtureRun | null; selectedAttachmentUid: string | null; selectedFixtureCableId: string | null;
   onSelectRunPart: (part: FixtureRunPart) => void;
-  review?: CableReview | null; selectedReviewGroupUid?: string | null; selectedReviewLoadId?: string | null;
+  review?: CableReview | null; selectedReviewGroupUid?: string | null; selectedReviewLoadId?: string | null; focusedReviewPairKey?: string | null;
   onReviewLoad?: (load: ReviewLoad) => void; onReviewAttachment?: (uid: string) => void;
   manual?: {preview: ManualPreview | null; segments: PlanningSegment[]; append: (ids: string[]) => void; chooseSegment: (id: string) => void; disabled: boolean} | null;
 };
-export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, fixtures, cabinetRun, selectedAttachmentUid, selectedFixtureCableId, onSelectRunPart, review, selectedReviewGroupUid = null, selectedReviewLoadId = null, onReviewLoad, onReviewAttachment, manual }: Props) {
+export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, fixtures, cabinetRun, selectedAttachmentUid, selectedFixtureCableId, onSelectRunPart, review, selectedReviewGroupUid = null, selectedReviewLoadId = null, focusedReviewPairKey = null, onReviewLoad, onReviewAttachment, manual }: Props) {
   const display = useMemo(() => conceptualLayout(data, placeRoutingCabinets(data), settings), [data, settings]);
   const fixtureGeometry = useMemo(() => cabinetRun ? projectFixtureRun(data, display, cabinetRun, segments) : null, [data, display, cabinetRun, segments]);
   // The view controller operates in SVG display units, not model inches.
@@ -39,9 +40,9 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
   const selectedCabinet = display.cabinets.find(c => cabinetInteraction.selected.has(c.cabinet.cabinet_uid));
   const selected = (kind: string, uid: string) => selection?.kind === kind && selection.uid === uid;
   const crossStart = display.passages[0]?.x ?? 0, crossEnd = display.passages.at(-1)?.x ?? 0;
-  const reviewGroup = review?.groups.find(g => g.uid === selectedReviewGroupUid);
-  const reviewPoints = reviewGroup?.route?.points.flatMap(p => {const point = projectReviewPoint(data, display, p); return point ? [point] : [];}) ?? [];
-  if (reviewGroup?.route) for (const [uid, point] of [[reviewGroup.source_cabinet_uid, reviewGroup.route.points[0]], [reviewGroup.destination_cabinet_uid, reviewGroup.route.points.at(-1)!]] as const) {
+  const reviewGroups = focusedRouteGroups(review?.groups ?? [], selectedReviewGroupUid, focusedReviewPairKey);
+  const reviewPoints = reviewGroups.flatMap(g=>g.route?.points ?? []).flatMap(p => {const point = projectReviewPoint(data, display, p); return point ? [point] : [];});
+  for (const reviewGroup of reviewGroups) if (reviewGroup.route) for (const [uid, point] of [[reviewGroup.source_cabinet_uid, reviewGroup.route.points[0]], [reviewGroup.destination_cabinet_uid, reviewGroup.route.points.at(-1)!]] as const) {
     const connector = reviewConnector(data, display, uid, point); if (connector) reviewPoints.push(connector.a);
   }
   return <section className="routing-viewer conceptual-viewer" aria-label="Conceptual cabinet and route map">
@@ -52,7 +53,7 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
       <button disabled={!selectedCabinet} onClick={() => { if (selectedCabinet) v.focusSection(Math.max(0, selectedCabinet.y - 100), selectedCabinet.y + 300); }}>Focus selected cabinet</button>
       {fixtureGeometry && <button onClick={() => v.focusBounds(fixtureGeometry.points, 100)}>Focus 021 → 031</button>}
       {review && <button onClick={() => v.focusBounds(display.cabinets.filter(c => review.cabinet_uids.includes(c.cabinet.cabinet_uid)).flatMap(c => [{x:c.x,y:c.y-25}, {x:c.x+c.width,y:c.y+c.height+25}]), 55)}>Focus actual cable rows</button>}
-      {reviewPoints.length > 0 && <button onClick={() => v.focusBounds(reviewPoints, 65)}>Focus cable group</button>}
+      {reviewPoints.length > 0 && <button onClick={() => v.focusBounds(reviewPoints, 65)}>{focusedReviewPairKey ? "Focus rack pair" : "Focus cable group"}</button>}
       {manual?.preview && <button onClick={() => v.focusBounds([...manual.preview!.prefix.points, ...(manual.preview!.suggestion?.points ?? []), manual.preview!.destination].flatMap(p => {const point = projectReviewPoint(data, display, p); return point ? [point] : [];}), 80)}>Focus manual draft</button>}
       <span>Conceptual · Not to scale · Drag blank space to pan</span>
     </div>
@@ -92,7 +93,7 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
       <ConceptualGraph data={data} graph={graph} view={display} scale={v.scale} tiers={tiers} selection={selection} onSelect={onSelect} />
       {cabinetRun && fixtureGeometry && <CabinetFixtureLayer run={cabinetRun} geometry={fixtureGeometry} scale={v.scale}
         selectedPartId={selectedAttachmentUid ?? selectedSegmentId} selectedCableId={selectedFixtureCableId} onSelect={onSelectRunPart} />}
-      {!manual && review && onReviewLoad && onReviewAttachment && <CableReviewLayer data={data} view={display} review={review} scale={v.scale} tiers={tiers} selectedGroupUid={selectedReviewGroupUid} selectedLoadId={selectedReviewLoadId} onLoad={onReviewLoad} onAttachment={onReviewAttachment} />}
+      {!manual && review && onReviewLoad && onReviewAttachment && <CableReviewLayer data={data} view={display} review={review} scale={v.scale} tiers={tiers} selectedGroupUid={selectedReviewGroupUid} selectedLoadId={selectedReviewLoadId} focusedPairKey={focusedReviewPairKey} onLoad={onReviewLoad} onAttachment={onReviewAttachment} />}
       {manual && <ManualRouteLayer data={data} view={display} segments={manual.segments} preview={manual.preview} scale={v.scale} onAppend={manual.append} onSegment={manual.chooseSegment} disabled={manual.disabled} tiers={tiers} />}
     </svg>
     <footer className="routing-view-footer">Conceptual positions and stroke widths are visual only. Segment details retain model lengths and widths.</footer>

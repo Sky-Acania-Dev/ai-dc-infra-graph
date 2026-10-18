@@ -26,6 +26,7 @@ const CableReviewLayer = await component("CableReviewLayer", "CableReviewLayer")
 const CabinetConnectionsPanel = await component("../components/CabinetConnectionsPanel", "CabinetConnectionsPanel", true);
 const ManualBatchPanel = await component("ManualRouteBatchPanel", "ManualRouteBatchPanel");
 const ManualLayer = await component("ManualRouteLayer", "ManualRouteLayer");
+const RackPairCards = await component("RackPairRouteCards", "RackPairRouteCards");
 const box = {uid: "g", tier: 1, label: "G1", cable_class: "LC", sourceAvailable: true, demo: true, layer: 1, position: 1, slot_width: 3, slot_height: 2, offset_across_in: 0, offset_up_in: 0, occupied_width_in: 4, occupied_height_in: 2};
 const span = {id: "span", passage_band_uid: "north", cross_route_uid: null, start_station_in: 0, end_station_in: 108, from_passage_band_uid: null, to_passage_band_uid: null};
 
@@ -135,11 +136,49 @@ test("actual review groups show type detail actions and configured endpoint tier
   const group = {uid: 'g', source_cabinet_id: '001', destination_cabinet_id: '011', cable_type: 'LC-TO-LC SMF', cable_uids: ['actual-1'], count: 1, route: {method: 'ASTAR', planar_length_in: 120}};
   const cables = [{uid: 'actual-1', cable_type: 'LC-TO-LC SMF', cable_class: 'LC', source_cabinet_id: '001', destination_cabinet_id: '011', source_port_name: 'P1', destination_port_name: 'P2', source_label: 'A01', destination_label: 'Z01', notes: ''}];
   const html = renderToStaticMarkup(React.createElement(CableReviewPanel, {review: {cables}, groups: [group], selectedGroupUid: 'g', onGroup: () => {}, onViewCables: () => {}}));
-  assert.match(html, /A\* cross-row placeholder/);
+  assert.match(html, /Suggested/);
   assert.match(html, /View LC-TO-LC SMF cable details/);
   assert.doesNotMatch(html, /actual-1|A01|connection-cable-row|Cable details/);
   assert.match(html, /unassigned/); assert.doesNotMatch(html, /fixture cable|Fake review/);
   assert.match(html, /Tier 1 → Tier 1/);
+});
+
+test("focused rack-pair cards expose type squares and Set/Change actions without the old picker", () => {
+  const base={source_cabinet_uid:'a',destination_cabinet_uid:'b',source_cabinet_id:'801',destination_cabinet_id:'811',start_tier:1,end_tier:1,count:4,route_source:'DEFAULT',manual_status:null,cable_uids:[]};
+  const groups=[{...base,uid:'lc',cable_type:'LC'},{...base,uid:'mpo',cable_type:'MPO',route_source:'MANUAL',manual_revision:2}];
+  const editor={selected:['lc'],groups:[groups[0]],busy:false};
+  const props={review:{groups,cables:[]},groups:[groups[0]],focusedKey:JSON.stringify(['a','b']),onFocus:()=>{},editor,canManage:true,onViewCables:()=>{}};
+  const html=renderToStaticMarkup(React.createElement(RackPairCards,props));
+  assert.match(html,/Focus rack pair 801 ↔ 811" aria-pressed="true"/);
+  assert.match(html,/Select LC route · 801 ↔ 811/);
+  assert.match(html,/Select MPO route · 801 ↔ 811/);
+  assert.match(html,/aria-label="Set route · 801 ↔ 811"/);
+  assert.match(html,/View LC cable details/);
+  assert.match(html,/View MPO cable details/);
+  assert.doesNotMatch(html,/manual-group-picker|Actual cable group|Edit selected routes/);
+  const changed=renderToStaticMarkup(React.createElement(RackPairCards,{...props,editor:{...editor,selected:['lc','mpo'],groups}}));
+  assert.match(changed,/aria-label="Change route · 801 ↔ 811"/);
+  assert.match(changed,/2 types selected/);
+  const viewer=renderToStaticMarkup(React.createElement(RackPairCards,{...props,canManage:false}));
+  assert.match(viewer,/Focus rack pair/);
+  assert.doesNotMatch(viewer,/type="checkbox"|route-card-edit/);
+});
+
+test("rack-pair map focus keeps its cable classes and renders unrelated shared routes grey", () => {
+  const p=x=>({x_in:x,y_in:382,tier:1,passage_band_uid:'central',cabinet_uid:null});
+  const group=(uid,cable_class,destination='b')=>({uid,cable_class,source_cabinet_uid:'a',destination_cabinet_uid:destination});
+  const load=(id,group_uids,cable_classes,x)=>({id,source:p(x),target:p(x+120),group_uids,cable_classes,cable_count:4,tier:1,edge_type:'PASSAGE'});
+  const review={groups:[group('lc','LC'),group('mpo','MPO'),group('other','CAT6','c')],cabinet_uids:[],loads:[load('shared',['lc','other'],['LC','CAT6'],0),load('mpo',['mpo'],['MPO'],120),load('other',['other'],['CAT6'],240)]};
+  const props={data:{geometry:{bands:[]}},view:{cabinets:[],passageX:new Map([['central',10]]),stationY:x=>x},review,scale:1,selectedGroupUid:null,selectedLoadId:'other',focusedPairKey:JSON.stringify(['a','b']),onLoad:()=>{},onAttachment:()=>{}};
+  const html=renderToStaticMarkup(React.createElement(CableReviewLayer,props));
+  assert.equal((html.match(/data-route-muted="true"/g)??[]).length,1);
+  assert.match(html,/data-cable-class="LC"/);
+  assert.match(html,/data-cable-class="MPO"/);
+  assert.doesNotMatch(html,/data-cable-class="CAT6"/);
+  assert.match(html,/stroke="#4b5057"/);
+  const all=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,focusedPairKey:null}));
+  assert.doesNotMatch(all,/data-route-muted/);
+  assert.match(all,/data-cable-class="CAT6"/);
 });
 
 test("large real cable groups stay summarized until their detail table is requested", () => {

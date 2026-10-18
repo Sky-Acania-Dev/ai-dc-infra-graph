@@ -12,6 +12,22 @@ import { projectReviewPoint, reviewConnector, reviewGroupsForPart } from "../src
 import { cabinetFixtureRun, projectFixtureRun, offsetPolyline } from "../src/routing/cabinetFixtureRun.ts";
 import { loadRoutingCableTable } from "../src/routing/routingCableDetails.ts";
 import { ManualRouteEngine } from "../src/routing/manualRouteEngine.ts";
+import { reviewPairKey, rackPairCards, focusedRouteGroups, routeActionLabel } from "../src/routing/rackPairRoutes.ts";
+
+test("rack-pair focus includes every type even when the selected segment carries only one", () => {
+  const base={source_cabinet_uid:'rack-801',destination_cabinet_uid:'rack-811',source_cabinet_id:'801',destination_cabinet_id:'811',route_source:'DEFAULT'};
+  const cat6={...base,uid:'cat6',cable_type:'CAT6a'}, lc={...base,uid:'lc',cable_type:'LC'}, mpo={...base,uid:'mpo',cable_type:'MPO'};
+  const other={...base,uid:'other',destination_cabinet_uid:'rack-820',destination_cabinet_id:'820'};
+  const all=[cat6,lc,mpo,other], key=reviewPairKey(cat6);
+  assert.equal(reviewPairKey({...lc,source_cabinet_uid:base.destination_cabinet_uid,destination_cabinet_uid:base.source_cabinet_uid}),key);
+  assert.deepEqual(rackPairCards([cat6],all,key).map(p=>[p.label,p.groups.map(g=>g.uid)]),[['801 ↔ 811',['cat6','lc','mpo']]]);
+  assert.equal(rackPairCards([other],all,key)[0].key,key);
+  assert.deepEqual(focusedRouteGroups(all,null,key).map(g=>g.uid),['cat6','lc','mpo']);
+  assert.deepEqual(focusedRouteGroups(all,'lc',key).map(g=>g.uid),['lc']);
+  assert.deepEqual(focusedRouteGroups(all,null,null),[]);
+  assert.equal(routeActionLabel([cat6,lc]),'Set route');
+  assert.equal(routeActionLabel([cat6,{...lc,route_source:'MANUAL'}]),'Change route');
+});
 
 function manualFixture() {
   const point = (name, x, y, tier = 1, cabinet = null) => ({node_id: `${name}-T${tier}`, x_in: x, y_in: y, tier, cabinet_uid: cabinet, passage_band_uid: cabinet ? null : name, passage_code: name});

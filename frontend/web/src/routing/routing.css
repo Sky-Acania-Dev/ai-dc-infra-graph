@@ -95,13 +95,26 @@
 .actual-review-notice { margin: 6px 0; padding: 8px 10px; background: #eef6ff; border: 1px solid #aac7e7; color: #254d76; font-size: 11px; line-height: 1.5; border-radius: 4px; }
 .cable-review-panel > label { display: grid; gap: 5px; font-size: 11px; }
 .cable-review-panel select { width: 100%; min-width: 0; }
+.route-pair-card { cursor: pointer; border: 1px solid transparent; }
+.route-pair-card.is-focused { border-color: #16869a; background: #eef8fa; box-shadow: inset 3px 0 #16869a; }
+.route-pair-card.has-selected-types { border-color: #16869a; }
+.routing-page .connection-pair-select { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-align: left; }
+.connection-pair-select:focus-visible { outline: 2px solid #16869a; outline-offset: 3px; }
+.route-pair-card .cable-types li.cable-type-selectable { grid-template-columns: 16px minmax(0, 1fr) max-content max-content; }
+.route-pair-card .cable-types li > span { min-width: 0; overflow-wrap: anywhere; }
+.route-pair-card .cable-types small { display: block; font-size: 9px; color: #617286; margin-top: 3px; }
+.route-pair-card .cable-types small.routing-error { color: #b42318; }
+.route-type-toggle { width: 14px; height: 14px; margin: 0; accent-color: #087e80; cursor: pointer; }
+.route-card-actions, .route-selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: 10px; }
+.route-selection-bar { padding: 9px; background: #eef8fa; border: 1px solid #9ebbc4; margin-bottom: 10px; }
+.route-card-actions > span { margin-right: auto; color: #475569; }
+.routing-page .route-card-edit { background: #164e63; border-color: #164e63; color: #fff; font-size: 11px; padding: 6px 9px; }
+.routing-page .route-card-clear, .routing-page .route-clear-focus { font-size: 10px; padding: 5px 7px; }
+.route-clear-focus { margin-bottom: 9px; }
+.route-default-reset { margin-top: 12px; font-size: 10px; }
 .manual-batch-panel { margin: 12px 0; padding: 10px; border: 1px solid #9eb3c6; background: #f6f9fc; }
 .manual-batch-panel h4 { margin: 0 0 8px; }
 .manual-batch-panel > label { display: grid; gap: 4px; margin: 8px 0; font-size: 11px; }
-.manual-group-picker summary { cursor: pointer; font-size: 12px; font-weight: 700; }
-.manual-group-options { display: grid; gap: 6px; max-height: 220px; overflow-y: auto; margin: 8px 0; }
-.manual-group-options label { display: flex; gap: 6px; align-items: start; font-size: 10px; line-height: 1.5; }
-.manual-group-options small { display: block; color: #64748b; }
 .manual-actions { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0; }
 .routing-page .manual-actions button, .routing-page .manual-batch-panel > button { padding: 6px 7px; font-size: 10px; }
 .manual-edit-help { font-size: 11px; line-height: 1.5; }

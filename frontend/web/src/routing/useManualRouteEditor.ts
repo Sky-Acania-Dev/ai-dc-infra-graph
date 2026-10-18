@@ -43,11 +43,13 @@ export function useManualRouteEditor(layoutUid: string | undefined, review: Cabl
         : `Added ${result.segment.label} to the draft.`);
     } catch (reason) {setMessage(""); setError(String(reason).replace(/^Error: /, ""));}
   };
-  const begin = () => {
-    if (!review || !groups.length) return;
-    setDrafts(Object.fromEntries(groups.map(g => [g.uid, emptyDraft(g)])));
-    setVersions(Object.fromEntries(groups.map(g => [g.uid, g.manual_version])));
-    setRevision(review.topology_revision); setActiveUid(groups[0].uid); setEditing(true); setError(""); setMessage(""); setNotes("");
+  const begin = (groupUids: string[] = selected) => {
+    const chosen = review?.groups.filter(g=>groupUids.includes(g.uid)) ?? [];
+    if (!review || !chosen.length) return;
+    setSelected(chosen.map(g=>g.uid));
+    setDrafts(Object.fromEntries(chosen.map(g => [g.uid, emptyDraft(g)])));
+    setVersions(Object.fromEntries(chosen.map(g => [g.uid, g.manual_version])));
+    setRevision(review.topology_revision); setActiveUid(chosen[0].uid); setEditing(true); setError(""); setMessage(""); setNotes("");
   };
   const cancel = () => {setEditing(false); setError(""); setMessage("Draft discarded. Saved routes are unchanged.");};
   const save = async () => {

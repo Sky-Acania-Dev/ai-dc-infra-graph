@@ -62,7 +62,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
         {field("Section reference", model.reference ?? (!model.directions.hasInner ? "North / South · no inner side" : model.directions.inner ? `Inner ${directionName(model.directions.inner)} · toward cabinets` : "Inner side unassigned"))}
         {field("Notes / hall", attachmentUid ? "Schematic connector; no measured drop dimensions" : opening?.notes ?? marking?.notes ?? `${data.geometry.sections.length} sections · ${data.geometry.gaps.length} gaps · ${formatInches(data.geometry.total_width_in)} wide`)}
       </dl>
-      {reviewGroupCount > 0 && <p className="actual-review-notice">{reviewGroupCount} actual type/rack-pair groups use this selection in the provisional plan. Their tiers and sectional positions are unassigned.</p>}
+      {reviewGroupCount > 0 && <p className="actual-review-notice">{reviewGroupCount} actual type/rack-pair groups use this selection in the provisional plan. Configured tiers are shown on the cable cards; sectional positions remain unassigned.</p>}
       <TierSectionDiagrams data={data} model={model} selectedPlacementUid={selectedPlacementUid} mode={sectionMode} onModeChange={setSectionMode} reversed={reversed} onReverse={() => setReversed(current => !current)} onSelectPlacement={onSelectPlacement} />
       {canManage && <details className="section-configuration" open={configureOpen} onToggle={e => setConfigureOpen(e.currentTarget.open)}><summary>Configure heights / bundle sections</summary>
         {configureOpen && <>
