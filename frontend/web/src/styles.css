@@ -575,6 +575,32 @@ button {
   min-width: 0;
 }
 
+.cabinet-map-header {
+  flex-wrap: wrap;
+  gap: 8px;
+  height: auto;
+  min-height: 40px;
+}
+
+.cabinet-map-header .map-title-line {
+  flex-shrink: 0;
+}
+
+.cabinet-map-header .map-controls {
+  flex-wrap: wrap;
+}
+
+.map-route-toggle {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 4px 7px;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .viewer-scale-slider {
   align-items: center;
   background: #f8fafc;
@@ -2683,6 +2709,68 @@ button {
 
 
 
+
+/* Keep controls in their own scroll rows instead of widening the mobile page. */
+@media (max-width: 1100px) {
+  :root { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  .app-shell { font-size: 13px; }
+  .topbar { gap: 8px; min-width: 0; }
+  .topbar h1 { font-size: 16px; }
+  .topbar > div:first-child { flex-shrink: 0; }
+  .topbar-controls {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    padding-bottom: 5px;
+  }
+  .topbar-controls > * { flex-shrink: 0; }
+  .topbar-controls button { font-size: 10px; white-space: nowrap; }
+  .project-select-button span, .project-select-button b,
+  .settings-control span, .settings-control select, .role-pill { font-size: 10px; }
+  .workspace > *, .map-pane, .map-stack { min-width: 0; }
+  .map-pane .cabinet-map-header {
+    align-items: stretch;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 5px;
+    height: auto;
+    min-width: 0;
+    padding: 6px 8px;
+  }
+  .cabinet-map-header .map-title-line h2 { font-size: 14px; }
+  .cabinet-map-header .map-title-line span { font-size: 10px; }
+  .cabinet-map-header .map-controls {
+    flex-wrap: nowrap;
+    gap: 6px;
+    width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    padding-bottom: 5px;
+  }
+  .cabinet-map-header .map-controls > * { flex-shrink: 0; }
+  .cabinet-map-header .map-controls button, .map-route-toggle { font-size: 10px; }
+  .topbar-controls:focus-visible, .map-controls:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+}
+
+@media (max-width: 759px) {
+  .app-shell { min-height: 100dvh; padding: 8px; }
+  .topbar { align-items: stretch; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+  .topbar .eyebrow { font-size: 9px; }
+  .topbar-controls { flex: none; gap: 4px; width: 100%; }
+  .workspace { gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  .workspace > .map-stack { order: -1; height: auto; }
+  .map-stack .map-pane { height: min(680px, 78dvh); min-height: 420px; }
+  .side-pane { min-height: 0; padding: 10px; }
+  .side-pane h1, .side-pane h2 { font-size: 16px; }
+  .map-stack.has-center-toggle .cabinet-map-header { padding-top: 36px; padding-right: 8px; }
+  .map-scroll { padding: 6px; }
+  .cable-overlay { inset: 8px; }
+}
 
 .map-change-order-filter {
   position: relative;

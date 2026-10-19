@@ -136,13 +136,13 @@ const MAP_SIZE_SETTINGS: Record<
 const LANDSCAPE_MAP_SIZE_SETTINGS: Record<MapSize, (typeof MAP_SIZE_SETTINGS)[MapSize]> = {
   xsmall: {
     labelKey: "map.size.xsmall",
-    cellWidth: 18,
-    cellHeight: 12,
-    blockGap: 24,
-    hotAisleGap: 4,
-    coldAisleGap: 12,
-    cabinetIdFontSize: 5.8,
-    cabinetTypeFontSize: 3.8,
+    cellWidth: 10,
+    cellHeight: 7,
+    blockGap: 14,
+    hotAisleGap: 3,
+    coldAisleGap: 8,
+    cabinetIdFontSize: 3.8,
+    cabinetTypeFontSize: 2.6,
   },
   small: {
     labelKey: "map.size.small",
@@ -204,7 +204,7 @@ export function CabinetMap(props: CabinetMapProps) {
     onClearSelection, onDataHallChange, onMapSizeChange, onProgressDisplayChange,
   } = props;
   const { t } = useI18n();
-  const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (min-width: 760px) and (orientation: landscape)");
+  const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (orientation: landscape)");
   const settings = isPhoneLandscape ? LANDSCAPE_MAP_SIZE_SETTINGS[mapSize] : MAP_SIZE_SETTINGS[mapSize];
   const normalizedLayout = normalizeCabinets(cabinets);
   const positioned = normalizedLayout.cabinets;
@@ -220,12 +220,12 @@ export function CabinetMap(props: CabinetMapProps) {
 
   return (
     <section className="map-pane">
-      <div className="pane-header">
+      <div className="pane-header cabinet-map-header">
         <div className="map-title-line">
           <h2>{cabinets[0]?.data_hall_id ?? t("dataHall.fallback")}</h2>
           <span>{modeHint ?? t("map.cabinetMap")}</span>
         </div>
-        <div className="map-controls">
+        <div className="map-controls" role="group" aria-label="Cabinet map controls" tabIndex={0}>
           <div className="map-size-control" role="group" aria-label="Cabinet map layers">
             <label className="map-route-toggle"><input type="checkbox" aria-label="Show conceptual routes" checked={showRoutes} onChange={event => onShowRoutesChange(event.target.checked)} />Conceptual routes</label>
           </div>

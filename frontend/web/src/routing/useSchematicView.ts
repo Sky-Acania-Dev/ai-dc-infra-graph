@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { SchematicOrientation } from "./types";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 
 export function useSchematicView(length: number, width: number, orientation: SchematicOrientation) {
+  const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (orientation: landscape)");
   const svgRef = useRef<SVGSVGElement>(null);
   const leftMargin = Math.max(160, length * 0.12);
   const portrait = orientation === "cabinet-map";
@@ -29,7 +31,7 @@ export function useSchematicView(length: number, width: number, orientation: Sch
   }
   function zoom(factor: number, anchor = { x: view.x + view.w / 2, y: view.y + view.h / 2 }) {
     setView(v => {
-      const w = Math.max(200, Math.min(fitted.w * 3, v.w * factor));
+      const w = Math.max(200, Math.min(fitted.w * (isPhoneLandscape ? 6 : 3), v.w * factor));
       const ratio = w / v.w;
       return { x: anchor.x - (anchor.x - v.x) * ratio, y: anchor.y - (anchor.y - v.y) * ratio, w, h: v.h * ratio };
     });

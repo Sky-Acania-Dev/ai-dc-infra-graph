@@ -1475,7 +1475,7 @@ export function App() {
           <span className="eyebrow">{t("app.name")}</span>
           <h1>{mode === "projects" ? "Select Project" : mode === "groups" ? "Entity Groups" : mode === "routing" ? "Pathway Routing" : mode === "topology" ? t("app.topologyTitle") : mode === "operations" ? "Operation Log" : t("app.validationTitle")}</h1>
         </div>
-        <div className="topbar-controls">
+        <div className="topbar-controls" role="group" aria-label="Application controls" tabIndex={0}>
           <button className="project-select-button" onClick={() => setMode("projects")} type="button">
             <span>Select Project</span>
             <b>{selectedProject?.uid ?? "Project"}</b>
