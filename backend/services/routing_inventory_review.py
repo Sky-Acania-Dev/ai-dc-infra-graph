@@ -19,6 +19,11 @@ from backend.services.routing_planning import ReviewPlanner
 
 def inventory_counts(session, layout):
     """Group in PostgreSQL; do not materialize hundreds of thousands of Cable objects."""
+    if session.get_bind().dialect.name == 'postgresql':
+        # Concurrent parallel hash joins can exhaust Docker's default 64-MiB /dev/shm.
+        # Keep this large read serial within each request; users can still read concurrently.
+        # SET LOCAL is transaction-scoped and cannot leak through the connection pool.
+        session.execute(select(func.set_config('max_parallel_workers_per_gather', '0', True)))
     room = session.get(db.Room, layout.room_uid)
     a, z = aliased(db.Port), aliased(db.Port)
     query = (select(a.cabinet_uid, z.cabinet_uid, db.Cable.cable_type, db.Cable.construction_phase, func.count())

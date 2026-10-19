@@ -222,3 +222,35 @@ Resolved tier records expose `effective_elevation_in`; the graph's `elevation_in
 ### Physical pathway selection and complete-route focus
 
 Selecting a physical segment or junction filters the cable list to the groups passing through it across configured tiers. The map keeps each matching group's complete end-to-end route and cabinet takeoffs in color; unrelated cable types are grey even on shared segments. A selected empty segment greys all cables. Clearing the pathway selection restores all colors. Rack-pair cards and individual cable selection can narrow this focus further. Tier visibility remains independent and no route assignment is changed by inspection.
+
+### Pre-merge stability and performance audit (2026-10-18)
+
+Read-only validation covered the complete live LBB01 inventory: 699,243 cables, 9,482 rack-pair/type groups, 6,047 planning segments and 4,083 used segments. All 8,999 routed groups passed ordered-chain, endpoint-tier, integer-length, explicit-opening and membership/count validation. Graph generation and review results were deterministic. All seven configured passage tiers remain continuous through all five sections. Domain configuration and all three manual assignments retained their original fingerprints. The 29,386 unrouted cables remain explicit: 29,378 need a routing policy and eight have unmapped endpoints; 57,307 same-cabinet cables stay local.
+
+The four-reader test reproduced PostgreSQL shared-memory exhaustion with Docker's default 64-MiB `/dev/shm`. Inventory aggregation now disables parallel query workers **locally to its transaction**, avoiding parallel hash allocations without changing PostgreSQL's global configuration. An isolated PostgreSQL regression verifies aggregation and setting restoration. Repeating the four-reader test succeeded in both the development backend and the production image. The production startup smoke test also exposed and fixed a missing `func` import in the existing source-cable-group endpoint; its real 382 groups now load successfully.
+
+| Check | Result |
+| --- | --- |
+| Routing backend tests | 63 passed |
+| Source-group startup regression | 1 passed |
+| PostgreSQL migration/persistence tests | 12 passed, including upgrade/downgrade and pool-setting isolation |
+| Frontend routing tests | 66 passed |
+| TypeScript and production build | Passed locally and in the frontend image |
+| Production container API/proxy | Health, layout, graph and full review returned 200 |
+| Production full review | 9.51 s, 653,413 compressed bytes |
+| Four simultaneous production reviews | All 200; 15.14–16.73 s |
+| Development sequential full reviews | 7.93–8.80 s |
+| Development four-reader test | All 200; 18.49–26.74 s; health probe 9 ms |
+| Client parse/hydration / local graph setup | 93 ms / 21 ms |
+| Local A* continuation, 100 long routes | p95 4 ms; maximum 7 ms |
+| Local distant-segment bridge, 100 long routes | p95 33 ms; maximum 38 ms |
+
+Measurements are from this workstation, without a tablet hardware run. The full global SVG remains dense (about 57,000 elements including 1,600 cabinet graphics); Section 1 has about 12,700 elements. A three-sample server-render-only benchmark measured a global cable-layer median of 414 ms and a section median of 74 ms; these exclude browser layout/paint. Section views remain the practical inspection mode, and the global overview is retained. Initial inventory loading is the principal remaining performance cost; no automatic refresh or persistent graph cache was added.
+
+Browser checks exercised global/section navigation, complete-route focus, cabinet/rack-pair filtering, real cable details, physical targets across tiers, local North-passage bridging, complete-batch Save gating, and cancellation without writing assignments. The production smoke containers use read-only database transactions and are separate from the live services.
+
+The full pre-existing backend suite ran 158 tests with 151 passes and seven failures, all reproduced from an exported `main` checkout: four depend on the unavailable external `OVERHEAD.ods`, and three assert outdated ingestion/default-project expectations. These were kept outside the routing change. `npm audit` also reports seven existing build-tool advisories (five high, one moderate, one low); a separate dependency refresh remains due. The tested static frontend image contains built assets and nginx, rather than the Node build toolchain.
+
+Repeat the read-only inventory audit from the repository root with `python -m tests.performance.check_routing_inventory --api-base http://127.0.0.1:8001`. It writes metrics plus indexed review and resolved-layout artifacts under `tmp/`. Then, from `frontend/web`, run `node --experimental-strip-types tests/routing-performance.mjs`. Neither command creates fixtures or changes assignments. Integration migrations run only in a generated isolated test schema.
+
+For rollout, retain a database backup, merge the tested branch, build backend/frontend, apply `alembic upgrade head` using the new backend image, and recreate only backend/frontend. The database already reports routing revision `074ca9e2b613` on this workstation. Existing hall data requires no routing layout. An application rollback can retain the additive routing tables; do not downgrade away saved manual routes as an automatic rollback step.

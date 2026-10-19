@@ -118,6 +118,17 @@ class RoutingPostgreSQLTests(unittest.TestCase):
         self.assertEqual(saved['manual_group_count'],1)
         self.assertEqual((saved['groups'][0]['route_source'],saved['groups'][0]['manual_status']),('MANUAL','VALID'))
 
+    def test_inventory_count_query_bounds_parallel_memory_without_leaking_settings(self):
+        from backend.services.routing_inventory_review import inventory_counts
+        data = routing.initialize_lbb01(self.session)
+        layout = routing.get_layout(self.session, data['layout']['uid'])
+        self.session.execute(text('SET LOCAL max_parallel_workers_per_gather = 4'))
+        savepoint = self.session.begin_nested()
+        self.assertEqual(inventory_counts(self.session, layout), [])
+        self.assertEqual(self.session.scalar(text('SHOW max_parallel_workers_per_gather')), '0')
+        savepoint.rollback()
+        self.assertEqual(self.session.scalar(text('SHOW max_parallel_workers_per_gather')), '4')
+
     def test_manual_tier_routes_persist_and_are_not_replaced_by_defaults(self):
         from backend.services.routing_cable_review import cable_review
         from backend.services.routing_manual_routes import initialize_test_tiers, update_manual_batch, RoutingRouteConflict
