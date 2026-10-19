@@ -725,6 +725,11 @@ button {
   line-height: 1;
 }
 
+.map-size-control button.is-active.has-route-count {
+  background: #111827;
+  color: #ffffff;
+}
+
 .data-hall-graph-count {
   align-items: center;
   background: #111827;

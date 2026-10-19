@@ -6,6 +6,10 @@ import type { CabinetLayoutItem, ChangeOrderCabinetStats } from "../types";
 import type { SelectionGesture } from "../App";
 import { CabinetGraphics } from "./CabinetGraphics";
 import { ViewerScaleSlider } from "./ViewerScaleSlider";
+import { DataHallSectionTabs } from "./DataHallSectionTabs";
+import type { DataHallBadgeCounts } from "./DataHallSectionTabs";
+import type { RoutingSectionGroupCounts } from "../routing/sectionGroupCounts";
+export type { DataHallBadgeCounts } from "./DataHallSectionTabs";
 const CabinetRoutingMap = lazy(() => import("../routing/CabinetRoutingMap").then(module => ({default: module.CabinetRoutingMap})));
 
 type PositionedCabinet = CabinetLayoutItem & {
@@ -16,12 +20,6 @@ type PositionedCabinet = CabinetLayoutItem & {
 
 type NormalizedCabinetLayout = {
   cabinets: PositionedCabinet[];
-};
-
-export type DataHallBadgeCounts = {
-  count: number;
-  added: number;
-  removed: number;
 };
 
 export type CabinetMapProps = {
@@ -206,6 +204,8 @@ export function CabinetMap(props: CabinetMapProps) {
   } = props;
   const { t } = useI18n();
   const [tierHost, setTierHost] = useState<HTMLDivElement | null>(null);
+  const [routeCounts,setRouteCounts] = useState<RoutingSectionGroupCounts|null>(null);
+  const routingGroupCounts=showRoutes && routeCounts?.project===project && routeCounts.building===building && routeCounts.counts.has(dataHall) ? routeCounts.counts : null;
   const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (orientation: landscape)");
   const settings = isPhoneLandscape ? LANDSCAPE_MAP_SIZE_SETTINGS[mapSize] : MAP_SIZE_SETTINGS[mapSize];
   const normalizedLayout = normalizeCabinets(cabinets);
@@ -224,7 +224,7 @@ export function CabinetMap(props: CabinetMapProps) {
     <section className="map-pane">
       <div className="pane-header cabinet-map-header">
         <div className="map-title-line">
-          <h2>{cabinets[0]?.data_hall_id ?? t("dataHall.fallback")}</h2>
+          <h2>{showRoutes ? dataHall : cabinets[0]?.data_hall_id ?? t("dataHall.fallback")}</h2>
           {showRoutes && <div className="map-tier-host" ref={setTierHost} />}
           <span>{modeHint ?? t("map.cabinetMap")}</span>
         </div>
@@ -232,26 +232,8 @@ export function CabinetMap(props: CabinetMapProps) {
           <div className="map-size-control" role="group" aria-label="Cabinet map layers">
             <label className="map-route-toggle"><input type="checkbox" aria-label="Show conceptual routes" checked={showRoutes} onChange={event => onShowRoutesChange(event.target.checked)} />Conceptual routes</label>
           </div>
-          <div className="map-size-control" role="tablist" aria-label={t("dataHall.selector")}>
-            {dataHalls.map((hall) => {
-              const graphNeighborCount = hall === dataHall ? 0 : connectedDataHallCounts.get(hall) ?? 0;
-              const badgeCounts = dataHallBadges?.get(hall);
-              const badgeLabel = dataHallBadgeLabel(badgeCounts) ?? (graphNeighborCount > 0 ? String(graphNeighborCount) : null);
-              const hasBadge = Boolean(badgeLabel);
-              const hasPositiveDelta = (badgeCounts?.added ?? 0) > 0;
-              const hasNegativeDelta = (badgeCounts?.removed ?? 0) > 0;
-              return (
-                <button
-                  className={`${hall === dataHall ? "is-active" : ""} ${hasBadge ? "has-graph-neighbor" : ""} ${hasPositiveDelta ? "has-positive-delta" : ""} ${hasNegativeDelta ? "has-negative-delta" : ""}`}
-                  key={hall}
-                  onClick={() => onDataHallChange(hall)}
-                >
-                  <span>{hall}</span>
-                  {badgeLabel ? <b className="data-hall-graph-count">{badgeLabel}</b> : null}
-                </button>
-              );
-            })}
-          </div>
+          <DataHallSectionTabs dataHall={dataHall} dataHalls={dataHalls} label={t("dataHall.selector")} connectedDataHallCounts={connectedDataHallCounts}
+            dataHallBadges={dataHallBadges} routingGroupCounts={routingGroupCounts} onDataHallChange={onDataHallChange} />
           <div className="map-size-control" aria-label={t("map.display")}>
             {(["text", "termination", "dress", "change_orders"] as MapProgressDisplay[]).map((display) => (
               <button
@@ -289,6 +271,7 @@ export function CabinetMap(props: CabinetMapProps) {
         onPathwayInspectorActiveChange={props.onPathwayInspectorActiveChange}
         pathwayInspectorHost={props.pathwayInspectorHost}
         tierHost={tierHost}
+        onSectionGroupCountsChange={setRouteCounts}
         canManage={props.canManage} cabinets={cabinets} settings={settings}
         renderCabinets={(positions, clearPath) => <CabinetGraphics {...props} positions={positions} settings={settings}
           onSelectCabinet={(uid, gesture) => { clearPath(); onSelectCabinet(uid, gesture); }} />}
@@ -306,15 +289,6 @@ export function CabinetMap(props: CabinetMapProps) {
       </div>}
     </section>
   );
-}
-
-function dataHallBadgeLabel(counts: DataHallBadgeCounts | undefined): string | null {
-  if (!counts) return null;
-  const parts: string[] = [];
-  if (counts.count > 0) parts.push(String(counts.count));
-  if (counts.added > 0) parts.push(`+${counts.added}`);
-  if (counts.removed > 0) parts.push(`-${counts.removed}`);
-  return parts.length ? parts.join("") : null;
 }
 
 function normalizeCabinets(cabinets: CabinetLayoutItem[]): NormalizedCabinetLayout {

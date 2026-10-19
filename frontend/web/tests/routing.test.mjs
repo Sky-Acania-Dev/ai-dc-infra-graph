@@ -15,6 +15,21 @@ import { decodeCableReview,encodeReviewSummary } from "../src/routing/reviewEnco
 import {validSummary,layoutSignature,SUMMARY_MAX_AGE_MS,SummaryLoadGate,readReviewSummary,writeReviewSummary} from "../src/routing/reviewSummaryCache.ts";
 import {physicalJunctions,physicalPlanningTargets} from "../src/routing/physicalTargets.ts";
 import {filterSummaryGroups} from "../src/routing/routingSummaryFilter.ts";
+import {sectionGroupCounts} from "../src/routing/sectionGroupCounts.ts";
+
+test("section badges count distinct endpoint groups, not cables, edges or cabinet-name prefixes", () => {
+  const cabinets=[{cabinet_uid:'not-a-hall:801',data_hall_id:'DH1-1'}, {cabinet_uid:'b',data_hall_id:'DH1-1'},
+    {cabinet_uid:'c',data_hall_id:'DH1-3'}];
+  const data={cabinets,geometry:{sections:Array.from({length:5},(_,i)=>({data_hall_id:`DH1-${i+1}`}))}};
+  const group=(uid,a,b,route_source='DEFAULT',route={})=>({uid,source_cabinet_uid:a,destination_cabinet_uid:b,count:10000,route_source,route});
+  const groups=[group('within','not-a-hall:801','b'),group('cross','b','c','MANUAL'),group('unrouted','c','c','DEFAULT',null),group('unknown','unmapped','missing')];
+  const counts=sectionGroupCounts(data,[...groups,groups[1]]);
+  assert.deepEqual([...counts],[['DH1-1',2],['DH1-2',0],['DH1-3',2],['DH1-4',0],['DH1-5',0]]);
+  assert.deepEqual([...sectionGroupCounts(data,filterSummaryGroups(groups,'UNROUTED'))].map(([,n])=>n),[0,0,1,0,0]);
+  assert.deepEqual([...sectionGroupCounts(data,filterSummaryGroups(groups,'MANUAL'))].map(([,n])=>n),[1,0,1,0,0]);
+  assert.deepEqual([...sectionGroupCounts(data,focusedRouteGroups(groups,null,null,new Set(['not-a-hall:801'])))].map(([,n])=>n),[1,0,0,0,0]);
+  assert.deepEqual([...sectionGroupCounts(data,[])].map(([,n])=>n),[0,0,0,0,0]);
+});
 
 test("summary filters match route counts, retain invalid manuals, and intersect every map focus", () => {
   const base={source_cabinet_uid:'a',destination_cabinet_uid:'b',source_cabinet_id:'801',destination_cabinet_id:'811'};

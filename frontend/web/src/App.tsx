@@ -1618,7 +1618,7 @@ export function App() {
           <div ref={setPathwayInspectorHost} className="routing-left-host" hidden={!pathwayInspectorActive} />
           {!isProjectTopologyAvailable ? (
             <ProjectUnavailablePane project={selectedProject} />
-          ) : isLoading ? (
+          ) : isLoading && !showConceptualRoutes ? (
             <section className="map-pane loading-pane">{t("common.loading", { target: dataHall })}</section>
           ) : (
             <div className={`map-stack ${selectedDevice ? "has-center-toggle" : ""}`}>
@@ -1665,7 +1665,7 @@ export function App() {
                   reducedConnectedCabinetCounts={groupReducedConnectionCounts}
                   lostConnectedCabinetUids={groupLostNeighborUids}
                   isDeviceMode={Boolean(selectedDeviceUid)}
-                  isDataLoading={pendingCabinetDetailCount > 0}
+                  isDataLoading={isLoading || pendingCabinetDetailCount > 0}
                   mapSize={mapSize}
                   progressDisplay={mapProgressDisplay}
                   changeOrderStats={changeOrderStatsByCabinet}

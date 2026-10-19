@@ -54,7 +54,7 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
       <button onClick={() => v.zoom(0.7)} aria-label="Zoom in">+</button><button onClick={() => v.zoom(1.4)} aria-label="Zoom out">−</button>
       <button onClick={() => { setFocusUid(""); v.fit(); onOverview?.(); }}>Fit / reset view</button>
       <details className="conceptual-view-options"><summary>Sections / focus</summary><div className="routing-view-tools">
-      <select aria-label="Focus section" value={focusUid} onChange={event => {setFocusUid(event.target.value); onOverview?.();}}><option value="">All sections</option>{display.sections.map(s => <option key={s.uid} value={s.uid}>{s.name}</option>)}</select>
+      <select aria-label="Focus section" value={focusUid} onChange={event => setFocusUid(event.target.value)}><option value="">All sections</option>{display.sections.map(s => <option key={s.uid} value={s.uid}>{s.name}</option>)}</select>
       <button disabled={!selectedCabinet} onClick={() => { if (selectedCabinet) v.focusSection(Math.max(0, selectedCabinet.y - 100), selectedCabinet.y + 300); }}>Focus selected cabinet</button>
       {review && <button onClick={() => v.focusBounds(display.cabinets.filter(c => review.cabinet_uids.includes(c.cabinet.cabinet_uid)).flatMap(c => [{x:c.x,y:c.y-25}, {x:c.x+c.width,y:c.y+c.height+25}]), 55)}>Focus actual cable rows</button>}
       {reviewPoints.length > 0 && <button onClick={() => v.focusBounds(reviewPoints, 65)}>{cabinetFocus ? "Focus selected cabinet connections" : focusedReviewPairKey ? "Focus rack pair" : selectedReviewGroupUid ? "Focus cable group" : "Focus selected routes"}</button>}

@@ -33,6 +33,28 @@ const PathwayInspector = await component("PathwayInspector", "PathwayInspector")
 const ConceptualRoutingMap = await component("ConceptualRoutingMap", "ConceptualRoutingMap");
 const RoutingOverview = await component("RoutingOverview", "RoutingOverview");
 const routingOverviewCounts = await component("RoutingOverview", "routingOverviewCounts");
+const DataHallSectionTabs = await component("../components/DataHallSectionTabs", "DataHallSectionTabs");
+
+test("route section tabs keep filtered counts through navigation, including active and empty sections", () => {
+  const counts=new Map([['DH1-1',3],['DH1-2',0],['DH1-3',2]]);
+  let hall='DH1-1';
+  const props=()=>({dataHall:hall,dataHalls:[...counts.keys()],label:'Data-hall sections',routingGroupCounts:counts,
+    connectedDataHallCounts:new Map([['DH1-3',999]]),dataHallBadges:new Map([['DH1-3',{count:999,added:2,removed:1}]]),onDataHallChange:next=>{hall=next;}});
+  const tree=DataHallSectionTabs(props());
+  tree.props.children[2].props.onClick();
+  assert.equal(hall,'DH1-3');
+  const html=renderToStaticMarkup(React.createElement(DataHallSectionTabs,props()));
+  assert.match(html,/aria-selected="true" title="2 filtered cable groups with a cabinet in DH1-3"/);
+  assert.match(html,/aria-label="3 filtered cable groups">3<\/b>/);
+  assert.match(html,/aria-label="0 filtered cable groups">0<\/b>/);
+  assert.doesNotMatch(html,/999|has-positive-delta|has-negative-delta/);
+  assert.deepEqual([...counts],[['DH1-1',3],['DH1-2',0],['DH1-3',2]]);
+  const cabinetMode=renderToStaticMarkup(React.createElement(DataHallSectionTabs,{...props(),routingGroupCounts:null,dataHall:'DH1-1'}));
+  assert.match(cabinetMode,/999\+2-1/);
+  assert.doesNotMatch(cabinetMode,/filtered cable groups/);
+  const neighbors=renderToStaticMarkup(React.createElement(DataHallSectionTabs,{...props(),routingGroupCounts:null,dataHallBadges:undefined}));
+  assert.doesNotMatch(neighbors,/data-hall-graph-count/,'Current hall still suppresses its ordinary neighbor badge');
+});
 
 test("overview counts include local inventory, split special colors once, and distinguish manual assignments", () => {
   const group=(cable_class,count,route_source='DEFAULT',route={})=>({cable_class,count,route_source,route});
