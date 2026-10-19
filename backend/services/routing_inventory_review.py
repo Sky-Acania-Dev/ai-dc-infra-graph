@@ -16,6 +16,9 @@ from backend.services.routing_configuration import get_layout, record, resolved_
 from backend.services.routing_manual_paths import planning_segments, resolve_legs, topology_revision
 from backend.services.routing_planning import ReviewPlanner
 
+T0_NODE_CENTRAL_EXTRA_PERCENT = 10
+ROCE_NODE_CATEGORY_PREFIXES = ('HD-GB3', 'VR-NVL72')
+
 
 def inventory_counts(session, layout):
     """Group in PostgreSQL; do not materialize hundreds of thousands of Cable objects."""
@@ -91,6 +94,8 @@ class InventoryPolicy:
         if not same and not roce and any('-FE-' in c for c in categories):
             return 'FE_OUTER_TOP', 3, None
         levels = {c.split('-RO-', 1)[0] for c in categories if '-RO-' in c}
+        if not same and roce and inventory_cable_class(kind) == 'MPO' and any(c.startswith('T0-RO-') for c in categories) and any(c.startswith(ROCE_NODE_CATEGORY_PREFIXES) for c in categories):
+            return 'ROCE_T0_NODE', 1, None
         if not same and roce and levels == {'T0', 'T1'}:
             return 'ROCE_T0_T1', 1, None
         if not same and roce and levels == {'T1', 'T2'}:
@@ -98,6 +103,21 @@ class InventoryPolicy:
             tier = 2 + (sha256(f'{a}:{b}'.encode()).digest()[0] % 2)
             return 'ROCE_T1_T2', tier, None
         return 'UNSUPPORTED', 1, 'No test policy matches this phase, rack role and cable type; assign a manual route.'
+
+    def bottom_node_route(self, a, b):
+        """Prefer a CENTRAL longitudinal route within the confirmed 10% length allowance."""
+        planner = self.planner
+        start, end = planner.endpoint(a, 1), planner.endpoint(b, 1)
+        bottom = lambda edge: edge['edge_type'] != 'VERTICAL' and edge['tier'] == 1
+        shortest = planner.shortest(start, end, allow_edge=bottom)
+        if shortest is None:
+            return None
+        central = planner.shortest(start, end, allow_edge=lambda edge: bottom(edge) and (
+            edge['edge_type'] != 'PASSAGE' or edge['passage_code'] == 'CENTRAL'))
+        # All arithmetic is integer inches, including the percentage boundary.
+        if central and central['planar_length_in'] * 100 <= shortest['planar_length_in'] * (100 + T0_NODE_CENTRAL_EXTRA_PERCENT):
+            return central
+        return shortest
 
     def route(self, a, b, policy, tier):
         key = a, b, policy, tier
@@ -108,6 +128,8 @@ class InventoryPolicy:
             route = planner.route(a, b, tier, tier)
         elif policy == 'FE_OUTER_TOP':
             route = self.outer_fe_route(a,b)
+        elif policy == 'ROCE_T0_NODE':
+            route = self.bottom_node_route(a,b)
         else:
             def allowed(edge):
                 if policy == 'ROCE_T0_T1':
@@ -225,7 +247,7 @@ def build_inventory_review(data, counts, manual_routes=(), planner=None):
         manual_group_count=sum(g['route_source'] == 'MANUAL' for g in groups), unrouted_reasons=dict(reasons),
         policy_counts=dict(Counter({rule: sum(g['count'] for g in groups if g['policy'] == rule) for rule in sorted({g['policy'] for g in groups})})),
         build_ms=round((perf_counter()-started)*1000),
-        notes='Test defaults only; manual routes take precedence. FE uses outer passages and INNER packing intent, with no measured bundle footprint. T1–T2 RoCE is stably distributed over mid/top. Gap routes use two test layers. Cable members load on demand. Elevations are AFF; planar pathway length excludes vertical travel, cabinet drops and slack.' )
+        notes='Test defaults only; manual routes take precedence. Cross-row T0–node RoCE MPO stays on Tier 1; CENTRAL longitudinal travel is preferred when no more than 10% longer than the shortest enabled bottom-tier route. FE uses outer passages and INNER packing intent, with no measured bundle footprint. T1–T2 RoCE is stably distributed over mid/top. Gap routes use two test layers. Cable members load on demand. Elevations are AFF; planar pathway length excludes vertical travel, cabinet drops and slack.' )
 
 
 def inventory_review_context(session, layout_uid):

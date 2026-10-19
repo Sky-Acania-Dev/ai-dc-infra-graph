@@ -30,6 +30,21 @@ const ManualLayer = await component("ManualRouteLayer", "ManualRouteLayer");
 const RackPairCards = await component("RackPairRouteCards", "RackPairRouteCards");
 const ConceptualGraph = await component("ConceptualGraph", "ConceptualGraph");
 const PathwayInspector = await component("PathwayInspector", "PathwayInspector");
+const ConceptualRoutingMap = await component("ConceptualRoutingMap", "ConceptualRoutingMap");
+
+test("conceptual viewport keeps direct zoom controls and collapses section options instead of a tall toolbar", () => {
+  const data={layout:{cabinets_per_row:10,cabinet_row_depth_in:24},cabinets:[],vertical_transitions:[],segment_annotations:[],
+    geometry:{bands:[],sections:[],gaps:[],row_pairs:[],cabinet_rows:[],cross_routes:[],hall_length_in:0}};
+  const html=renderToStaticMarkup(React.createElement(ConceptualRoutingMap,{data,graph:{nodes:[],edges:[]},tiers:new Set([1,2,3]),selection:null,
+    onSelect:()=>{},initialSectionUid:'',cabinetInteraction:{selected:new Set(),connected:new Set()},
+    settings:{cellWidth:46,cellHeight:30,hotAisleGap:10},renderCabinets:()=>null,segments:[],selectedSegmentId:null,onSelectSegment:()=>{}}));
+  assert.match(html,/class="conceptual-map-controls"/);
+  assert.match(html,/aria-label="Zoom in"/);
+  assert.match(html,/Fit \/ reset view/);
+  assert.match(html,/<details class="conceptual-view-options"><summary>Sections \/ focus/);
+  assert.match(html,/class="routing-svg conceptual-svg"/);
+  assert.doesNotMatch(html,/routing-view-footer|Geometric routing map|Review cable groups|NaN|undefined/);
+});
 
 test("physical junction inspection shows every tier instead of one graph node's tier", () => {
   const band={uid:'central',kind:'PASSAGE',code:'CENTRAL',width_in:24,center_in:382,ordinal:2};
@@ -43,6 +58,19 @@ test("physical junction inspection shows every tier instead of one graph node's 
   for(const tier of [1,2,3]) assert.match(html,new RegExp(`aria-label="T${tier} 12 by 8 occupation grid`));
   assert.match(html,/406 actual type\/rack-pair groups/);
   assert.doesNotMatch(html,/Junction.*Tier 1<\/h3>|Stable node ID/);
+});
+
+test("unselected pathway summary carries overview status without requiring a cable inspector", () => {
+  const data={layout:{physical_hall_code:'DH1',row_pair_module_in:264,section_extra_gap_in:216},
+    bands:[],cabinets:[],cross_routes:[],cabinet_rows:[],sections:[],vertical_transitions:[],
+    geometry:{cabinet_rows:[],cross_routes:[],sections:[],gaps:[],bands:[],total_width_in:788,hall_length_in:11544}};
+  const html=renderToStaticMarkup(React.createElement(PathwayInspector,{data,graph:{nodes:[],edges:[]},selection:null,segment:null,
+    attachmentUid:null,canManage:false,busy:false,mutate:async()=>true,onSelect:()=>{},onOpenRouting:()=>{},selectedPlacementUid:null,onSelectPlacement:()=>{},
+    overview:React.createElement('p',{className:'actual-review-notice',role:'status'},'Full hall cable summary')}));
+  assert.match(html,/Pathway metadata and geometry/);
+  assert.match(html,/Full hall cable summary/);
+  assert.match(html,/Geometric summary/);
+  assert.doesNotMatch(html,/NaN|undefined/);
 });
 
 test("conceptual junctions have one click target across three graph tiers", () => {

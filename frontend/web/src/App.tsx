@@ -85,6 +85,7 @@ export function App() {
   const [routingInspectorHost, setRoutingInspectorHost] = useState<HTMLDivElement | null>(null);
   const [pathwayInspectorHost, setPathwayInspectorHost] = useState<HTMLDivElement | null>(null);
   const [routingInspectorActive, setRoutingInspectorActive] = useState(false);
+  const [pathwayInspectorActive, setPathwayInspectorActive] = useState(false);
   const [cabinets, setCabinets] = useState<CabinetLayoutItem[]>([]);
   const [selectedCabinetUid, setSelectedCabinetUid] = useState<string | null>(null);
   const [selectedCabinetUids, setSelectedCabinetUids] = useState<string[]>([]);
@@ -1549,7 +1550,7 @@ export function App() {
       ) : mode === "operations" ? (
         <OperationDebugView initialOperationList={operationList} />
       ) : (
-        <div className={`workspace ${routingInspectorActive ? "routing-inspecting" : ""}`}>
+        <div className={`workspace ${pathwayInspectorActive ? "routing-inspecting" : ""}`}>
           {!isProjectTopologyAvailable ? (
             <section className="side-pane unavailable-side-pane">
               <span className="eyebrow">Project Status</span>
@@ -1614,7 +1615,7 @@ export function App() {
               onViewChangeOrderCables={viewCabinetChangeOrderCables}
             />
           )}
-          <div ref={setPathwayInspectorHost} className="routing-left-host" hidden={!routingInspectorActive} />
+          <div ref={setPathwayInspectorHost} className="routing-left-host" hidden={!pathwayInspectorActive} />
           {!isProjectTopologyAvailable ? (
             <ProjectUnavailablePane project={selectedProject} />
           ) : isLoading ? (
@@ -1641,6 +1642,7 @@ export function App() {
                   routingInspectorHost={routingInspectorHost}
                   pathwayInspectorHost={pathwayInspectorHost}
                   onRoutingInspectorActiveChange={setRoutingInspectorActive}
+                  onPathwayInspectorActiveChange={setPathwayInspectorActive}
                   canManage={canManageGroups}
                   project={selectedProject?.uid ?? "LBB01"}
                   building={selectedProject?.building_id ?? "A"}

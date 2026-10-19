@@ -19,9 +19,10 @@ type Props = { data: ResolvedLayout; graph: RoutingGraph; tiers: Set<Tier>; sele
   segments: ConceptualSegment[]; selectedSegmentId: string | null; onSelectSegment: (id: string) => void;
   review?: CableReview | null; selectedReviewGroupUid?: string | null; focusedReviewPairKey?: string | null; selectionGroupUids?: ReadonlySet<string> | null;
   onReviewAttachment?: (uid: string) => void;
+  onOverview?: () => void;
   manual?: {preview: ManualPreview | null; segments: PlanningSegment[]; append: (ids: string[]) => void; chooseSegments: (ids: string[]) => void; disabled: boolean} | null;
 };
-export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, review, selectedReviewGroupUid = null, focusedReviewPairKey = null, selectionGroupUids = null, onReviewAttachment, manual }: Props) {
+export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, review, selectedReviewGroupUid = null, focusedReviewPairKey = null, selectionGroupUids = null, onReviewAttachment, onOverview, manual }: Props) {
   const display = useMemo(() => conceptualLayout(data, placeRoutingCabinets(data), settings), [data, settings]);
   // The view controller operates in SVG display units, not model inches.
   const v = useSchematicView(display.height, display.width, "cabinet-map");
@@ -47,10 +48,11 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
     return [...points.values()];
   }, [reviewGroups,data,display]);
   return <section className="routing-viewer conceptual-viewer" aria-label="Conceptual cabinet and route map">
-    <div className="routing-view-tools">
+    <div className="conceptual-map-controls">
       <button onClick={() => v.zoom(0.7)} aria-label="Zoom in">+</button><button onClick={() => v.zoom(1.4)} aria-label="Zoom out">−</button>
-      <button onClick={() => { setFocusUid(""); v.fit(); }}>Fit / reset view</button>
-      <select aria-label="Focus section" value={focusUid} onChange={event => setFocusUid(event.target.value)}><option value="">All sections</option>{display.sections.map(s => <option key={s.uid} value={s.uid}>{s.name}</option>)}</select>
+      <button onClick={() => { setFocusUid(""); v.fit(); onOverview?.(); }}>Fit / reset view</button>
+      <details className="conceptual-view-options"><summary>Sections / focus</summary><div className="routing-view-tools">
+      <select aria-label="Focus section" value={focusUid} onChange={event => {setFocusUid(event.target.value); onOverview?.();}}><option value="">All sections</option>{display.sections.map(s => <option key={s.uid} value={s.uid}>{s.name}</option>)}</select>
       <button disabled={!selectedCabinet} onClick={() => { if (selectedCabinet) v.focusSection(Math.max(0, selectedCabinet.y - 100), selectedCabinet.y + 300); }}>Focus selected cabinet</button>
       {review && <button onClick={() => v.focusBounds(display.cabinets.filter(c => review.cabinet_uids.includes(c.cabinet.cabinet_uid)).flatMap(c => [{x:c.x,y:c.y-25}, {x:c.x+c.width,y:c.y+c.height+25}]), 55)}>Focus actual cable rows</button>}
       {reviewPoints.length > 0 && <button onClick={() => v.focusBounds(reviewPoints, 65)}>{cabinetFocus ? "Focus selected cabinet connections" : focusedReviewPairKey ? "Focus rack pair" : selectedReviewGroupUid ? "Focus cable group" : "Focus selected routes"}</button>}
@@ -58,6 +60,7 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
       <span>Conceptual · Not to scale · Drag blank space to pan</span>
       {!cabinetFocus && !selectedReviewGroupUid && !focusedReviewPairKey && selectionGroupUids != null && <span className="cabinet-route-focus" role="status">{reviewGroups.length ? `${reviewGroups.length.toLocaleString()} cable groups passing through selection · complete routes in color` : "No routed cables pass through this selection"}</span>}
       {cabinetFocus && <span className="cabinet-route-focus" role="status">{cabinetInteraction.selected.size} selected cabinet{cabinetInteraction.selected.size === 1 ? "" : "s"} · connected cables in color</span>}
+      </div></details>
     </div>
     <svg ref={v.svgRef} className="routing-svg conceptual-svg" viewBox={`${v.view.x} ${v.view.y} ${v.view.w} ${v.view.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="Conceptual cabinet and pathway map, not to scale: SOUTH left, CENTRAL middle, NORTH right"
       onPointerDown={v.pointerDown} onPointerMove={v.pointerMove} onPointerUp={v.pointerUp} onPointerCancel={v.pointerUp}
@@ -99,6 +102,5 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
       <g className="conceptual-cabinet-foreground" pointerEvents={manual ? "none" : undefined} onKeyDownCapture={event => {if (manual) {event.preventDefault(); event.stopPropagation();}}}>{renderCabinets(display.cabinets.filter(c=>visibleLine(c,{x:c.x+c.width,y:c.y+c.height},v.view)))}</g>
       {manual && <ManualRouteLayer data={data} view={display} segments={manual.segments} preview={manual.preview} scale={v.scale} onAppend={manual.append} onSegments={manual.chooseSegments} disabled={manual.disabled} tiers={tiers} viewport={v.view} />}
     </svg>
-    <footer className="routing-view-footer">Conceptual positions and stroke widths are visual only. Segment details retain model lengths and widths.</footer>
   </section>;
 }

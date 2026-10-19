@@ -39,9 +39,20 @@
 .routing-svg .routing-inventory-cabinet.selected.connected .routing-inventory-tile { stroke: var(--routing-selected); }
 .routing-svg .routing-inventory-cabinet:hover .routing-inventory-tile { fill: #e3edf4; }
 .routing-view-tools > label { display: flex; align-items: center; gap: 4px; }
-.routing-integrated { border: 0; border-radius: 0; padding: 10px; flex: 1; min-height: 0; overflow: auto; }
+.routing-integrated { position: relative; display: flex; flex-direction: column; border: 0; border-radius: 0; padding: 0; flex: 1; min-height: 0; overflow: hidden; }
 .routing-integrated .routing-toolbar { margin-top: 0; padding-top: 0; border-top: 0; }
-.routing-integrated .routing-svg { height: clamp(400px,62vh,800px); }
+.routing-integrated .conceptual-viewer { position: relative; flex: 1; min-height: 0; display: flex; border: 0; border-radius: 0; }
+.routing-integrated .conceptual-svg { flex: 1; height: 100%; min-height: 0; }
+.conceptual-map-controls { position: absolute; z-index: 3; top: 8px; left: 8px; right: 8px; display: flex; align-items: flex-start; gap: 5px; flex-wrap: wrap; pointer-events: none; }
+.conceptual-map-controls > * { pointer-events: auto; }
+.conceptual-view-options { min-width: 0; max-width: 100%; max-height: min(300px, 45dvh); overflow: auto; }
+.conceptual-view-options[open] { background: #fff; border: 1px solid #cbd5e1; box-shadow: 0 2px 8px #0f172a22; padding: 6px; border-radius: 4px; }
+.conceptual-view-options > summary { cursor: pointer; background: #f8fafc; border: 1px solid #b5c3d2; border-radius: 4px; color: #18364c; padding: 7px 10px; font-size: 12px; }
+.conceptual-view-options .routing-view-tools { max-width: 320px; background: #fff; }
+.map-tier-host { display: flex; align-items: center; }
+.map-tier-host > [aria-label="Tier visibility"] { display: flex; align-items: center; gap: 10px; font-size: 11px; }
+.cabinet-map-header .map-title-line { flex-wrap: wrap; }
+.routing-integrated > .routing-empty, .routing-integrated > p { padding: 10px; }
 .routing-integrated .routing-notice { font-size: 11px; line-height: 1.5; }
 .conceptual-route-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 0; color: #475569; font-size: 11px; }
 .conceptual-route-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }

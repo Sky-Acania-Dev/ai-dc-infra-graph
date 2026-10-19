@@ -29,8 +29,10 @@ type Props = {
   canManage: boolean; cabinets: CabinetLayoutItem[]; settings: CabinetGraphicSettings & { hotAisleGap: number };
   renderCabinets: (positions: CabinetGraphicPosition[], clearPath: () => void) => ReactNode;
   inspectorHost: HTMLDivElement | null; pathwayInspectorHost: HTMLDivElement | null; onInspectorActiveChange: (active: boolean) => void;
+  onPathwayInspectorActiveChange: (active: boolean) => void;
+  tierHost: HTMLDivElement | null;
 };
-export function CabinetRoutingMap({ project, building, hall, selected, connected, onSelectCabinet, onPrefetchCabinet, onClearSelection, onOpenRouting, canManage, cabinets, settings, renderCabinets, inspectorHost, pathwayInspectorHost, onInspectorActiveChange }: Props) {
+export function CabinetRoutingMap({ project, building, hall, selected, connected, onSelectCabinet, onPrefetchCabinet, onClearSelection, onOpenRouting, canManage, cabinets, settings, renderCabinets, inspectorHost, pathwayInspectorHost, onInspectorActiveChange, onPathwayInspectorActiveChange, tierHost }: Props) {
   const physicalHall = physicalHallCode(project, hall);
   const { data, graph, loading, busy, error, mutate } = useRoutingLayout(project, building, physicalHall);
   const [tiers, setTiers] = useState(new Set<Tier>([1, 2, 3]));
@@ -75,6 +77,11 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
     onInspectorActiveChange(inspecting);
     return () => onInspectorActiveChange(false);
   }, [inspecting, onInspectorActiveChange]);
+  const pathwayInspecting = Boolean(data) && (inspecting || selected.size === 0);
+  useEffect(() => {
+    onPathwayInspectorActiveChange(pathwayInspecting);
+    return () => onPathwayInspectorActiveChange(false);
+  }, [pathwayInspecting, onPathwayInspectorActiveChange]);
   const sectionModel = data && segment ? segmentTierModel(data, segment) : null;
   const selectedBundle = sectionModel?.blocks.find(b => b.uid === selectedPlacementUid);
   const selectedNode = selection?.kind === "node" ? graph.nodes.find(n=>n.id === selection.uid) : undefined;
@@ -89,11 +96,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
       onClearFilter={() => setSelectedPlacementUid(null)} onViewCables={setCableTable} />}
     {!review && !segment && !attachmentUid && <p className="routing-notice">Select a route segment to inspect its cables. Pathway metadata is shown on the left.</p>}
   </aside> : null;
-  return <div className="routing-page routing-integrated">
-    <div className="routing-toolbar"><TierVisibility tiers={tiers} onChange={setTiers} /><button onClick={onOpenRouting}>Geometric routing map</button>
-      {project === "LBB01" && physicalHall === "DH1" && <label className="routing-cable-toggle"><input disabled={manual.editing || manual.busy} type="checkbox" checked={realReview} onChange={event => {clearPath(); setRealReview(event.target.checked);}} />Actual cable review</label>}
-      {review && <button disabled={manual.editing || manual.busy} onClick={() => {clearPath(); setReviewInspectorOpen(true); onClearSelection();}}>Review cable groups</button>}</div>
-    <RouteLegend />
+  const overview = <>
     {error && <p className="routing-error" role="alert">{error}</p>}
     {inventoryError && <p className="routing-error" role="alert">{inventoryError}</p>}
     {reviewState.loading && !review && <p role="status">Loading bundle routes and counts…</p>}
@@ -101,7 +104,13 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
     {reviewState.error && <p className="routing-error" role="alert">{reviewState.error}</p>}
     {reviewState.error && <button onClick={reviewState.reload}>Retry cable loading</button>}
     {review && <p className="actual-review-notice" role="status">{review.label} · {review.inventory_cable_count.toLocaleString()} cables · {review.groups.length.toLocaleString()} rack-pair/type groups · {review.routed_cable_count.toLocaleString()} inter-rack cables routed · {review.same_cabinet_count.toLocaleString()} same-cabinet cables kept local · {review.unrouted_cable_count.toLocaleString()} unrouted · {review.manual_group_count ?? 0} manual groups{review.build_ms != null ? ` · server ${ (review.build_ms / 1000).toFixed(1)}s` : ""}. A* never overwrites saved manual routes.</p>}
+    <RouteLegend />
+    {project === "LBB01" && physicalHall === "DH1" && <label className="routing-cable-toggle"><input disabled={manual.editing || manual.busy} type="checkbox" checked={realReview} onChange={event => {clearPath(); setRealReview(event.target.checked);}} />Actual cable review</label>}
     {review?.scope === "hall" && <details className="inventory-test-info"><summary>Routing defaults and unrouted cables</summary><p>{review.notes}</p><p>Unmapped endpoints: {(review.unmapped_cable_count ?? 0).toLocaleString()} cables.</p>{Object.entries(review.unrouted_reasons ?? {}).map(([reason,count])=><p key={reason}>{count.toLocaleString()} · {reason}</p>)}<p>Rows/CENTRAL: 8′2″ / 9′2″ / 10′2″ AFF. NORTH/SOUTH: 8′2″ / 9′8″ AFF. Row Tier 3 uses the confirmed row-end opening to outer passage Tier 2. Gaps use two test layers. FE inner-side intent has no measured bundle footprint.</p></details>}
+  </>;
+  return <div className="routing-page routing-integrated">
+    {tierHost && createPortal(<TierVisibility tiers={tiers} onChange={setTiers} />,tierHost)}
+    {!data && error && <p role="alert" className="routing-error">{error}</p>}
     {loading && !data ? <p>Loading pathways…</p> : !data ? <div className="routing-empty"><p>No routing layout is available for this hall. The standard cabinet map remains available.</p><button onClick={onOpenRouting}>Open routing configuration</button></div> : <>
       {!graph.nodes.length && <p className="routing-notice">Pathway guides shown; tier assignments and openings await configuration.</p>}
       <ConceptualRoutingMap key={data.layout.uid} data={data} graph={graph} tiers={tiers} selection={selection} settings={settings}
@@ -112,11 +121,12 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
         onSelectSegment={id => { if (manual.editing) return; setReviewInspectorOpen(true); setSelection(null); setSegmentId(id); setAttachmentUid(null); setSelectedCableId(null); setFocusedPairKey(null); onClearSelection(); }}
         renderCabinets={tiles => renderCabinets(tiles.flatMap(t => { const cabinet = inventoryByUid.get(t.cabinet.cabinet_uid); return cabinet ? [{ cabinet, x: t.x, y: t.y }] : []; }), clearPath)}
         initialSectionUid={sectionUid}
+        onOverview={() => {if (!manual.editing) {clearPath(); setReviewInspectorOpen(true); onClearSelection();}}}
         onSelect={next => { if (manual.editing) return; setSelection(next); setSegmentId(null); setAttachmentUid(null); setSelectedCableId(null); setFocusedPairKey(null); onClearSelection(); setReviewInspectorOpen(Boolean(next)); }}
         cabinetInteraction={{ selected, connected, onSelect: (cabinet, event) => { clearPath(); onSelectCabinet(cabinet.cabinet_uid, event); }, onPrefetch: onPrefetchCabinet }} />
       {cableTable && createPortal(<RoutingCableTable key={JSON.stringify([cableTable.source, cableTable.target, cableTable.cableType])} request={cableTable} selectedCableId={selectedCableId} onSelect={setSelectedCableId} onClose={() => {setCableTable(null); setSelectedCableId(null);}} />, document.body)}
       {inspectorHost && inspector && createPortal(inspector, inspectorHost)}
-      {pathwayInspectorHost && data && inspecting && createPortal(<PathwayInspector data={data} graph={graph} selection={selection} segment={segment} selectedEdge={selectedEdge}
+      {pathwayInspectorHost && data && pathwayInspecting && createPortal(<PathwayInspector data={data} graph={graph} selection={selection} segment={segment} selectedEdge={selectedEdge} overview={overview}
         attachmentUid={attachmentUid} canManage={canManage} busy={busy} mutate={mutate} onSelect={setSelection} onOpenRouting={onOpenRouting}
         selectedPlacementUid={selectedPlacementUid} reviewGroupCount={reviewGroups.length} reviewLoads={review?.loads} onSelectPlacement={uid => { setSelectedPlacementUid(uid); setSelectedCableId(null); }} />, pathwayInspectorHost)}
     </>}

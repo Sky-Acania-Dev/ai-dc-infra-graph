@@ -172,6 +172,7 @@ Default policies are read-only test suggestions:
 | Same-row LC/Cat6/Y and confirmed same-row FE MPO | T2 |
 | Cross-row FE | Row T3 → explicit opening → NORTH/SOUTH T2 → destination opening → row T3. Cross-hall travel uses a gap T2 route; no longitudinal CENTRAL travel. INNER occupation is intent only, without an invented footprint. |
 | Cross-row RoCE network T0–T1 | T1; minimize the source T0-row exit distance before the remaining distance. |
+| Cross-row RoCE T0–node MPO/MTP | T1 only. Prefer CENTRAL longitudinal travel when at most 10% longer than the shortest enabled bottom-tier route; otherwise keep the shortest route. |
 | Cross-row RoCE network T1–T2 | Stable rack-pair distribution over T2/T3; all passages permitted where configured, with explicit tier openings. |
 | Unmatched/mixed-phase groups | Unrouted with a reason; manual assignment remains available. |
 
@@ -254,6 +255,14 @@ The full pre-existing backend suite ran 158 tests with 151 passes and seven fail
 Repeat the read-only inventory audit from the repository root with `python -m tests.performance.check_routing_inventory --api-base http://127.0.0.1:8001`. It writes metrics plus indexed review and resolved-layout artifacts under `tmp/`. Then, from `frontend/web`, run `node --experimental-strip-types tests/routing-performance.mjs`. Neither command creates fixtures or changes assignments. Integration migrations run only in a generated isolated test schema.
 
 For rollout, retain a database backup, merge the tested branch, build backend/frontend, apply `alembic upgrade head` using the new backend image, and recreate only backend/frontend. The database already reports routing revision `074ca9e2b613` on this workstation. Existing hall data requires no routing layout. An application rollback can retain the additive routing tables; do not downgrade away saved manual routes as an automatic rollback step.
+
+### T0–node bottom-tier defaults and integrated viewport (2026-10-19)
+
+The `ROCE_T0_NODE` policy covers cross-row RoCE MPO/MTP connections between authoritative `T0-RO-*` categories and the current `HD-GB3*` / `VR-NVL72*` node families. It compares the unrestricted shortest T1 route with the shortest route using CENTRAL for longitudinal travel. NORTH/SOUTH remain valid on the unrestricted candidate; unavailable CENTRAL falls back to that candidate. The CENTRAL candidate is accepted at exactly 110% of the shortest planar length or less, using integer arithmetic. It never changes tier, creates missing pathway records, changes another category's defaults, or replaces a saved manual assignment.
+
+Full-data validation on 2026-10-19 routes all 28,800 affected cables across 194 rack-pair/type groups on T1. The hall now has 641,350 routed inter-rack cables, 57,307 cabinet-local cables and 586 unrouted cables (578 still need policy and eight have unmapped endpoints). All 9,193 routed groups pass chain validation, and the three saved manual assignments retain their original fingerprint. Backend regressions pass 68 tests; frontend regressions pass 76 tests, with TypeScript and production build validation.
+
+The integrated conceptual SVG now fills the same map body as the cabinet view. Zoom/Fit controls float above it, with section/focus options in a compact disclosure. Tier toggles sit beside the hall title. Full-hall inventory counts, color legend, cached/loading status and default-policy notes appear in the left pathway summary when no specific pathway/cabinet attachment is selected. Section focus and Fit clear pathway selection to restore that summary. Left summary visibility is independent of the right cable inspector, so closing cable details does not remove the hall summary. The redundant geometric-map and cable-review buttons are removed from the integrated toolbar; the Routing tab retains the geometric page. SVG batching and section culling remain unchanged.
 
 ### Local bundle-overview summaries
 

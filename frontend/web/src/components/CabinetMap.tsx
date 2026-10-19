@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useDragPan } from "../hooks/useDragPan";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useI18n } from "../i18n";
@@ -29,6 +29,7 @@ export type CabinetMapProps = {
   routingInspectorHost: HTMLDivElement | null;
   pathwayInspectorHost: HTMLDivElement | null;
   onRoutingInspectorActiveChange: (active: boolean) => void;
+  onPathwayInspectorActiveChange: (active: boolean) => void;
   project: string;
   building: string;
   onOpenRouting: () => void;
@@ -204,6 +205,7 @@ export function CabinetMap(props: CabinetMapProps) {
     onClearSelection, onDataHallChange, onMapSizeChange, onProgressDisplayChange,
   } = props;
   const { t } = useI18n();
+  const [tierHost, setTierHost] = useState<HTMLDivElement | null>(null);
   const isPhoneLandscape = useMediaQuery("(max-width: 1100px) and (orientation: landscape)");
   const settings = isPhoneLandscape ? LANDSCAPE_MAP_SIZE_SETTINGS[mapSize] : MAP_SIZE_SETTINGS[mapSize];
   const normalizedLayout = normalizeCabinets(cabinets);
@@ -223,6 +225,7 @@ export function CabinetMap(props: CabinetMapProps) {
       <div className="pane-header cabinet-map-header">
         <div className="map-title-line">
           <h2>{cabinets[0]?.data_hall_id ?? t("dataHall.fallback")}</h2>
+          {showRoutes && <div className="map-tier-host" ref={setTierHost} />}
           <span>{modeHint ?? t("map.cabinetMap")}</span>
         </div>
         <div className="map-controls" role="group" aria-label="Cabinet map controls" tabIndex={0}>
@@ -283,7 +286,9 @@ export function CabinetMap(props: CabinetMapProps) {
       ) : null}
       {showRoutes ? <Suspense fallback={<p className="empty-state">Loading routing map…</p>}><CabinetRoutingMap project={project} building={building} hall={dataHall} selected={selectedCabinetUids} connected={connectedCabinetUids}
         inspectorHost={props.routingInspectorHost} onInspectorActiveChange={props.onRoutingInspectorActiveChange}
+        onPathwayInspectorActiveChange={props.onPathwayInspectorActiveChange}
         pathwayInspectorHost={props.pathwayInspectorHost}
+        tierHost={tierHost}
         canManage={props.canManage} cabinets={cabinets} settings={settings}
         renderCabinets={(positions, clearPath) => <CabinetGraphics {...props} positions={positions} settings={settings}
           onSelectCabinet={(uid, gesture) => { clearPath(); onSelectCabinet(uid, gesture); }} />}

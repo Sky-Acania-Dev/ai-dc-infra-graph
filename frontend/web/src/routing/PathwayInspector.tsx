@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { RoutingDetails } from "./RoutingDetails";
 import { SegmentDetails } from "./SegmentDetails";
 import { conceptualSegments, rowName, annotationFor, type ConceptualSegment } from "./conceptualSegments";
@@ -12,13 +12,14 @@ import { occupationLabel } from "./occupation";
 import type { SectionDisplayMode } from "./SectionOccupationDiagram";
 import { directionName } from "./sectionDirections";
 
-export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, canManage, busy, mutate, onSelect, onOpenRouting, selectedPlacementUid, onSelectPlacement, reviewGroupCount = 0, reviewLoads = [] }: {
+export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, canManage, busy, mutate, onSelect, onOpenRouting, selectedPlacementUid, onSelectPlacement, reviewGroupCount = 0, reviewLoads = [], overview }: {
   data: ResolvedLayout; graph: RoutingGraph; selection: Selection; segment: ConceptualSegment | null | undefined; selectedEdge?: GraphEdge;
   attachmentUid: string | null; canManage: boolean; busy: boolean;
   mutate: Mutate; onSelect: (selection: Selection) => void; onOpenRouting: () => void;
   selectedPlacementUid: string | null; onSelectPlacement: (uid: string | null) => void;
   reviewGroupCount?: number;
   reviewLoads?: ReviewLoad[];
+  overview?: ReactNode;
 }) {
   const row = attachmentUid ? data.geometry.cabinet_rows.find(r => r.existing_cabinet_uids.includes(attachmentUid))
     : selection?.kind === "row" ? data.geometry.cabinet_rows.find(r => r.uid === selection.uid) : undefined;
@@ -53,6 +54,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
   const field = (name: string, value: string) => <div key={name}><dt>{name}</dt><dd title={value}>{value}</dd></div>;
   return <aside className="side-pane routing-page routing-side routing-pathway-inspector" aria-label="Pathway metadata and geometry">
     <span className="eyebrow">Pathway inspection</span>
+    {!selection && !segment && !attachmentUid && overview}
     {active && model ? <>
       <h3 className="compact-pathway-title">{attachmentUid ? `Cabinet ${data.cabinets.find(c => c.cabinet_uid === attachmentUid)?.cabinet_id} · ${active.label}` : active.label}</h3>
       <dl className="routing-generic-info" aria-label="Generic pathway information">

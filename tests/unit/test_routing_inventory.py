@@ -8,6 +8,8 @@ from backend.services.routing_graph import derive_graph
 from backend.services.routing_planning import ReviewPlanner
 from backend.services.routing_test_profile import configure_hall_test
 from backend.services.routing_inventory_review import build_inventory_review, InventoryPolicy
+from backend.services.routing_geometry import resolve_geometry
+from backend.services.routing_manual_paths import chain_legs, validate_chain
 
 
 class InventoryReviewTests(unittest.TestCase):
@@ -107,6 +109,79 @@ class InventoryReviewTests(unittest.TestCase):
         start = route['points'][0]
         distances = {abs(start['y_in']-y): y for y in (17, 382)}
         self.assertEqual(first_passage['y_in'], distances[min(distances)])
+
+    def node_policy(self, extra_station=0):
+        self.data['cabinets'][next(i for i,c in enumerate(self.data['cabinets']) if c['cabinet_uid']=='cab:802')]['category'] = 'T0-RO-v1a'
+        if extra_station:
+            uid = self.planner.attachments['cab:811']['cross_route_uid']
+            station = next(r['station_in'] for r in self.data['geometry']['cross_routes'] if r['uid']==uid)
+            route = next(r for r in self.data['cross_routes'] if r['uid']==uid)
+            route.update(station_source='MANUAL',manual_station_in=station+extra_station)
+            existing={r['uid']:r['existing_cabinet_uids'] for r in self.data['geometry']['cabinet_rows']}
+            self.data['geometry'] = resolve_geometry(self.data)
+            for row in self.data['geometry']['cabinet_rows']:
+                row['existing_cabinet_uids']=existing[row['uid']]
+        self.planner = ReviewPlanner(self.data, [c['cabinet_uid'] for c in self.data['cabinets']])
+        return InventoryPolicy(self.data,self.planner)
+
+    def test_t0_node_policy_is_limited_to_cross_row_roce_mpo_and_known_node_categories(self):
+        policy = self.node_policy()
+        for kind in ('MPO12 2x2','MPO12 4x4','MTP'):
+            self.assertEqual(policy.classify('cab:802','cab:811',kind,{'RoCE'})[:2],('ROCE_T0_NODE',1))
+            self.assertEqual(policy.classify('cab:811','cab:802',kind,{'RoCE'})[:2],('ROCE_T0_NODE',1))
+        self.assertEqual(policy.classify('cab:802','cab:803','MPO12 2x2',{'RoCE'})[0],'SAME_ROW_ROCE')
+        for kind,phases in [('CAT6',{'RoCE'}),('MPO12 2x2',{'Management & Ethernet'}),('MPO12 2x2',{'RoCE','Management & Ethernet'})]:
+            self.assertEqual(policy.classify('cab:802','cab:811',kind,phases)[0],'UNSUPPORTED')
+        policy.cabinets['cab:811']['category']='VR-NVL72-v2'
+        self.assertEqual(policy.classify('cab:802','cab:811','MPO12 4x4',{'RoCE'})[0],'ROCE_T0_NODE')
+        policy.cabinets['cab:811']['category']='RES'
+        self.assertEqual(policy.classify('cab:802','cab:811','MPO12 2x2',{'RoCE'})[0],'UNSUPPORTED')
+
+    def test_t0_node_uses_central_within_ten_percent_but_keeps_shorter_outer_route_beyond_it(self):
+        original=copy.deepcopy(self.data)
+        # Integer slot centers give exactly 616/560 inches at this boundary.
+        for extra,prefer_central in ((0,False),(54,False),(55,True),(300,True)):
+            self.data=copy.deepcopy(original)
+            policy=self.node_policy(extra)
+            start,end=self.planner.endpoint('cab:802'),self.planner.endpoint('cab:811')
+            shortest=self.planner.shortest(start,end,allow_edge=lambda e:e['edge_type']!='VERTICAL' and e['tier']==1)
+            route=policy.route('cab:802','cab:811','ROCE_T0_NODE',1)
+            passages={self.planner.edges[e]['passage_code'] for e in route['load_ids'] if self.planner.edges[e]['edge_type']=='PASSAGE'}
+            self.assertEqual(passages,{'CENTRAL'} if prefer_central else {'NORTH'})
+            self.assertLessEqual(route['planar_length_in']*100,shortest['planar_length_in']*110)
+            if prefer_central:self.assertGreater(route['planar_length_in'],shortest['planar_length_in'])
+            self.assertEqual(route['vertical_transition_count'],0)
+            self.assertTrue(all(p['tier']==1 for p in route['points']))
+            self.assertTrue(validate_chain(self.planner,'cab:802','cab:811',route['load_ids'],complete=True)[1])
+            self.assertEqual(route,policy.route('cab:802','cab:811','ROCE_T0_NODE',1))
+
+    def test_t0_node_falls_back_when_central_is_disabled_and_never_uses_an_upper_tier(self):
+        self.node_policy(300)
+        central=next(b['uid'] for b in self.data['bands'] if b['code']=='CENTRAL')
+        self.data['segment_annotations'].append(dict(uid='blocked-central',passage_band_uid=central,cross_route_uid=None,
+            start_station_in=0,end_station_in=self.data['geometry']['hall_length_in'],from_passage_band_uid=None,to_passage_band_uid=None,
+            tier=1,usable=False,cable_classes=[]))
+        planner=ReviewPlanner(self.data,[c['cabinet_uid'] for c in self.data['cabinets']])
+        route=InventoryPolicy(self.data,planner).route('cab:802','cab:811','ROCE_T0_NODE',1)
+        self.assertIsNotNone(route)
+        self.assertTrue(all(p['tier']==1 for p in route['points']))
+        for t in self.data['cross_route_tiers']:
+            if t['tier']==1:t['enabled']=False
+        planner=ReviewPlanner(self.data,[c['cabinet_uid'] for c in self.data['cabinets']])
+        self.assertIsNone(InventoryPolicy(self.data,planner).route('cab:802','cab:811','ROCE_T0_NODE',1))
+
+    def test_t0_node_default_never_overwrites_a_manual_higher_tier_route(self):
+        self.node_policy()
+        route=self.planner.route('cab:802','cab:811',2,2)
+        points=[(p['x_in'],p['y_in'],p['tier']) for p in route['points']]
+        manual=dict(source_cabinet_uid='cab:802',destination_cabinet_uid='cab:811',cable_type='MPO12 2x2',
+            legs=chain_legs(self.planner,points,route['load_ids']),start_tier=2,end_tier=2,version='preserve',revision=4,notes='Manual',updated_by='tech')
+        counts=[dict(a='cab:802',b='cab:811',cable_type='MPO12 2x2',phase='RoCE',count=144)]
+        review=build_inventory_review(self.data,counts,[manual],self.planner)
+        group=review['groups'][0]
+        self.assertEqual((group['policy'],group['route_source'],group['manual_version'],group['manual_revision']),('ROCE_T0_NODE','MANUAL','preserve',4))
+        self.assertEqual((group['start_tier'],group['end_tier']), (2,2))
+        self.assertEqual(review['routed_cable_count'],144)
 
 
 if __name__ == '__main__': unittest.main()
