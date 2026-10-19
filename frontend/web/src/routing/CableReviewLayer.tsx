@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { projectReviewPoint, reviewConnector, visibleLine, type Viewport } from "./cableReviewProjection";
-import { RouteStroke, routeDetailScale } from "./RouteStroke";
+import { RouteStroke, routeDetailScale, routeInkScale } from "./RouteStroke";
 import { focusedRouteGroups } from "./rackPairRoutes";
 import {OverviewStrokes,type OverviewStroke} from "./OverviewStrokes";
 import type { ConceptualLayout } from "./conceptualLayout";
@@ -33,7 +33,7 @@ export function CableReviewLayer({data, view, review, scale, selectedGroupUid, s
   const compact=scale<.16;
   const overview:OverviewStroke[]=[];
   const cabinetTargets = new Set<string>();
-  const offsetPoint = (p: {x: number; y: number}, tier: Tier | null) => {const offset = tier ? (tier - 2) * 4 * detail / scale : 0; return {x: p.x + offset, y: p.y + offset};};
+  const offsetPoint = (p: {x: number; y: number}, tier: Tier | null) => {const offset = tier ? (tier - 2) * 4 * routeInkScale(scale) / scale : 0; return {x: p.x + offset, y: p.y + offset};};
   return <g className="actual-cable-review-layer" aria-label="Provisional routes for actual inventory cables">
     {review.loads.map(load => {
       if (tiers && (load.tier ? !tiers.has(load.tier) : load.lower_tier && load.upper_tier && !tiers.has(load.lower_tier) && !tiers.has(load.upper_tier))) return null;

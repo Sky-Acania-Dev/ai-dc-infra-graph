@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { ConceptualLayout } from "./conceptualLayout";
 import type { ResolvedLayout, RoutingGraph, Selection, Tier } from "./types";
 import { formatInches } from "./dimensions";
-import { RouteStroke, routeDetailScale } from "./RouteStroke";
+import { RouteStroke, routeDetailScale, routeInkScale } from "./RouteStroke";
 import { visibleLine, type Viewport } from "./cableReviewProjection";
 import { physicalJunctions } from "./physicalTargets";
 
@@ -16,7 +16,7 @@ export function ConceptualGraph({ data, graph, view, scale, tiers, selection, on
     {graph.edges.filter(e => e.edge_type !== "VERTICAL" && e.tier && tiers.has(e.tier)).map(edge => {
       const source = nodes.get(edge.source_node_id), target = nodes.get(edge.target_node_id);
       if (!source || !target) return null;
-      const a = view.projectNode(source), b = view.projectNode(target), offset = (source.tier - 2) * 4 * detail / scale;
+      const a = view.projectNode(source), b = view.projectNode(target), offset = (source.tier - 2) * 4 * routeInkScale(scale) / scale;
       if (!visibleLine(a,b,viewport)) return null;
       const active = selected("edge", edge.id);
       return <g key={edge.id} pointerEvents="none" className={`routing-tier-${source.tier}`}>

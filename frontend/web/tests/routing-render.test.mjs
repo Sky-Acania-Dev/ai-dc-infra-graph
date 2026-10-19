@@ -111,9 +111,9 @@ test("summary map filters keep complete matching paths colored and unrouted focu
   for (const scale of [1,.1]) {
     const defaults=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,scale,summaryFilter:'DEFAULT'}));
     assert.match(defaults,/data-cable-class="LC"/); assert.doesNotMatch(defaults,/data-cable-class="MPO"/);
-    assert.match(defaults,/stroke="#4b5057"/);
+    assert.match(defaults,scale<.12 ? /stroke="#cbd2d9"/ : /stroke="#4b5057"/);
     const unrouted=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,scale,summaryFilter:'UNROUTED'}));
-    assert.doesNotMatch(unrouted,/data-cable-class=/); assert.match(unrouted,/stroke="#4b5057"/);
+    assert.doesNotMatch(unrouted,/data-cable-class=/); assert.match(unrouted,scale<.12 ? /stroke="#cbd2d9"/ : /stroke="#4b5057"/);
     const manual=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,scale,summaryFilter:'MANUAL',focusedPairKey:JSON.stringify(['a','b'])}));
     assert.match(manual,/data-cable-class="MPO"/); assert.doesNotMatch(manual,/data-cable-class="LC"/);
   }
