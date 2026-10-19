@@ -12,6 +12,7 @@ import { CableReviewLayer } from "./CableReviewLayer";
 import { ManualRouteLayer } from "./ManualRouteLayer";
 import { projectReviewPoint, reviewConnector, visibleLine } from "./cableReviewProjection";
 import { focusedRouteGroups } from "./rackPairRoutes";
+import type { RoutingSummaryFilter } from "./routingSummaryFilter";
 import type { CableReview, ResolvedLayout, RoutingGraph, Selection, Tier, ManualPreview, PlanningSegment } from "./types";
 
 type Props = { data: ResolvedLayout; graph: RoutingGraph; tiers: Set<Tier>; selection: Selection; onSelect: (s: Selection) => void; initialSectionUid: string; cabinetInteraction: CabinetInteraction;
@@ -19,10 +20,11 @@ type Props = { data: ResolvedLayout; graph: RoutingGraph; tiers: Set<Tier>; sele
   segments: ConceptualSegment[]; selectedSegmentId: string | null; onSelectSegment: (id: string) => void;
   review?: CableReview | null; selectedReviewGroupUid?: string | null; focusedReviewPairKey?: string | null; selectionGroupUids?: ReadonlySet<string> | null;
   onReviewAttachment?: (uid: string) => void;
+  summaryFilter?: RoutingSummaryFilter | null;
   onOverview?: () => void;
   manual?: {preview: ManualPreview | null; segments: PlanningSegment[]; append: (ids: string[]) => void; chooseSegments: (ids: string[]) => void; disabled: boolean} | null;
 };
-export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, review, selectedReviewGroupUid = null, focusedReviewPairKey = null, selectionGroupUids = null, onReviewAttachment, onOverview, manual }: Props) {
+export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, review, selectedReviewGroupUid = null, focusedReviewPairKey = null, selectionGroupUids = null, summaryFilter = null, onReviewAttachment, onOverview, manual }: Props) {
   const display = useMemo(() => conceptualLayout(data, placeRoutingCabinets(data), settings), [data, settings]);
   // The view controller operates in SVG display units, not model inches.
   const v = useSchematicView(display.height, display.width, "cabinet-map");
@@ -36,8 +38,8 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
   const selected = (kind: string, uid: string) => selection?.kind === kind && selection.uid === uid;
   const crossStart = display.passages[0]?.x ?? 0, crossEnd = display.passages.at(-1)?.x ?? 0;
   const cabinetFocus = cabinetInteraction.selected.size > 0;
-  const muteCableMarkings = cabinetFocus || Boolean(selectedReviewGroupUid || focusedReviewPairKey || selectionGroupUids != null);
-  const reviewGroups = useMemo(()=>focusedRouteGroups(review?.groups ?? [], selectedReviewGroupUid, focusedReviewPairKey, cabinetInteraction.selected, selectionGroupUids),[review?.groups, selectedReviewGroupUid, focusedReviewPairKey, cabinetInteraction.selected, selectionGroupUids]);
+  const muteCableMarkings = cabinetFocus || Boolean(selectedReviewGroupUid || focusedReviewPairKey || selectionGroupUids != null || summaryFilter);
+  const reviewGroups = useMemo(()=>focusedRouteGroups(review?.groups ?? [], selectedReviewGroupUid, focusedReviewPairKey, cabinetInteraction.selected, selectionGroupUids, summaryFilter),[review?.groups, selectedReviewGroupUid, focusedReviewPairKey, cabinetInteraction.selected, selectionGroupUids, summaryFilter]);
   const reviewPoints = useMemo(()=>{
     const points = new Map<string,{x:number;y:number}>();
     const add = (p: {x:number;y:number})=>points.set(`${p.x}:${p.y}`,p);
@@ -97,7 +99,7 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
         </g>;
       })}
       <ConceptualGraph data={data} graph={graph} view={display} scale={v.scale} tiers={tiers} selection={selection} onSelect={onSelect} viewport={v.view} muteCableMarkings={muteCableMarkings} />
-      {!manual && review && onReviewAttachment && <CableReviewLayer data={data} view={display} review={review} scale={v.scale} tiers={tiers} selectedGroupUid={selectedReviewGroupUid} selectedSegmentId={selectedSegmentId} focusedPairKey={focusedReviewPairKey} selectedCabinetUids={cabinetInteraction.selected} selectionGroupUids={selectionGroupUids} onAttachment={onReviewAttachment} viewport={v.view} />}
+      {!manual && review && onReviewAttachment && <CableReviewLayer data={data} view={display} review={review} scale={v.scale} tiers={tiers} selectedGroupUid={selectedReviewGroupUid} selectedSegmentId={selectedSegmentId} focusedPairKey={focusedReviewPairKey} selectedCabinetUids={cabinetInteraction.selected} selectionGroupUids={selectionGroupUids} summaryFilter={summaryFilter} onAttachment={onReviewAttachment} viewport={v.view} />}
       {/* Cabinet graphics own their interiors; padded pathway targets stay underneath. */}
       <g className="conceptual-cabinet-foreground" pointerEvents={manual ? "none" : undefined} onKeyDownCapture={event => {if (manual) {event.preventDefault(); event.stopPropagation();}}}>{renderCabinets(display.cabinets.filter(c=>visibleLine(c,{x:c.x+c.width,y:c.y+c.height},v.view)))}</g>
       {manual && <ManualRouteLayer data={data} view={display} segments={manual.segments} preview={manual.preview} scale={v.scale} onAppend={manual.append} onSegments={manual.chooseSegments} disabled={manual.disabled} tiers={tiers} viewport={v.view} />}

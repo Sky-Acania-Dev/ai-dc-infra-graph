@@ -14,6 +14,30 @@ import { reviewPairKey, rackPairCards, focusedRouteGroups, routeActionLabel } fr
 import { decodeCableReview,encodeReviewSummary } from "../src/routing/reviewEncoding.ts";
 import {validSummary,layoutSignature,SUMMARY_MAX_AGE_MS,SummaryLoadGate,readReviewSummary,writeReviewSummary} from "../src/routing/reviewSummaryCache.ts";
 import {physicalJunctions,physicalPlanningTargets} from "../src/routing/physicalTargets.ts";
+import {filterSummaryGroups} from "../src/routing/routingSummaryFilter.ts";
+
+test("summary filters match route counts, retain invalid manuals, and intersect every map focus", () => {
+  const base={source_cabinet_uid:'a',destination_cabinet_uid:'b',source_cabinet_id:'801',destination_cabinet_id:'811'};
+  const groups=[{...base,uid:'default',route:{},route_source:'DEFAULT',count:10},
+    {...base,uid:'manual',route:{},route_source:'MANUAL',count:2},
+    {...base,uid:'invalid-manual',route:null,route_source:'MANUAL',count:3},
+    {...base,uid:'unrouted',route:null,route_source:'DEFAULT',count:7}];
+  const snapshot=structuredClone(groups);
+  const ids=groups=>groups.map(g=>g.uid);
+  assert.deepEqual(ids(filterSummaryGroups(groups,'ROUTED')),['default','manual']);
+  assert.deepEqual(ids(filterSummaryGroups(groups,'UNROUTED')),['invalid-manual','unrouted']);
+  assert.deepEqual(ids(filterSummaryGroups(groups,'DEFAULT')),['default']);
+  assert.deepEqual(ids(filterSummaryGroups(groups,'MANUAL')),['manual','invalid-manual']);
+  assert.equal(filterSummaryGroups(groups,null),groups);
+  assert.deepEqual(ids(focusedRouteGroups(groups,null,null,undefined,null,'DEFAULT')),['default']);
+  assert.deepEqual(ids(focusedRouteGroups(groups,null,reviewPairKey(groups[0]),undefined,null,'MANUAL')),['manual','invalid-manual']);
+  assert.deepEqual(ids(focusedRouteGroups(groups,null,null,new Set(['a']),null,'ROUTED')),['default','manual']);
+  assert.deepEqual(ids(focusedRouteGroups(groups,'manual',null,undefined,null,'DEFAULT')),[]);
+  assert.deepEqual(ids(focusedRouteGroups(groups,null,null,undefined,new Set(['manual','invalid-manual']),'UNROUTED')),['invalid-manual']);
+  const eligible=filterSummaryGroups(groups,'DEFAULT');
+  assert.deepEqual(ids(rackPairCards(eligible,eligible,reviewPairKey(groups[0]))[0].groups),['default']);
+  assert.deepEqual(groups,snapshot,'Filtering must not modify routes or saved manual assignments');
+});
 
 test("physical targets combine plan locations without merging distinct tier openings", () => {
   const p=(x,tier)=>({id:`${x}:${tier}`,x_in:x,y_in:382,tier});

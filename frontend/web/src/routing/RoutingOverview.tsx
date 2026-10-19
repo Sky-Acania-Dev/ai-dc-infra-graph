@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { CABLE_STYLES, EMPTY_ROUTE_COLOR, UNUSABLE_ROUTE_COLOR } from "./RouteStroke";
 import type { CableClass, CableReview } from "./types";
+import { SUMMARY_FILTER_LABELS, type RoutingSummaryFilter } from "./routingSummaryFilter";
 
 export function routingOverviewCounts(review: CableReview) {
   const colors = Object.fromEntries(Object.keys(CABLE_STYLES).map(key => [key,0])) as Record<CableClass,number>;
@@ -24,17 +25,23 @@ export function routingOverviewCounts(review: CableReview) {
   return {colors,other,defaultRoutes,defaultCables,manualRoutes,manualCables,invalidManualRoutes};
 }
 
-export function RoutingOverview({review,stale=false,savedAt=null}: {review:CableReview;stale?:boolean;savedAt?:number|null}) {
+export function RoutingOverview({review,stale=false,savedAt=null,filter=null,onFilterChange,disabled=false}: {
+  review:CableReview;stale?:boolean;savedAt?:number|null;filter?:RoutingSummaryFilter|null;
+  onFilterChange?:(filter:RoutingSummaryFilter|null)=>void;disabled?:boolean;
+}) {
   const totals=useMemo(()=>routingOverviewCounts(review),[review]);
   const number=(value:number)=>value.toLocaleString();
   return <section className="routing-overview" aria-label="Routing cable summary">
     <div className="routing-overview-heading"><h3>Cable summary</h3><b>{number(review.inventory_cable_count)}</b></div>
     <div className="routing-overview-stats">
-      <div className="routing-overview-stat"><span>Routed cables</span><strong>{number(review.routed_cable_count)}</strong><small>Inter-rack cables</small></div>
-      <div className="routing-overview-stat"><span>Unrouted cables</span><strong>{number(review.unrouted_cable_count)}</strong><small>Including unmapped endpoints</small></div>
-      <div className="routing-overview-stat"><span>Default routes</span><strong>{number(totals.defaultRoutes)}</strong><small>Groups · {number(totals.defaultCables)} cables</small></div>
-      <div className="routing-overview-stat"><span>Manual routes</span><strong>{number(totals.manualRoutes)}</strong><small>Groups · {number(totals.manualCables)} cables{totals.invalidManualRoutes ? ` · ${number(totals.invalidManualRoutes)} invalid` : ""}</small></div>
+      {(Object.keys(SUMMARY_FILTER_LABELS) as RoutingSummaryFilter[]).map(key=><button key={key} type="button" className="routing-overview-stat"
+        aria-pressed={filter===key} disabled={disabled} onClick={()=>onFilterChange?.(filter===key ? null : key)}>
+        <span>{SUMMARY_FILTER_LABELS[key]}</span>
+        <strong>{number(key==="ROUTED" ? review.routed_cable_count : key==="UNROUTED" ? review.unrouted_cable_count : key==="DEFAULT" ? totals.defaultRoutes : totals.manualRoutes)}</strong>
+        <small>{key==="ROUTED" ? "Inter-rack cables" : key==="UNROUTED" ? "Including unmapped endpoints" : `Groups · ${number(key==="DEFAULT" ? totals.defaultCables : totals.manualCables)} cables${key==="MANUAL" && totals.invalidManualRoutes ? ` · ${number(totals.invalidManualRoutes)} invalid` : ""}`}</small>
+      </button>)}
     </div>
+    {filter && <div className="routing-summary-filter" role="status"><b>{SUMMARY_FILTER_LABELS[filter]} selected</b><button type="button" disabled={disabled} onClick={()=>onFilterChange?.(null)}>Clear filter</button></div>}
     <div className="routing-overview-local"><span>Cabinet-local cables</span><b>{number(review.same_cabinet_count)}</b></div>
     <section className="routing-cable-key" aria-label="Cable counts by route color">
       <h4>Cable types</h4>

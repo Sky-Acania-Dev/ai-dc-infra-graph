@@ -5,17 +5,19 @@ import { focusedRouteGroups } from "./rackPairRoutes";
 import {OverviewStrokes,type OverviewStroke} from "./OverviewStrokes";
 import type { ConceptualLayout } from "./conceptualLayout";
 import type { CableClass, CableReview, ResolvedLayout, ReviewGroup, Tier } from "./types";
+import type { RoutingSummaryFilter } from "./routingSummaryFilter";
 
-export function CableReviewLayer({data, view, review, scale, selectedGroupUid, selectedSegmentId = null, onAttachment, tiers, focusedPairKey = null, viewport, selectedCabinetUids, selectionGroupUids = null}: {
+export function CableReviewLayer({data, view, review, scale, selectedGroupUid, selectedSegmentId = null, onAttachment, tiers, focusedPairKey = null, viewport, selectedCabinetUids, selectionGroupUids = null, summaryFilter = null}: {
   data: ResolvedLayout; view: ConceptualLayout; review: CableReview; scale: number; selectedGroupUid: string | null; selectedSegmentId?: string | null;
   onAttachment: (uid: string) => void;
   tiers?: Set<Tier>; focusedPairKey?: string | null; viewport?: Viewport;
   selectedCabinetUids?: ReadonlySet<string>;
   selectionGroupUids?: ReadonlySet<string> | null;
+  summaryFilter?: RoutingSummaryFilter | null;
 }) {
-  const focused = focusedRouteGroups(review.groups, selectedGroupUid, focusedPairKey, selectedCabinetUids, selectionGroupUids);
+  const focused = focusedRouteGroups(review.groups, selectedGroupUid, focusedPairKey, selectedCabinetUids, selectionGroupUids, summaryFilter);
   // An empty set means a selected pathway has no cables; null means no pathway focus.
-  const hasFocus = Boolean(selectedGroupUid || focusedPairKey || selectedCabinetUids?.size || selectionGroupUids != null);
+  const hasFocus = Boolean(selectedGroupUid || focusedPairKey || selectedCabinetUids?.size || selectionGroupUids != null || summaryFilter);
   const focusedUids = new Set(focused.map(g=>g.uid));
   const groupsByUid = useMemo(()=>new Map(review.groups.map(g=>[g.uid,g])),[review.groups]);
   const attachmentGroups = useMemo(()=>{

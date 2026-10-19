@@ -52,6 +52,49 @@ test("overview counts include local inventory, split special colors once, and di
   assert.match(html,/<li><span><i[^>]*><\/i>LC<\/span><b>95<\/b><\/li>/);
   assert.match(html,/All inventory cables/);
   assert.doesNotMatch(html,/Confirmed routes|NaN|undefined/);
+  const selected=renderToStaticMarkup(React.createElement(RoutingOverview,{review,filter:'MANUAL',onFilterChange:()=>{}}));
+  assert.equal((selected.match(/class="routing-overview-stat"/g)??[]).length,4);
+  assert.equal((selected.match(/aria-pressed="true"/g)??[]).length,1);
+  assert.match(selected,/aria-pressed="true"><span>Manual routes<\/span>/);
+  assert.match(selected,/Manual routes selected/); assert.match(selected,/Clear filter/);
+  const busy=renderToStaticMarkup(React.createElement(RoutingOverview,{review,disabled:true}));
+  assert.equal((busy.match(/aria-pressed="false" disabled=""/g)??[]).length,4);
+});
+
+test("summary-filtered rack cards cannot expand to unrelated statuses on the same pair", () => {
+  const base={source_cabinet_uid:'a',destination_cabinet_uid:'b',source_cabinet_id:'801',destination_cabinet_id:'811',start_tier:1,end_tier:1,count:2,cable_uids:[]};
+  const groups=[{...base,uid:'default',cable_type:'LC',route_source:'DEFAULT',route:{planar_length_in:120}},
+    {...base,uid:'manual',cable_type:'MPO',route_source:'MANUAL',route:{planar_length_in:120}},
+    {...base,uid:'unrouted',cable_type:'CAT6a',route_source:'DEFAULT',route:null}];
+  const props={review:{groups,cables:[],unmapped_cable_count:8},groups,focusedPairKey:JSON.stringify(['a','b']),onViewCables:()=>{}};
+  const manual=renderToStaticMarkup(React.createElement(CableReviewPanel,{...props,summaryFilter:'MANUAL'}));
+  assert.match(manual,/View MPO cable details/);
+  assert.doesNotMatch(manual,/View LC cable details|View CAT6a cable details/);
+  assert.match(manual,/Matching cable types for this rack pair/);
+  const unrouted=renderToStaticMarkup(React.createElement(CableReviewPanel,{...props,summaryFilter:'UNROUTED'}));
+  assert.match(unrouted,/View CAT6a cable details/);
+  assert.doesNotMatch(unrouted,/View LC cable details|View MPO cable details/);
+  assert.match(unrouted,/2 mapped cables · 1 rack-pair\/type groups/);
+  assert.match(unrouted,/Another 8 cables.*unmapped endpoints/);
+  assert.match(unrouted,/No assigned path to highlight/);
+});
+
+test("summary map filters keep complete matching paths colored and unrouted focus mutes all paths", () => {
+  const p=x=>({x_in:x,y_in:382,tier:1,passage_band_uid:'central',cabinet_uid:null});
+  const group=(uid,cable_class,route_source,route)=>({uid,cable_class,source_cabinet_uid:'a',destination_cabinet_uid:'b',route_source,route:route ? {points:[p(0),p(120)]} : null});
+  const load=(id,ids,classes,x)=>({id,source:p(x),target:p(x+120),group_uids:ids,cable_classes:classes,cable_count:4,tier:1,edge_type:'PASSAGE'});
+  const review={groups:[group('default','LC','DEFAULT',{}),group('manual','MPO','MANUAL',{}),group('unrouted','CAT6','DEFAULT',null)],loads:[
+    load('shared',['default','manual'],['LC','MPO'],0),load('default-rest',['default'],['LC'],120),load('manual-rest',['manual'],['MPO'],240)]};
+  const props={data:{geometry:{bands:[],cabinet_rows:[]}},view:{cabinets:[],passageX:new Map([['central',10]]),stationY:x=>x},review,scale:1,selectedGroupUid:null,onAttachment:()=>{}};
+  for (const scale of [1,.1]) {
+    const defaults=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,scale,summaryFilter:'DEFAULT'}));
+    assert.match(defaults,/data-cable-class="LC"/); assert.doesNotMatch(defaults,/data-cable-class="MPO"/);
+    assert.match(defaults,/stroke="#4b5057"/);
+    const unrouted=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,scale,summaryFilter:'UNROUTED'}));
+    assert.doesNotMatch(unrouted,/data-cable-class=/); assert.match(unrouted,/stroke="#4b5057"/);
+    const manual=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,scale,summaryFilter:'MANUAL',focusedPairKey:JSON.stringify(['a','b'])}));
+    assert.match(manual,/data-cable-class="MPO"/); assert.doesNotMatch(manual,/data-cable-class="LC"/);
+  }
 });
 
 test("pathway user guide is collapsed without hiding geometry", () => {

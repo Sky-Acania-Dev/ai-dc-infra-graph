@@ -5,9 +5,10 @@ import type { CableReview, ReviewGroup } from "./types";
 import type { ManualRouteEditor } from "./useManualRouteEditor";
 import type { RoutingCableTableRequest } from "./routingCableDetails";
 
-export function RackPairRouteCards({review, groups, focusedKey, onFocus, editor, canManage, onViewCables}: {
+export function RackPairRouteCards({review, groups, focusedKey, onFocus, editor, canManage, onViewCables, summaryFiltered = false}: {
   review: CableReview; groups: ReviewGroup[]; focusedKey: string | null; onFocus: (key: string | null) => void;
   editor?: ManualRouteEditor; canManage: boolean; onViewCables: (request: RoutingCableTableRequest) => void;
+  summaryFiltered?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -32,7 +33,7 @@ export function RackPairRouteCards({review, groups, focusedKey, onFocus, editor,
       const byType = new Map(pair.groups.map(g=>[g.cable_type,g]));
       return <ConnectionCard key={pair.key} className={`route-pair-card ${focused ? "is-focused" : ""} ${chosen.length ? "has-selected-types" : ""}`}
         title={pair.label} metric={<span>{pair.groups.reduce((n,g)=>n+g.count,0).toLocaleString()} cable{pair.groups.reduce((n,g)=>n+g.count,0) === 1 ? "" : "s"}</span>}
-        subtitle={focused ? "Focused routes · all cable types for this rack pair" : "All cable types for this rack pair"}
+        subtitle={`${focused ? "Focused routes · " : ""}${summaryFiltered ? "Matching" : "All"} cable types for this rack pair`}
         onSelect={()=>{onFocus(focused ? null : pair.key); setPage(0);}} selected={focused} selectLabel={`Focus rack pair ${pair.label}`}
         cableTypeCounts={Object.fromEntries(pair.groups.map(g=>[g.cable_type,g.count]))}
         cableTypeControl={controls ? type=>{const g=byType.get(type)!; return <input type="checkbox" className="route-type-toggle" aria-label={`Select ${type} route · ${pair.label}`} checked={editor.selected.includes(g.uid)} disabled={editor.busy}

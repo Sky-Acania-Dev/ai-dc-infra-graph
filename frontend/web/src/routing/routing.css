@@ -107,7 +107,13 @@
 .routing-overview-heading h3 { margin: 0 0 10px; font-size: 16px; }
 .routing-overview-heading > b { font-size: 18px; font-variant-numeric: tabular-nums; }
 .routing-overview-stats { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
-.routing-overview-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 9px; background: #eef6ff; border: 1px solid #aac7e7; border-radius: 4px; color: #254d76; }
+.routing-page .routing-overview-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 9px; background: #eef6ff; border: 1px solid #aac7e7; border-radius: 4px; color: #254d76; text-align: left; cursor: pointer; }
+.routing-page .routing-overview-stat:hover { background: #e0edff; }
+.routing-page .routing-overview-stat[aria-pressed=true] { background: #d5e7ff; border-color: #315e94; box-shadow: inset 0 0 0 1px #315e94; }
+.routing-overview-stat:focus-visible { outline: 2px solid #315e94; outline-offset: 2px; }
+.routing-summary-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 8px 0; padding: 8px; background: #eef6ff; border: 1px solid #aac7e7; border-radius: 4px; color: #254d76; font-size: 12px; line-height: 1.5; }
+.routing-summary-filter > span { flex-basis: 100%; }
+.routing-summary-filter > button { margin-left: auto; }
 .routing-overview-stat > span { font-size: 12px; font-weight: 700; }
 .routing-overview-stat > strong { font-size: 22px; font-variant-numeric: tabular-nums; line-height: 1.2; }
 .routing-overview-stat > small { font-size: 10px; line-height: 1.4; }
