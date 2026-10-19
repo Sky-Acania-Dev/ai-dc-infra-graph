@@ -1,15 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatInches, parseInches, formatMillimeters } from "../src/routing/dimensions.ts";
-import { occupationGrid } from "../src/routing/sectionGrid.ts";
 import { placeRoutingCabinets } from "../src/routing/cabinetPlacement.ts";
 import { conceptualLayout } from "../src/routing/conceptualLayout.ts";
-import { conceptualSegments, annotationFor, styleFixtures, rowName, passageName } from "../src/routing/conceptualSegments.ts";
+import { conceptualSegments, annotationFor, rowName, passageName } from "../src/routing/conceptualSegments.ts";
 import { segmentTierModel } from "../src/routing/segmentTierModel.ts";
 import { sectionDirections, sectionView } from "../src/routing/sectionDirections.ts";
 import { collectPlacementCables, filterCableMembers } from "../src/routing/segmentCableMembers.ts";
 import { projectReviewPoint, reviewConnector, reviewGroupsForPart } from "../src/routing/cableReviewProjection.ts";
-import { cabinetFixtureRun, projectFixtureRun, offsetPolyline } from "../src/routing/cabinetFixtureRun.ts";
 import { loadRoutingCableTable } from "../src/routing/routingCableDetails.ts";
 import { ManualRouteEngine } from "../src/routing/manualRouteEngine.ts";
 import { reviewPairKey, rackPairCards, focusedRouteGroups, routeActionLabel } from "../src/routing/rackPairRoutes.ts";
@@ -79,7 +77,7 @@ test("full inventory hydrates indexed tier paths without fetching individual cab
 
 test("full inventory detail loads exactly the selected actual rack pair and type on demand", async () => {
   const calls=[];
-  const result=await loadRoutingCableTable({source:'801',target:'811',cableType:'LC',inventoryCables:[],fixtureCables:[],wholePair:['rack-801','rack-811']},async(a,b)=>{calls.push([a,b]); return {cables:[{uid:'actual-lc',cable_type:'LC',progress:{ran:'Complete'}},{uid:'actual-cat6',cable_type:'CAT6'}]};});
+  const result=await loadRoutingCableTable({source:'801',target:'811',cableType:'LC',inventoryCables:[],wholePair:['rack-801','rack-811']},async(a,b)=>{calls.push([a,b]); return {cables:[{uid:'actual-lc',cable_type:'LC',progress:{ran:'Complete'}},{uid:'actual-cat6',cable_type:'CAT6'}]};});
   assert.deepEqual(calls,[['rack-801','rack-811']]);
   assert.deepEqual(result.cables.map(c=>c.uid),['actual-lc']);
   assert.deepEqual(result.cables[0].progress,{ran:'Complete'});
@@ -228,7 +226,7 @@ test("local tier-aware A* needs separate adjacent-tier physical openings and add
 test("route cable table loads real detail fields and strictly filters membership and type", async () => {
   const member = (uid, reverse = false) => ({uid, source_cabinet_uid: reverse ? "cab-b" : "cab-a", destination_cabinet_uid: reverse ? "cab-a" : "cab-b"});
   const selected = {uid: "member-1", cable_type: "LC", progress: {pulled: "complete"}, status: "Cable Is Ran: Complete", length_used_meters: 12, group: "Actual group", a_port_uid: "actual-a", z_port_uid: "actual-z"};
-  const request = {source: "801", target: "811", cableType: "LC", inventoryCables: [member("member-1"), member("changed-type", true)], fixtureCables: []};
+  const request = {source: "801", target: "811", cableType: "LC", inventoryCables: [member("member-1"), member("changed-type", true)]};
   const calls = [];
   const response = await loadRoutingCableTable(request, async (a, z) => {
     calls.push([a, z]);
@@ -242,23 +240,13 @@ test("route cable table loads real detail fields and strictly filters membership
 
 test("route cable tables do not truncate large groups and propagate load errors", async () => {
   const inventoryCables = Array.from({length: 288}, (_, n) => ({uid: `mpo-${n}`, source_cabinet_uid: "a", destination_cabinet_uid: "z"}));
-  const request = {source: "801", target: "810", cableType: "MPO", inventoryCables, fixtureCables: []};
+  const request = {source: "801", target: "810", cableType: "MPO", inventoryCables};
   const response = await loadRoutingCableTable(request, async () => ({cables: inventoryCables.map(c => ({uid: c.uid, cable_type: "MPO"}))}));
   assert.equal(response.cables.length, 288);
   await assert.rejects(loadRoutingCableTable(request, async () => {throw new Error("API unavailable");}), /API unavailable/);
   await assert.rejects(loadRoutingCableTable({...request, inventoryCables: [{uid: "missing-cabinet"}]}, async () => {assert.fail("No invented cabinet lookup");}), /Cabinet references are missing/);
 });
 
-test("fixture detail tables never query inventory or invent progress or measured lengths", async () => {
-  const response = await loadRoutingCableTable({source: "021", target: "031", cableType: "LC", inventoryCables: [], fixtureCables: [{id: "fixture-lc", cableClass: "LC", sourceCabinetId: "021", destinationCabinetId: "031"}]}, async () => {assert.fail("Fixtures must not query inventory");});
-  const [cable] = response.cables;
-  assert.equal(cable.uid, "fixture-lc");
-  assert.equal(cable.group, "Display-only fixture");
-  assert.deepEqual(cable.progress, {});
-  assert.equal(cable.current_phase, null);
-  assert.equal(cable.length_meters, null);
-  assert.match(cable.a_port_uid, /Port unassigned/);
-});
 
 test("formats integer inches without feet rounding", () => {
   for (const [value, text] of [[24, `2'-0"`], [34, `2'-10"`], [96, `8'-0"`], [120, `10'-0"`], [264, `22'-0"`], [336, `28'-0"`], [360, `30'-0"`], [788, `65'-8"`]]) {
@@ -424,23 +412,6 @@ test("manual interval endpoints split guides and markings match only their tier 
   assert.equal(annotationFor(data, covered, null), undefined);
   assert.equal(annotationFor(data, segments.find(s => s.start_station_in === 150), 1), undefined);
 });
-test("style fixtures demonstrate all six cable classes and an unusable segment without mutating saved data", () => {
-  const data = segmentFixture();
-  for (let i = 2; i < 7; i++) {
-    const row = { ...data.geometry.cabinet_rows[0], uid: `fixture-row${i}`, section_uid: "s1" };
-    data.geometry.cabinet_rows.push(row);
-    data.geometry.cross_routes.push({ uid: `cold${i}`, kind: "CABINET_COLD_AISLE", cabinet_row_uid: row.uid, station_in: 300 + i * 10, width_in: 24, effective_enabled: true });
-  }
-  data.geometry.cabinet_rows.forEach(row => row.section_uid = "s1");
-  const before = structuredClone(data);
-  const segments = conceptualSegments(data), examples = styleFixtures(data, segments);
-  assert.deepEqual(new Set([...examples.values()].flatMap(s => s.cable_classes)), new Set(["LC", "CAT6", "MPO", "MPO_TRUNK_T2_T1_RO", "CROSS_SECTION_CAT6", "CROSS_SECTION_LC"]));
-  assert.equal([...examples.values()].filter(s => !s.usable).length, 1);
-  assert.ok([...examples.values()].some(s => s.cable_classes.length === 3));
-  assert.deepEqual(styleFixtures(data, segments), examples);
-  assert.deepEqual(data, before);
-  assert.deepEqual(data.segment_annotations, []);
-});
 test("conceptual view retains original cabinet dimensions, adds spacing, and uses a narrower hot gap", () => {
   const data = conceptualFixture();
   const view = conceptualLayout(data, placeRoutingCabinets(data), { cellWidth: 46, cellHeight: 30, hotAisleGap: 10 });
@@ -449,15 +420,6 @@ test("conceptual view retains original cabinet dimensions, adds spacing, and use
   assert.ok(next.x - first.x > first.width);
   assert.equal(view.hotAisles[0].height, 10);
   assert.ok(view.rows.get("b").y - view.rows.get("a").y - first.height < 56);
-});
-test("fixture preview handles layouts with no configured cabinet rows", () => {
-  const data = segmentFixture();
-  data.geometry.cabinet_rows = [];
-  data.cabinet_rows = [];
-  data.geometry.cross_routes = data.geometry.cross_routes.filter(r => r.kind === "SECTION_GAP");
-  const fixtures = styleFixtures(data, conceptualSegments(data));
-  assert.equal(fixtures.size, 2);
-  assert.deepEqual(data.segment_annotations, []);
 });
 
 function cabinetRunFixture() {
@@ -481,55 +443,6 @@ function cabinetRunFixture() {
   data.cabinet_rows = data.geometry.cabinet_rows;
   return data;
 }
-test("021 to 031 review cables use both cold routes and CENTRAL without changing saved data or creating tiers", () => {
-  const data = cabinetRunFixture(), before = structuredClone(data), segments = conceptualSegments(data);
-  const run = cabinetFixtureRun(data, segments);
-  assert.ok(run);
-  assert.equal(run.sourceCabinetUid, "c021");
-  assert.equal(run.destinationCabinetUid, "c031");
-  assert.deepEqual(run.cables.map(c => c.cableClass), ["LC", "MPO", "CAT6"]);
-  assert.equal(new Set(run.cables.map(c => c.id)).size, 3);
-  assert.equal(run.passageBandUid, "central");
-  assert.equal(segments.find(s => s.id === run.segmentIds[0]).cross_route_uid, "route-row21");
-  assert.equal(segments.find(s => s.id === run.segmentIds.at(-1)).cross_route_uid, "route-row31");
-  assert.deepEqual([run.startStation, run.endStation], [372, 540]);
-  assert.deepEqual(data, before);
-  assert.deepEqual(data.segment_annotations, []);
-});
-test("fixture attachments touch cabinet edge centers on their explicit cold sides and preserve the serpentine columns", () => {
-  const data = cabinetRunFixture(), segments = conceptualSegments(data), run = cabinetFixtureRun(data, segments);
-  const view = conceptualLayout(data, placeRoutingCabinets(data)), geometry = projectFixtureRun(data, view, run, segments);
-  const source = view.cabinets.find(t => t.cabinet.cabinet_uid === "c021"), destination = view.cabinets.find(t => t.cabinet.cabinet_uid === "c031");
-  assert.ok(source.x < destination.x);
-  assert.deepEqual(geometry.points[0], { x: source.x + (source.width - 2) / 2, y: source.y });
-  assert.deepEqual(geometry.points.at(-1), { x: destination.x + (destination.width - 2) / 2, y: destination.y + destination.height - 2 });
-  assert.ok(geometry.points[1].y < source.y);
-  assert.ok(geometry.points.at(-2).y > destination.y + destination.height);
-  assert.equal(geometry.parts.filter(p => p.kind === "attachment").length, 2);
-  assert.equal(geometry.points[2].x, view.passageX.get("central"));
-  assert.equal(geometry.points[3].x, view.passageX.get("central"));
-});
-test("parallel fixture lanes keep connected rectilinear corners across the cabinet connectors and shared corridor", () => {
-  const points = [{ x: 0, y: 10 }, { x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 10, y: 20 }, { x: 10, y: 10 }];
-  assert.deepEqual(offsetPolyline(points, 2), [{ x: 2, y: 10 }, { x: 2, y: 2 }, { x: 18, y: 2 }, { x: 18, y: 18 }, { x: 12, y: 18 }, { x: 12, y: 10 }]);
-  for (const offset of [-2, 0, 2]) {
-    const lane = offsetPolyline(points, offset);
-    assert.ok(lane.slice(1).every((p, i) => p.x === lane[i].x || p.y === lane[i].y));
-  }
-  assert.deepEqual(offsetPolyline([points[0], points[0], points[1]], 0), points.slice(0, 2));
-});
-test("endpoint fixtures disappear when a cabinet or its configured cold route is unavailable", () => {
-  const data = cabinetRunFixture();
-  data.cabinets = data.cabinets.filter(c => c.cabinet_uid !== "c031");
-  assert.equal(cabinetFixtureRun(data, conceptualSegments(data)), null);
-  const disabled = cabinetRunFixture();
-  disabled.geometry.cross_routes.find(r => r.uid === "route-row31").effective_enabled = false;
-  assert.equal(cabinetFixtureRun(disabled, conceptualSegments(disabled)), null);
-  const unmapped = cabinetRunFixture();
-  unmapped.cabinets.forEach(c => c.source_col = null);
-  const segments = conceptualSegments(unmapped), run = cabinetFixtureRun(unmapped, segments);
-  assert.equal(projectFixtureRun(unmapped, conceptualLayout(unmapped, placeRoutingCabinets(unmapped)), run, segments), null);
-});
 
 function tierFixture() {
   const data = cabinetRunFixture();
@@ -549,20 +462,7 @@ test("row and passage labels use backend row numbers and station tokens", () => 
   assert.equal(passageName(data, "north-passage", 108, 372), "North R1–3");
   assert.equal(conceptualSegments(data).find(s => s.cross_route_uid === "route-row21").label, "Row 3");
 });
-test("tier section demo positions are explicit, unique, and do not create heights, placements, or openings", () => {
-  const data = tierFixture(), segments = conceptualSegments(data), run = cabinetFixtureRun(data, segments), before = structuredClone(data);
-  const selected = segments.find(s => s.id === run.segmentIds[0]);
-  const model = segmentTierModel(data, selected, run.cables);
-  assert.equal(model.demoMode, true);
-  assert.deepEqual(model.tiers, [1, 2, 3]);
-  assert.equal(model.records.length, 0);
-  assert.equal(model.openings.length, 0);
-  const lc = model.blocks.find(b => b.cable_class === "LC");
-  assert.deepEqual([lc.tier, lc.layer, lc.position, lc.demo], [1, 1, 1, true]);
-  assert.equal(new Set(model.blocks.map(b => `${b.tier}:${b.layer}:${b.position}`)).size, 3);
-  assert.deepEqual(data, before);
-});
-test("saved sectional positions and AFF elevations replace demo placements and filter openings to the selected span", () => {
+test("saved sectional positions and AFF elevations filter openings to the selected span", () => {
   const data = tierFixture(), segments = conceptualSegments(data), selected = segments.find(s => s.passage_band_uid === "central" && s.start_station_in === 372);
   data.passage_tiers = [1, 2, 3].map(tier => ({ uid: `t${tier}`, passage_band_uid: "central", tier, enabled: true, pathway_type: "LADDER_RACK", elevation_in: 96 + tier * 24 }));
   data.segment_annotations = [{ uid: "section", passage_band_uid: "central", start_station_in: 372, end_station_in: 540, tier: null, section_reference: "Inner toward NORTH_FIELD; viewing +X", cable_classes: [], usable: true }];
@@ -573,12 +473,10 @@ test("saved sectional positions and AFF elevations replace demo placements and f
     { uid: "outside", passage_band_uid: "central", station_in: 541, lower_tier: 1, upper_tier: 2, enabled: true },
     { uid: "other", passage_band_uid: "south-passage", station_in: 400, lower_tier: 1, upper_tier: 2, enabled: true },
   ];
-  const model = segmentTierModel(data, selected, [{ id: "fake", cableClass: "MPO" }]);
-  assert.equal(model.demoMode, false);
+  const model = segmentTierModel(data, selected);
   assert.deepEqual(model.openings.map(o => o.uid), ["hole12", "hole23"]);
   assert.deepEqual(model.records.map(t => t.elevation_in), [120, 144, 168]);
   assert.deepEqual([model.blocks[0].tier, model.blocks[0].layer, model.blocks[0].position], [2, 2, 3]);
-  assert.ok(model.blocks.every(b => !b.demo));
 });
 test("cross-route sections show only openings at their passage junctions and keep disabled records distinct", () => {
   const data = tierFixture(), selected = conceptualSegments(data).find(s => s.cross_route_uid === "route-row21");
@@ -601,7 +499,6 @@ test("tier markings show cable types without inventing sectional bundle position
   assert.deepEqual(model.markedClasses[1], ["LC", "MPO"]);
   assert.deepEqual(model.markedClasses[2], []);
   assert.deepEqual(model.blocks, []);
-  assert.equal(model.demoMode, false);
 });
 
 test("metric display converts integer inches exactly and feet/inches remain canonical inches", () => {
@@ -611,36 +508,17 @@ test("metric display converts integer inches exactly and feet/inches remain cano
   assert.throws(() => formatMillimeters(1.5));
 });
 
-test("12 by 8 integer occupation grid repeats one bundle across its multi-cell footprint", () => {
-  const a = {uid: "a", layer: 1, position: 2, slot_width: 3, slot_height: 2};
-  const b = {uid: "b", layer: 4, position: 6, slot_width: 4, slot_height: 2};
-  const {cells, occupants} = occupationGrid(12, 8, [b, a]);
-  assert.equal(cells.length, 8); assert.equal(cells[0].length, 12);
-  assert.deepEqual(cells[0].slice(1, 4), [1, 1, 1]);
-  assert.equal(cells[1][2], 1); assert.equal(cells[3][5], 2);
-  assert.equal(cells.flat().filter(v => v !== 0).length, 14);
-  assert.deepEqual(occupants.map(p => p.uid), ["a", "b"]);
-  assert.deepEqual(cells, occupationGrid(12, 8, [a, b]).cells);
-  assert.throws(() => occupationGrid(12, 8, [a, {...b, layer: 2, position: 3}]), /overlap/);
-  assert.throws(() => occupationGrid(12, 8, [{...a, position: 12}]), /outside/);
-});
-
 test("physical-only rectangles do not manufacture grid slots or modify physical dimensions", () => {
-  const p = {uid: "rect", layer: null, position: null, slot_width: null, slot_height: null, offset_across_in: 2, offset_up_in: 1, occupied_width_in: 6, occupied_height_in: 3};
-  const before = structuredClone(p);
-  assert.ok(occupationGrid(12, 8, [p]).cells.flat().every(v => v === 0));
-  occupationGrid(24, 16, [p]);
-  assert.deepEqual(p, before);
+  const data = tierFixture(), segment = conceptualSegments(data).find(s => s.cross_route_uid === "route-row21");
+  data.segment_annotations = [{...segment, uid:"annotation", tier:null}];
+  data.bundle_placements = [{uid:"rect",segment_annotation_uid:"annotation",tier:1,enabled:true,source_available:true,layer:null,position:null,slot_width:null,slot_height:null,offset_across_in:2,offset_up_in:1,occupied_width_in:6,occupied_height_in:3}];
+  const before = structuredClone(data), model = segmentTierModel(data,segment);
+  assert.equal(model.blocks.length,1);
+  assert.deepEqual([model.blocks[0].layer,model.blocks[0].position,model.blocks[0].slot_width,model.blocks[0].slot_height],[null,null,null,null]);
+  assert.deepEqual([model.blocks[0].offset_across_in,model.blocks[0].offset_up_in,model.blocks[0].occupied_width_in,model.blocks[0].occupied_height_in],[2,1,6,3]);
+  assert.deepEqual(data,before);
 });
 
-test("021 to 031 demonstrations include rectangular and multi-cell occupations without persistence", () => {
-  const data = tierFixture(), segments = conceptualSegments(data), run = cabinetFixtureRun(data, segments), before = structuredClone(data);
-  const model = segmentTierModel(data, segments.find(s => s.id === run.segmentIds[0]), run.cables);
-  const lc = model.blocks.find(b => b.cable_class === "LC");
-  assert.deepEqual([lc.slot_width, lc.slot_height, lc.occupied_width_in, lc.occupied_height_in], [3, 2, 4, 2]);
-  assert.equal(occupationGrid(12, 8, model.blocks.filter(b => b.tier === 1)).cells.flat().filter(v => v > 0).length, 12);
-  assert.deepEqual(data, before);
-});
 
 test("inner faces cabinets/hot aisle; CENTRAL never receives inner/outer labels", () => {
   const data = tierFixture(); data.layout.longitudinal_direction = "EAST";
@@ -659,8 +537,8 @@ test("inner faces cabinets/hot aisle; CENTRAL never receives inner/outer labels"
 
 test("reversing a section swaps cardinal sides and viewing direction without changing occupations", () => {
   const data = tierFixture(); data.layout.longitudinal_direction = "EAST";
-  const segments = conceptualSegments(data), run = cabinetFixtureRun(data, segments);
-  const model = segmentTierModel(data, segments.find(s => s.id === run.segmentIds[0]), run.cables), before = structuredClone(model);
+  const segments = conceptualSegments(data);
+  const model = segmentTierModel(data, segments.find(s => s.cross_route_uid === "route-row21")), before = structuredClone(model);
   const a = sectionView(model.directions, null, false), b = sectionView(model.directions, null, true);
   assert.equal(a.left, b.right); assert.equal(a.right, b.left);
   assert.equal(a.from, b.to); assert.equal(a.to, b.from);
@@ -675,7 +553,6 @@ test("real cable membership deduplicates overlapping placements and filters by r
   assert.deepEqual(filterCableMembers(visible, "group-a", members).map(c => c.id), ["actual-1"]);
   assert.deepEqual(filterCableMembers(visible, "manual-label", members), []);
   assert.equal(filterCableMembers(visible, null, members).length, 2);
-  assert.deepEqual(filterCableMembers([{id: "fake-a"}, {id: "fake-b"}], "demo-a", {}, ["fake-b"]), [{id: "fake-b"}]);
 });
 
 test("actual review projection uses cabinet tile centers and cold faces without changing inches", () => {
@@ -699,4 +576,38 @@ test("actual review filters precise used subsegments and preserves real member r
   assert.deepEqual(reviewGroupsForPart(review, 's1', null, null), [a,b]);
   assert.deepEqual(reviewGroupsForPart(review, null, null, 'c3'), [b]);
   assert.deepEqual(reviewGroupsForPart(review, null, null, null), [a,b]);
+});
+
+test("pathway focus includes whole groups and lets explicit cable, pair and cabinet focus narrow it", () => {
+  const groups = [
+    {uid:'a',source_cabinet_uid:'1',destination_cabinet_uid:'2'},
+    {uid:'b',source_cabinet_uid:'3',destination_cabinet_uid:'4'},
+    {uid:'c',source_cabinet_uid:'1',destination_cabinet_uid:'5'},
+  ];
+  const selected = new Set(['a','b']);
+  assert.deepEqual(focusedRouteGroups(groups,null,null,undefined,selected),groups.slice(0,2));
+  assert.deepEqual(focusedRouteGroups(groups,null,null,undefined,new Set()),[]);
+  assert.deepEqual(focusedRouteGroups(groups,null,null,undefined,null),[]);
+  assert.deepEqual(focusedRouteGroups(groups,'b',reviewPairKey(groups[0]),new Set(['1']),selected),[groups[1]]);
+  assert.deepEqual(focusedRouteGroups(groups,null,reviewPairKey(groups[0]),new Set(['1']),selected),[groups[0]]);
+  assert.deepEqual(focusedRouteGroups(groups,null,null,new Set(['1']),selected),[groups[0],groups[2]]);
+});
+
+test("physical segment and junction scope selects groups across tiers without truncating their routes", () => {
+  const p=(x,tier)=>({x_in:x,y_in:382,tier});
+  const route=(segments,points)=>({segment_ids:segments,points});
+  const groups=[
+    {uid:'a',route:route(['lead','selected','tail'],[p(0,1),p(120,1),p(240,1)])},
+    {uid:'b',route:route(['selected','remote'],[p(120,3),p(360,3)])},
+    {uid:'c',route:route(['other'],[p(480,1),p(600,1)])},
+    {uid:'unrouted',route:null},
+  ];
+  const review={groups,loads:[]}, before=structuredClone(review);
+  for(const selected of [reviewGroupsForPart(review,'selected',null,null),reviewGroupsForPart(review,null,null,null,p(120,2))]) {
+    assert.deepEqual(selected.map(g=>g.uid),['a','b']);
+    assert.equal(selected[0],groups[0]);
+    assert.deepEqual(selected[0].route.segment_ids,['lead','selected','tail']);
+  }
+  assert.deepEqual(reviewGroupsForPart(review,'empty',null,null),[]);
+  assert.deepEqual(review,before);
 });

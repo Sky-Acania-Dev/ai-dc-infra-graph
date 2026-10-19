@@ -10,8 +10,8 @@ export function collectPlacementCables(results: PlacementCables[]) {
   return {cables: [...cables.values()].sort((a, b) => a.uid.localeCompare(b.uid)), members};
 }
 
-export function filterCableMembers<T extends {id: string}>(cables: T[], placementUid: string | null, members: Record<string, string[]>, fixtureIds?: string[]) {
+export function filterCableMembers<T extends {id: string}>(cables: T[], placementUid: string | null, members: Record<string, string[]>) {
   if (!placementUid) return cables;
-  const ids = new Set(fixtureIds ?? members[placementUid] ?? []);
+  const ids = new Set(members[placementUid] ?? []);
   return cables.filter(c => ids.has(c.id));
 }

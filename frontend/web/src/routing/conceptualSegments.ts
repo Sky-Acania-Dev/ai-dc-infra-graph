@@ -1,4 +1,4 @@
-import type { CableClass, GraphEdge, ResolvedLayout, RoutingGraph, SegmentAnnotation, SegmentSpan, Tier } from "./types";
+import type { GraphEdge, ResolvedLayout, RoutingGraph, SegmentAnnotation, SegmentSpan, Tier } from "./types";
 
 export type ConceptualSegment = SegmentSpan & { id: string; label: string; planar_length_in: number; width_in: number };
 const spanDefaults: SegmentSpan = { passage_band_uid: null, cross_route_uid: null, start_station_in: null, end_station_in: null, from_passage_band_uid: null, to_passage_band_uid: null };
@@ -66,24 +66,4 @@ export function edgeSegment(data: ResolvedLayout, graph: RoutingGraph, edge: Gra
     ...(edge.edge_type === "PASSAGE" ? { passage_band_uid: a.passage_band_uid, start_station_in: Math.min(a.station_in, b.station_in), end_station_in: Math.max(a.station_in, b.station_in) }
       : { cross_route_uid: edge.cross_route_uid, from_passage_band_uid: ordered[0].passage_band_uid, to_passage_band_uid: ordered[1].passage_band_uid }),
     planar_length_in: edge.planar_length_in, width_in: edge.width_in! };
-}
-
-// Deliberately fake and local: never sent to a configuration or cable API.
-export function styleFixtures(data: ResolvedLayout, segments: ConceptualSegment[]): Map<string, { cable_classes: CableClass[]; usable: boolean }> {
-  const result = new Map<string, { cable_classes: CableClass[]; usable: boolean }>();
-  const first = data.geometry.sections.find(s => s.ordinal === 1);
-  const rowRoutes = new Set(data.geometry.cabinet_rows.filter(r => r.section_uid === first?.uid).map(r => r.uid));
-  const coldRoutes = new Set(data.geometry.cross_routes.filter(r => rowRoutes.has(r.cabinet_row_uid ?? "")).map(r => r.uid));
-  const station = (s: ConceptualSegment) => data.geometry.cross_routes.find(r => r.uid === s.cross_route_uid)?.station_in ?? 0;
-  const crossings = segments.filter(s => s.cross_route_uid && coldRoutes.has(s.cross_route_uid)).sort((a, b) => station(a) - station(b) || a.label.localeCompare(b.label));
-  const classes: CableClass[] = ["LC", "CAT6", "MPO", "MPO_TRUNK_T2_T1_RO"];
-  // A few individual examples plus one shared corridor demonstrate parallel cable lanes.
-  classes.forEach((c, i) => { if (crossings[i]) result.set(crossings[i].id, { cable_classes: [c], usable: true }); });
-  const central = data.bands.find(b => b.code === "CENTRAL");
-  const shared = crossings.length >= 3 ? segments.find(s => s.passage_band_uid === central?.uid && s.start_station_in! >= station(crossings[0]) && s.end_station_in! <= station(crossings[2])) : undefined;
-  if (shared) result.set(shared.id, { cable_classes: ["LC", "CAT6", "MPO"], usable: true });
-  if (crossings[5]) result.set(crossings[5].id, { cable_classes: [], usable: false });
-  const gap = data.geometry.cross_routes.find(r => r.kind === "SECTION_GAP" && r.section_boundary_after_section_uid === first?.uid);
-  segments.filter(s => s.cross_route_uid === gap?.uid).slice(0, 2).forEach((s, i) => result.set(s.id, { cable_classes: [i ? "CROSS_SECTION_LC" : "CROSS_SECTION_CAT6"], usable: true }));
-  return result;
 }

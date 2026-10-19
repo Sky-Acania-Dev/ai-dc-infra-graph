@@ -4,8 +4,8 @@ import { formatInches } from "./dimensions";
 import { CABLE_STYLES } from "./RouteStroke";
 import type { CableClass, Mutate, ResolvedLayout, Tier } from "./types";
 
-export function SegmentDetails({ data, segment, tier = null, canManage, busy, mutate, fixture }: {
-  data: ResolvedLayout; segment: ConceptualSegment; tier?: Tier | null; canManage: boolean; busy: boolean; mutate: Mutate; fixture?: { cable_classes: CableClass[]; usable: boolean };
+export function SegmentDetails({ data, segment, tier = null, canManage, busy, mutate }: {
+  data: ResolvedLayout; segment: ConceptualSegment; tier?: Tier | null; canManage: boolean; busy: boolean; mutate: Mutate;
 }) {
   const annotation = annotationFor(data, segment, tier) ?? (tier ? annotationFor(data, segment, null) : undefined);
   const scopeTier = annotation ? annotation.tier : tier;
@@ -27,7 +27,6 @@ export function SegmentDetails({ data, segment, tier = null, canManage, busy, mu
       <div><dt>Designed cable types</dt><dd>{annotation?.cable_classes.length ? annotation.cable_classes.map(c => CABLE_STYLES[c].label).join(", ") : "Unassigned"}</dd></div>
       {annotation?.notes && <div><dt>Notes</dt><dd>{annotation.notes}</dd></div>}
     </dl>
-    {fixture && <p className="conceptual-fixture-notice">Display-only fixture: {fixture.usable ? fixture.cable_classes.map(c => CABLE_STYLES[c].label).join(", ") : "Unusable segment"}. Fake cable colors and usability are not saved. Turn fixtures off to see saved markings.</p>}
     {canManage ? <details className="routing-marking-editor"><summary>Edit segment markings</summary><form className="routing-form" onSubmit={async event => {
       event.preventDefault();
       const span = annotation ?? segment;

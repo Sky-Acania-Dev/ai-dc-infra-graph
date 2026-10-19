@@ -16,9 +16,10 @@ export function rackPairCards(scope: ReviewGroup[], all: ReviewGroup[], focusedK
   }
   return [...pairs.values()].sort((a,b)=>Number(b.key === focusedKey)-Number(a.key === focusedKey) || a.label.localeCompare(b.label,undefined,{numeric:true}));
 }
-export function focusedRouteGroups(groups: ReviewGroup[], groupUid: string | null, pairKey: string | null, cabinetUids?: ReadonlySet<string>) {
+export function focusedRouteGroups(groups: ReviewGroup[], groupUid: string | null, pairKey: string | null, cabinetUids?: ReadonlySet<string>, selectionGroupUids?: ReadonlySet<string> | null) {
   return groupUid ? groups.filter(g=>g.uid === groupUid) : pairKey ? groups.filter(g=>reviewPairKey(g) === pairKey)
-    : cabinetUids?.size ? groups.filter(g=>cabinetUids.has(g.source_cabinet_uid) || cabinetUids.has(g.destination_cabinet_uid)) : [];
+    : cabinetUids?.size ? groups.filter(g=>cabinetUids.has(g.source_cabinet_uid) || cabinetUids.has(g.destination_cabinet_uid))
+    : selectionGroupUids != null ? groups.filter(g=>selectionGroupUids.has(g.uid)) : [];
 }
 export function routeActionLabel(groups: ReviewGroup[]) {
   return groups.some(g=>g.route_source === "MANUAL") ? "Change route" : "Set route";

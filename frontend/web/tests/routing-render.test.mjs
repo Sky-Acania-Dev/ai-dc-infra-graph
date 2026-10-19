@@ -69,11 +69,11 @@ test("full inventory rack cards paginate and expose search instead of rendering 
   assert.match(html,/500 rack pairs · page 1 \/ 13/);
   assert.match(html,/Next rack pairs/);
 });
-const box = {uid: "g", tier: 1, label: "G1", cable_class: "LC", sourceAvailable: true, demo: true, layer: 1, position: 1, slot_width: 3, slot_height: 2, offset_across_in: 0, offset_up_in: 0, occupied_width_in: 4, occupied_height_in: 2};
+const box = {uid: "g", tier: 1, label: "G1", cable_class: "LC", sourceAvailable: true, layer: 1, position: 1, slot_width: 3, slot_height: 2, offset_across_in: 0, offset_up_in: 0, occupied_width_in: 4, occupied_height_in: 2};
 const span = {id: "span", passage_band_uid: "north", cross_route_uid: null, start_station_in: 0, end_station_in: 108, from_passage_band_uid: null, to_passage_band_uid: null};
 
 const directions = {inner: "SOUTH", hasInner: true, axisStart: "NORTH"};
-const sectionModel = {blocks: [box], parents: [], occupations: [], demoMode: true, width_in: 34, reference: "Demo only", directions};
+const sectionModel = {blocks: [box], parents: [], occupations: [], width_in: 34, reference: "Saved section", directions};
 
 test("manual editor shows local next choices and disables incomplete batch saves", () => {
   const p = {node_id:'start',x_in:0,y_in:382,tier:1,passage_band_uid:'central',cabinet_uid:'s'};
@@ -127,14 +127,26 @@ test("section display mode renders only the selected representation", () => {
   assert.doesNotMatch(html, /NaN|undefined|null/);
   const physical = renderToStaticMarkup(React.createElement(Section, {...props, mode: "PHYSICAL"}));
   assert.match(physical, /Physical rectangles/);
-  assert.match(physical, /DEMO dimensions/);
+  assert.match(physical, /Section height unknown/);
+  assert.doesNotMatch(physical, /DEMO|Display.only/);
   assert.doesNotMatch(physical, /occupation grid|stroke="#cbd5e1"/);
   assert.match(physical, /Inspect rectangle G1/);
 });
 
+test("section grid displays the saved multi-cell bundle matrix without generating demo placement", () => {
+  const cells=Array.from({length:8},(_,y)=>Array.from({length:12},(_,x)=>y<2 && x<3 ? 1 : 0));
+  const model={...sectionModel,parents:[{uid:'section',tier:null,grid_columns:12,grid_rows:8}],occupations:[{segment_annotation_uid:'section',tier:1,cells,occupants:[{placement_uid:'g',value:1}]}]};
+  const before=structuredClone(model);
+  const html=renderToStaticMarkup(React.createElement(Section,{tier:1,model,mode:'GRID',reversed:false,onSelectPlacement:()=>{}}));
+  assert.equal((html.match(/fill="#246bfe25"/g)??[]).length,6);
+  assert.equal((html.match(/Inspect G1/g)??[]).length,1);
+  assert.doesNotMatch(html,/DEMO|Display.only/);
+  assert.deepEqual(model,before);
+});
+
 test("empty unconfigured segments still show an empty section in both display modes", () => {
   for (const mode of ["GRID", "PHYSICAL"]) {
-    const html = renderToStaticMarkup(React.createElement(Section, {tier: null, model: {...sectionModel, blocks: [], demoMode: false}, mode, reversed: false, onSelectPlacement: () => {}}));
+    const html = renderToStaticMarkup(React.createElement(Section, {tier: null, model: {...sectionModel, blocks: []}, mode, reversed: false, onSelectPlacement: () => {}}));
     assert.match(html, /Unassigned tier section/);
     assert.match(html, /Empty section/);
     assert.match(html, /<svg/);
@@ -163,16 +175,6 @@ test("selected group opens the enlarged section above the main section and expos
   assert.match(html, /Individual cable positions inside the bundle are not yet recorded/);
 });
 
-test("right panel filters fixtures by member ID and shows type count and rack pair", () => {
-  const cables = ["a", "b"].map(id => ({id, cableClass: "LC", sourceCabinetId: "021", destinationCabinetId: "031"}));
-  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables, onViewCables: () => {}, bundleFilter: {uid: "demo-group", label: "Group A", fixtureCableIds: ["a"]}}));
-  assert.match(html, /1 fixture cable in group/);
-  assert.match(html, /<span>LC<\/span><b>1<\/b>/);
-  assert.match(html, /021 ↔ 031/);
-  assert.match(html, /View LC cable details/);
-  assert.doesNotMatch(html, /connection-cable-row/);
-  assert.match(html, /Show all segment cables/);
-});
 
 test("actual review groups show type detail actions and configured endpoint tiers without inline cables", () => {
   const group = {uid: 'g', source_cabinet_id: '001', destination_cabinet_id: '011', cable_type: 'LC-TO-LC SMF', cable_uids: ['actual-1'], count: 1, route: {method: 'ASTAR', planar_length_in: 120}};
@@ -243,7 +245,7 @@ test("selecting cabinets mutes unrelated cable types even on shared route segmen
 
 test("large real cable groups stay summarized until their detail table is requested", () => {
   const cables = Array.from({length: 200}, (_, i) => ({uid: `actual-${i}`, cable_type: 'CAT6a', source_cabinet_id: '001', destination_cabinet_id: '002'}));
-  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables: cables, onViewCables: () => {}}));
+  const html = renderToStaticMarkup(React.createElement(SegmentCables, {inventoryCables: cables, onViewCables: () => {}}));
   assert.match(html, /200 cables/);
   assert.match(html, /View CAT6a cable details/);
   assert.doesNotMatch(html, /connection-cable-row|actual-\d|Show 60 more/);
@@ -255,7 +257,7 @@ test("pathway summaries combine both A/Z directions and defer individual cable l
     {uid: "b", cable_type: "LC", source_cabinet_id: "811", destination_cabinet_id: "801"},
     {uid: "c", cable_type: "CAT6a", source_cabinet_id: "801", destination_cabinet_id: "820"},
   ];
-  const props = {cables: [], inventoryCables, onViewCables: () => {}};
+  const props = {inventoryCables, onViewCables: () => {}};
   const html = renderToStaticMarkup(React.createElement(SegmentCables, props));
   assert.match(html, /3 cables/);
   assert.match(html, /2 rack pairs/);
@@ -270,11 +272,11 @@ test("pathway summaries combine both A/Z directions and defer individual cable l
 
 test("saved bundle membership cannot leak other segment cables into the detail list", () => {
   const inventoryCables = ["included", "excluded"].map(uid => ({uid, cable_type: "LC", source_cabinet_id: "021", destination_cabinet_id: "031"}));
-  const html = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables, members: {bundle: ["included"]}, bundleFilter: {uid: "bundle", label: "Saved bundle"}, onViewCables: () => {}}));
+  const html = renderToStaticMarkup(React.createElement(SegmentCables, {inventoryCables, members: {bundle: ["included"]}, bundleFilter: {uid: "bundle", label: "Saved bundle"}, onViewCables: () => {}}));
   assert.match(html, /1 cable in group/);
   assert.match(html, /View LC cable details/);
   assert.doesNotMatch(html, /excluded|fixture cable/);
-  const empty = renderToStaticMarkup(React.createElement(SegmentCables, {cables: [], inventoryCables, members: {}, bundleFilter: {uid: "missing", label: "Empty bundle"}, onViewCables: () => {}}));
+  const empty = renderToStaticMarkup(React.createElement(SegmentCables, {inventoryCables, members: {}, bundleFilter: {uid: "missing", label: "Empty bundle"}, onViewCables: () => {}}));
   assert.match(empty, /0 cables in group/);
   assert.match(empty, /No actual cable members linked/);
   assert.doesNotMatch(empty, /connection-cable-row/);
@@ -340,4 +342,30 @@ test("measured bottom/top elevation controls respect pathway scope and preserve 
   const unknown = renderToStaticMarkup(React.createElement(TierEditor, {...props, layout: {}, records: [records[0]]}));
   assert.match(unknown, /height unset/);
   assert.doesNotMatch(unknown, /value="0&#x27;-0/);
+});
+
+test("physical pathway focus highlights complete cable routes, both attachments, and only relevant types", () => {
+  const p=(x,tier=2)=>({x_in:x,y_in:382,tier,passage_band_uid:'central',cabinet_uid:null});
+  const group=(uid,cable_class,source,destination,points)=>({uid,cable_class,source_cabinet_uid:source,destination_cabinet_uid:destination,start_tier:2,end_tier:2,route:{points}});
+  const groups=[group('lc','LC','a','b',[p(0),p(120),p(240),p(360)]),group('mpo','MPO','c','d',[p(120),p(480)]),group('cat6','CAT6','e','f',[p(240),p(600)])];
+  const load=(id,ids,classes,a,b)=>({id,source:p(a),target:p(b),group_uids:ids,cable_classes:classes,cable_count:10,tier:2,edge_type:'PASSAGE'});
+  const loads=[load('before',['lc'],['LC'],0,120),load('selected',['lc'],['LC'],120,240),load('after-shared',['lc','cat6'],['LC','CAT6'],240,360),load('junction-other-tier',['mpo'],['MPO'],120,480),load('unrelated',['cat6'],['CAT6'],480,600)];
+  const tiles=groups.flatMap(g=>[g.source_cabinet_uid,g.destination_cabinet_uid]).map((uid,i)=>({cabinet:{cabinet_uid:uid},rowUid:'row',x:20+i*40,y:0,width:30,height:20}));
+  const props={data:{geometry:{bands:[],cabinet_rows:[{uid:'row',position_in_pair:'A'}]},cabinets:tiles.map(t=>({...t.cabinet,cabinet_id:t.cabinet.cabinet_uid}))},view:{cabinets:tiles,passageX:new Map([['central',10]]),stationY:x=>x},review:{groups,loads},scale:1,selectedGroupUid:null,onAttachment:()=>{}};
+  const render=selectionGroupUids=>renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,selectionGroupUids}));
+  const segment=render(new Set(['lc']));
+  // Three disjoint spans of the complete LC route, plus both cabinet takeoffs, remain colored.
+  assert.equal((segment.match(/data-cable-class="LC"/g)??[]).length,5);
+  assert.doesNotMatch(segment,/data-cable-class="CAT6"|data-cable-class="MPO"/);
+  assert.equal((segment.match(/data-route-muted="true"/g)??[]).length,6);
+  const junction=render(new Set(['lc','mpo']));
+  assert.equal((junction.match(/data-cable-class="LC"/g)??[]).length,5);
+  assert.equal((junction.match(/data-cable-class="MPO"/g)??[]).length,3);
+  assert.doesNotMatch(junction,/data-cable-class="CAT6"/);
+  const empty=render(new Set());
+  assert.doesNotMatch(empty,/data-cable-class=/);
+  assert.equal((empty.match(/data-route-muted="true"/g)??[]).length,11);
+  const cleared=render(null);
+  assert.doesNotMatch(cleared,/data-route-muted=/);
+  assert.match(cleared,/data-cable-class="CAT6"/);
 });

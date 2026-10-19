@@ -21,7 +21,7 @@ export function RackPairRouteCards({review, groups, focusedKey, onFocus, editor,
     <p className="routing-notice">Click a rack pair to focus its routes. Select cable types on the card to set or change their route.</p>
     <label className="route-pair-search">Find rack pair or cable type<input aria-label="Find rack pair or cable type" type="search" placeholder="801 811, LC, CAT6…" value={search} onChange={event=>{setSearch(event.target.value); setPage(0);}} /></label>
     <div className="route-pair-pagination"><span>{filtered.length.toLocaleString()} rack pairs · page {currentPage + 1} / {pageCount}</span><button aria-label="Previous rack pairs" disabled={!currentPage} onClick={()=>setPage(currentPage-1)}>Previous</button><button aria-label="Next rack pairs" disabled={currentPage + 1 >= pageCount} onClick={()=>setPage(currentPage+1)}>Next</button></div>
-    {focusedKey && <button className="route-clear-focus" onClick={()=>onFocus(null)}>Show all routes</button>}
+    {focusedKey && <button className="route-clear-focus" onClick={()=>onFocus(null)}>Clear rack-pair focus</button>}
     {canManage && pairCount > 1 && <div className="route-selection-bar"><b>{selected.length} types across {pairCount} rack pairs</b>
       <button disabled={editor?.busy} onClick={()=>editor?.begin()}>{routeActionLabel(selected)} for all selected types</button>
       <button disabled={editor?.busy} onClick={editor?.clearSelected}>Clear selection</button></div>}
@@ -40,7 +40,7 @@ export function RackPairRouteCards({review, groups, focusedKey, onFocus, editor,
         cableTypeLabel={type=><>{type}<small className={byType.get(type)!.manual_status === "INVALID" ? "routing-error" : ""}>{groupRouteSummary(byType.get(type)!)}</small>{byType.get(type)!.reason && <small className="routing-error">{byType.get(type)!.reason}</small>}{byType.get(type)!.occupation_hint && <small>Outer passage: INNER placement intent · footprint unassigned</small>}</>}
         onViewCableType={type=>{
           const group=byType.get(type)!, ids=new Set(group.cable_uids);
-          onViewCables({source:group.source_cabinet_id,target:group.destination_cabinet_id,cableType:type,inventoryCables:review.cables.filter(c=>ids.has(c.uid)),fixtureCables:[], groupUid: group.uid,
+          onViewCables({source:group.source_cabinet_id,target:group.destination_cabinet_id,cableType:type,inventoryCables:review.cables.filter(c=>ids.has(c.uid)),groupUid: group.uid,
             wholePair: review.scope === "hall" ? [group.source_cabinet_uid, group.destination_cabinet_uid] : undefined});
         }}
         actions={canManage && chosen.length > 0 && editor && <div className="route-card-actions"><span>{chosen.length} type{chosen.length === 1 ? "" : "s"} selected</span>

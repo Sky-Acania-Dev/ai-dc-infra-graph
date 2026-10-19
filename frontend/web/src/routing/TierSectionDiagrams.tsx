@@ -11,7 +11,6 @@ export function TierSectionDiagrams({ data, model, onSelectPlacement, selectedPl
   const parent = model.parents.find(p => p.tier === selected?.tier) ?? model.parents.find(p => p.tier == null);
   const view = sectionView(model.directions, parent?.section_inner_direction, reversed);
   return <section className="tier-sections" aria-label="Tier and bundle section diagrams">
-    {model.demoMode && <p className="tier-demo-banner">DEMO placements · Display only. Unset heights remain unknown; openings come from saved records.</p>}
     <h4>Tier diagram</h4>
     {model.measuredBottom != null && <p className="routing-notice">Measured basket bottom: {formatInches(model.measuredBottom)} AFF.{model.measuredTop != null && <> NORTH/SOUTH top: {formatInches(model.measuredTop)} AFF; designate its confirmed T2 or T3 in configuration.</>}</p>}
     {!model.tiers.length ? <p className="routing-notice">No tiers configured for this pathway. Empty section shown without a tier assignment.</p> : <svg viewBox="0 0 290 145" role="img" aria-label="Tier diagram, logical layers with explicit physical openings only" className="tier-stack-svg">

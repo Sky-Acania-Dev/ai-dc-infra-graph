@@ -3,8 +3,7 @@ import { RoutingDetails } from "./RoutingDetails";
 import { SegmentDetails } from "./SegmentDetails";
 import { conceptualSegments, rowName, annotationFor, type ConceptualSegment } from "./conceptualSegments";
 import { formatInches } from "./dimensions";
-import type { CableClass, GraphEdge, Mutate, ResolvedLayout, RoutingGraph, Selection, ReviewLoad } from "./types";
-import type { FixtureCable } from "./cabinetFixtureRun";
+import type { GraphEdge, Mutate, ResolvedLayout, RoutingGraph, Selection, ReviewLoad } from "./types";
 import { segmentTierModel } from "./segmentTierModel";
 import { TierSectionDiagrams } from "./TierSectionDiagrams";
 import { TierEditor } from "./TierEditor";
@@ -13,11 +12,10 @@ import { occupationLabel } from "./occupation";
 import type { SectionDisplayMode } from "./SectionOccupationDiagram";
 import { directionName } from "./sectionDirections";
 
-export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, fixture, canManage, busy, mutate, onSelect, onOpenRouting, demoCables = [], selectedPlacementUid, onSelectPlacement, reviewGroupCount = 0, reviewLoads = [] }: {
+export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, canManage, busy, mutate, onSelect, onOpenRouting, selectedPlacementUid, onSelectPlacement, reviewGroupCount = 0, reviewLoads = [] }: {
   data: ResolvedLayout; graph: RoutingGraph; selection: Selection; segment: ConceptualSegment | null | undefined; selectedEdge?: GraphEdge;
-  attachmentUid: string | null; fixture?: { cable_classes: CableClass[]; usable: boolean }; canManage: boolean; busy: boolean;
+  attachmentUid: string | null; canManage: boolean; busy: boolean;
   mutate: Mutate; onSelect: (selection: Selection) => void; onOpenRouting: () => void;
-  demoCables?: FixtureCable[];
   selectedPlacementUid: string | null; onSelectPlacement: (uid: string | null) => void;
   reviewGroupCount?: number;
   reviewLoads?: ReviewLoad[];
@@ -41,10 +39,10 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
     ?? pointSegment;
   const model = useMemo(() => {
     if (!active) return null;
-    const result = segmentTierModel(data, active, demoCables);
+    const result = segmentTierModel(data, active);
     for (const load of reviewLoads) if (load.segment_id === active.id && load.tier) result.markedClasses[load.tier] = [...new Set([...(result.markedClasses[load.tier] ?? []), ...load.cable_classes])];
     return result;
-  }, [data, active?.id, demoCables, reviewLoads]);
+  }, [data, active?.id, reviewLoads]);
   const [selectedBlockUid, setSelectedBlockUid] = useState<string | null>(null);
   const [sectionMode, setSectionMode] = useState<SectionDisplayMode>("GRID");
   const [reversed, setReversed] = useState(false);
@@ -65,7 +63,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
         {field("Elevation AFF", model.records.length ? model.records.map(t => `T${t.tier}: ${(t.effective_elevation_in ?? t.elevation_in) == null ? "?" : formatInches((t.effective_elevation_in ?? t.elevation_in)!)}`).join(" · ") : data.layout.bottom_basket_elevation_in != null ? `Basket bottom ${formatInches(data.layout.bottom_basket_elevation_in)} · tiers unconfigured` : "Unknown · tiers unconfigured")}
         {field("Pathway types", model.records.length ? model.records.map(t => `T${t.tier} ${t.pathway_type === "LADDER_RACK" ? "Ladder" : "Basket"}${!t.enabled ? " (off)" : ""}`).join(" · ") : "Unconfigured")}
         {field("Marking / usability", `${marking ? "Manual" : "Unassigned"} · ${marking?.usable === false ? "Unusable" : "Usable"}`)}
-        {field("Bundles / openings", `${model.blocks.length}${model.demoMode ? " demo" : " saved"} / ${model.openings.filter(o => o.enabled).length} configured`)}
+        {field("Bundles / openings", `${model.blocks.length} saved / ${model.openings.filter(o => o.enabled).length} configured`)}
         {field("Section reference", model.reference ?? (!model.directions.hasInner ? "North / South · no inner side" : model.directions.inner ? `Inner ${directionName(model.directions.inner)} · toward cabinets` : "Inner side unassigned"))}
         {field("Notes / hall", attachmentUid ? "Schematic connector; no measured drop dimensions" : opening?.notes ?? marking?.notes ?? `${data.geometry.sections.length} sections · ${data.geometry.gaps.length} gaps · ${formatInches(data.geometry.total_width_in)} wide`)}
       </dl>
@@ -78,7 +76,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
         <BundleSectionEditor key={placement?.uid ?? active.id} data={data} segment={active} placement={placement} mutate={mutate} busy={busy} />
         </>}
       </details>}
-      <details className="section-configuration"><summary>Segment markings / references</summary><SegmentDetails key={`${active.id}:${data.segment_annotations.map(a => a.updated_at).join()}`} data={data} segment={active} tier={selectedEdge?.tier ?? null} fixture={fixture} canManage={canManage} busy={busy} mutate={mutate} /></details>
+      <details className="section-configuration"><summary>Segment markings / references</summary><SegmentDetails key={`${active.id}:${data.segment_annotations.map(a => a.updated_at).join()}`} data={data} segment={active} tier={selectedEdge?.tier ?? null} canManage={canManage} busy={busy} mutate={mutate} /></details>
       <button className="compact-geometric-link" onClick={onOpenRouting}>Open geometric routing view</button>
     </> : <>
     {attachmentUid ? <>
@@ -91,7 +89,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
       {segment ? <>
         {section && <p className="routing-selection-section">{section.name} · {section.data_hall_id}</p>}
         <SegmentDetails key={`${segment.id}:${selectedEdge?.tier}:${data.segment_annotations.map(a => a.updated_at ?? a.uid).join()}`} data={data} segment={segment}
-          tier={selectedEdge?.tier ?? null} fixture={fixture} canManage={canManage} busy={busy} mutate={mutate} />
+          tier={selectedEdge?.tier ?? null} canManage={canManage} busy={busy} mutate={mutate} />
       </> : <RoutingDetails data={data} graph={graph} selection={selection} onSelect={onSelect} canManage={false} busy={busy} mutate={mutate} />}
     </>}
     <details className="routing-geometry-summary" open>

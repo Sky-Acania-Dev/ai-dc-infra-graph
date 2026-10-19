@@ -5,14 +5,16 @@ import { focusedRouteGroups } from "./rackPairRoutes";
 import type { ConceptualLayout } from "./conceptualLayout";
 import type { CableClass, CableReview, ResolvedLayout, ReviewGroup, Tier } from "./types";
 
-export function CableReviewLayer({data, view, review, scale, selectedGroupUid, selectedSegmentId = null, onAttachment, tiers, focusedPairKey = null, viewport, selectedCabinetUids}: {
+export function CableReviewLayer({data, view, review, scale, selectedGroupUid, selectedSegmentId = null, onAttachment, tiers, focusedPairKey = null, viewport, selectedCabinetUids, selectionGroupUids = null}: {
   data: ResolvedLayout; view: ConceptualLayout; review: CableReview; scale: number; selectedGroupUid: string | null; selectedSegmentId?: string | null;
   onAttachment: (uid: string) => void;
   tiers?: Set<Tier>; focusedPairKey?: string | null; viewport?: Viewport;
   selectedCabinetUids?: ReadonlySet<string>;
+  selectionGroupUids?: ReadonlySet<string> | null;
 }) {
-  const focused = focusedRouteGroups(review.groups, selectedGroupUid, focusedPairKey, selectedCabinetUids);
-  const hasFocus = Boolean(selectedGroupUid || focusedPairKey || selectedCabinetUids?.size);
+  const focused = focusedRouteGroups(review.groups, selectedGroupUid, focusedPairKey, selectedCabinetUids, selectionGroupUids);
+  // An empty set means a selected pathway has no cables; null means no pathway focus.
+  const hasFocus = Boolean(selectedGroupUid || focusedPairKey || selectedCabinetUids?.size || selectionGroupUids != null);
   const focusedUids = new Set(focused.map(g=>g.uid));
   const groupsByUid = useMemo(()=>new Map(review.groups.map(g=>[g.uid,g])),[review.groups]);
   const attachmentGroups = useMemo(()=>{

@@ -14,7 +14,7 @@ export function SectionBundleDetail({block, mode, onClose}: {block: SectionBlock
   const color = block.cable_class ? CABLE_STYLES[block.cable_class].color : "#64748b";
   return <section ref={detail} className="section-bundle-detail" aria-label="Enlarged bundle section">
     <div><h4>Bundle detail</h4><button onClick={onClose} aria-label="Close bundle detail">×</button></div>
-    <b>{block.label}</b><small>{block.demo ? "DEMO · " : ""}T{block.tier} · {occupationLabel(block)}</small>
+    <b>{block.label}</b><small>T{block.tier} · {occupationLabel(block)}</small>
     {width && height ? <svg viewBox="0 0 270 160" role="img" aria-label={`Enlarged ${block.label} footprint`}>
       <rect x={(270 - width * scale) / 2} y={22} width={width * scale} height={height * scale} fill={`${color}20`} stroke={color} strokeWidth={2} />
       <text x={135} y={22 + height * scale / 2 + 4} fontSize={12} textAnchor="middle">{block.cable_class ?? "Bundle"}</text>

@@ -8,27 +8,21 @@ import { formatInches } from "./dimensions";
 import { ConceptualGraph } from "./ConceptualGraph";
 import { conceptualLayout } from "./conceptualLayout";
 import { useSchematicView } from "./useSchematicView";
-import { projectFixtureRun, type CabinetFixtureRun, type FixtureRunPart } from "./cabinetFixtureRun";
-import { CabinetFixtureLayer } from "./CabinetFixtureLayer";
 import { CableReviewLayer } from "./CableReviewLayer";
 import { ManualRouteLayer } from "./ManualRouteLayer";
 import { projectReviewPoint, reviewConnector, visibleLine } from "./cableReviewProjection";
 import { focusedRouteGroups } from "./rackPairRoutes";
-import type { CableClass, CableReview, ResolvedLayout, RoutingGraph, Selection, Tier, ManualPreview, PlanningSegment } from "./types";
+import type { CableReview, ResolvedLayout, RoutingGraph, Selection, Tier, ManualPreview, PlanningSegment } from "./types";
 
 type Props = { data: ResolvedLayout; graph: RoutingGraph; tiers: Set<Tier>; selection: Selection; onSelect: (s: Selection) => void; initialSectionUid: string; cabinetInteraction: CabinetInteraction;
   settings: CabinetGraphicSettings & { hotAisleGap: number }; renderCabinets: (tiles: CabinetTile[]) => ReactNode;
   segments: ConceptualSegment[]; selectedSegmentId: string | null; onSelectSegment: (id: string) => void;
-  fixtures: Map<string, { cable_classes: CableClass[]; usable: boolean }>;
-  cabinetRun: CabinetFixtureRun | null; selectedAttachmentUid: string | null; selectedFixtureCableId: string | null;
-  onSelectRunPart: (part: FixtureRunPart) => void;
-  review?: CableReview | null; selectedReviewGroupUid?: string | null; focusedReviewPairKey?: string | null;
+  review?: CableReview | null; selectedReviewGroupUid?: string | null; focusedReviewPairKey?: string | null; selectionGroupUids?: ReadonlySet<string> | null;
   onReviewAttachment?: (uid: string) => void;
   manual?: {preview: ManualPreview | null; segments: PlanningSegment[]; append: (ids: string[]) => void; chooseSegments: (ids: string[]) => void; disabled: boolean} | null;
 };
-export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, fixtures, cabinetRun, selectedAttachmentUid, selectedFixtureCableId, onSelectRunPart, review, selectedReviewGroupUid = null, focusedReviewPairKey = null, onReviewAttachment, manual }: Props) {
+export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, initialSectionUid, cabinetInteraction, settings, renderCabinets, segments, selectedSegmentId, onSelectSegment, review, selectedReviewGroupUid = null, focusedReviewPairKey = null, selectionGroupUids = null, onReviewAttachment, manual }: Props) {
   const display = useMemo(() => conceptualLayout(data, placeRoutingCabinets(data), settings), [data, settings]);
-  const fixtureGeometry = useMemo(() => cabinetRun ? projectFixtureRun(data, display, cabinetRun, segments) : null, [data, display, cabinetRun, segments]);
   // The view controller operates in SVG display units, not model inches.
   const v = useSchematicView(display.height, display.width, "cabinet-map");
   const [focusUid, setFocusUid] = useState(initialSectionUid);
@@ -41,8 +35,8 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
   const selected = (kind: string, uid: string) => selection?.kind === kind && selection.uid === uid;
   const crossStart = display.passages[0]?.x ?? 0, crossEnd = display.passages.at(-1)?.x ?? 0;
   const cabinetFocus = cabinetInteraction.selected.size > 0;
-  const muteCableMarkings = cabinetFocus || Boolean(selectedReviewGroupUid || focusedReviewPairKey);
-  const reviewGroups = useMemo(()=>focusedRouteGroups(review?.groups ?? [], selectedReviewGroupUid, focusedReviewPairKey, cabinetInteraction.selected),[review?.groups, selectedReviewGroupUid, focusedReviewPairKey, cabinetInteraction.selected]);
+  const muteCableMarkings = cabinetFocus || Boolean(selectedReviewGroupUid || focusedReviewPairKey || selectionGroupUids != null);
+  const reviewGroups = useMemo(()=>focusedRouteGroups(review?.groups ?? [], selectedReviewGroupUid, focusedReviewPairKey, cabinetInteraction.selected, selectionGroupUids),[review?.groups, selectedReviewGroupUid, focusedReviewPairKey, cabinetInteraction.selected, selectionGroupUids]);
   const reviewPoints = useMemo(()=>{
     const points = new Map<string,{x:number;y:number}>();
     const add = (p: {x:number;y:number})=>points.set(`${p.x}:${p.y}`,p);
@@ -58,11 +52,11 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
       <button onClick={() => { setFocusUid(""); v.fit(); }}>Fit / reset view</button>
       <select aria-label="Focus section" value={focusUid} onChange={event => setFocusUid(event.target.value)}><option value="">All sections</option>{display.sections.map(s => <option key={s.uid} value={s.uid}>{s.name}</option>)}</select>
       <button disabled={!selectedCabinet} onClick={() => { if (selectedCabinet) v.focusSection(Math.max(0, selectedCabinet.y - 100), selectedCabinet.y + 300); }}>Focus selected cabinet</button>
-      {fixtureGeometry && <button onClick={() => v.focusBounds(fixtureGeometry.points, 100)}>Focus 021 → 031</button>}
       {review && <button onClick={() => v.focusBounds(display.cabinets.filter(c => review.cabinet_uids.includes(c.cabinet.cabinet_uid)).flatMap(c => [{x:c.x,y:c.y-25}, {x:c.x+c.width,y:c.y+c.height+25}]), 55)}>Focus actual cable rows</button>}
-      {reviewPoints.length > 0 && <button onClick={() => v.focusBounds(reviewPoints, 65)}>{cabinetFocus ? "Focus selected cabinet connections" : focusedReviewPairKey ? "Focus rack pair" : "Focus cable group"}</button>}
+      {reviewPoints.length > 0 && <button onClick={() => v.focusBounds(reviewPoints, 65)}>{cabinetFocus ? "Focus selected cabinet connections" : focusedReviewPairKey ? "Focus rack pair" : selectedReviewGroupUid ? "Focus cable group" : "Focus selected routes"}</button>}
       {manual?.preview && <button onClick={() => v.focusBounds([...manual.preview!.prefix.points, ...(manual.preview!.suggestion?.points ?? []), manual.preview!.destination].flatMap(p => {const point = projectReviewPoint(data, display, p); return point ? [point] : [];}), 80)}>Focus manual draft</button>}
       <span>Conceptual · Not to scale · Drag blank space to pan</span>
+      {!cabinetFocus && !selectedReviewGroupUid && !focusedReviewPairKey && selectionGroupUids != null && <span className="cabinet-route-focus" role="status">{reviewGroups.length ? `${reviewGroups.length.toLocaleString()} cable groups passing through selection · complete routes in color` : "No routed cables pass through this selection"}</span>}
       {cabinetFocus && <span className="cabinet-route-focus" role="status">{cabinetInteraction.selected.size} selected cabinet{cabinetInteraction.selected.size === 1 ? "" : "s"} · connected cables in color</span>}
     </div>
     <svg ref={v.svgRef} className="routing-svg conceptual-svg" viewBox={`${v.view.x} ${v.view.y} ${v.view.w} ${v.view.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="Conceptual cabinet and pathway map, not to scale: SOUTH left, CENTRAL middle, NORTH right"
@@ -90,19 +84,17 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
         const a = { x: display.passageX.get(passage ?? segment.from_passage_band_uid!) ?? 0, y: display.stationY(passage ? segment.start_station_in! : station) };
         const b = { x: display.passageX.get(passage ?? segment.to_passage_band_uid!) ?? 0, y: display.stationY(passage ? segment.end_station_in! : station) };
         if (!visibleLine(a,b,v.view)) return null;
-        const marking = fixtures.get(segment.id) ?? annotationFor(data, segment, null);
+        const marking = annotationFor(data, segment, null);
         const hit = Math.max(4,12*routeDetailScale(v.scale))/v.scale;
-        return <g key={segment.id} data-selectable="true" role="button" tabIndex={0} aria-label={`Select segment ${segment.label}`} data-fixture={fixtures.has(segment.id) || undefined}
+        return <g key={segment.id} data-selectable="true" role="button" tabIndex={0} aria-label={`Select segment ${segment.label}`}
           onClick={event => { event.stopPropagation(); onSelectSegment(segment.id); }} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectSegment(segment.id); } }}>
           <rect x={Math.min(a.x,b.x)-hit} y={Math.min(a.y,b.y)-hit} width={Math.abs(a.x-b.x)+2*hit} height={Math.abs(a.y-b.y)+2*hit} fill="transparent" />
           <RouteStroke a={a} b={b} scale={v.scale} usable={marking?.usable} cableClasses={muteCableMarkings ? [] : marking?.cable_classes} selected={selectedSegmentId === segment.id} />
-          <title>{`${segment.label}\nPlanar pathway length ${formatInches(segment.planar_length_in)} · Width ${formatInches(segment.width_in)}${fixtures.has(segment.id) ? "\nFake style fixture — display only" : ""}`}</title>
+          <title>{`${segment.label}\nPlanar pathway length ${formatInches(segment.planar_length_in)} · Width ${formatInches(segment.width_in)}`}</title>
         </g>;
       })}
       <ConceptualGraph data={data} graph={graph} view={display} scale={v.scale} tiers={tiers} selection={selection} onSelect={onSelect} viewport={v.view} muteCableMarkings={muteCableMarkings} />
-      {cabinetRun && fixtureGeometry && <CabinetFixtureLayer run={cabinetRun} geometry={fixtureGeometry} scale={v.scale}
-        selectedPartId={selectedAttachmentUid ?? selectedSegmentId} selectedCableId={selectedFixtureCableId} onSelect={onSelectRunPart} selectedCabinetUids={cabinetInteraction.selected} />}
-      {!manual && review && onReviewAttachment && <CableReviewLayer data={data} view={display} review={review} scale={v.scale} tiers={tiers} selectedGroupUid={selectedReviewGroupUid} selectedSegmentId={selectedSegmentId} focusedPairKey={focusedReviewPairKey} selectedCabinetUids={cabinetInteraction.selected} onAttachment={onReviewAttachment} viewport={v.view} />}
+      {!manual && review && onReviewAttachment && <CableReviewLayer data={data} view={display} review={review} scale={v.scale} tiers={tiers} selectedGroupUid={selectedReviewGroupUid} selectedSegmentId={selectedSegmentId} focusedPairKey={focusedReviewPairKey} selectedCabinetUids={cabinetInteraction.selected} selectionGroupUids={selectionGroupUids} onAttachment={onReviewAttachment} viewport={v.view} />}
       {/* Cabinet graphics own their interiors; padded pathway targets stay underneath. */}
       <g className="conceptual-cabinet-foreground" pointerEvents={manual ? "none" : undefined} onKeyDownCapture={event => {if (manual) {event.preventDefault(); event.stopPropagation();}}}>{renderCabinets(display.cabinets.filter(c=>visibleLine(c,{x:c.x+c.width,y:c.y+c.height},v.view)))}</g>
       {manual && <ManualRouteLayer data={data} view={display} segments={manual.segments} preview={manual.preview} scale={v.scale} onAppend={manual.append} onSegments={manual.chooseSegments} disabled={manual.disabled} tiers={tiers} viewport={v.view} />}

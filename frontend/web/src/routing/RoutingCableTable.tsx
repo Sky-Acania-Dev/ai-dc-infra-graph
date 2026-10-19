@@ -29,6 +29,6 @@ export function RoutingCableTable({request, selectedCableId, onSelect, onClose}:
     onClose={onClose} onSelectCable={cable => {const uid = cable.uid === selectedCableId ? null : cable.uid; setSelectedUids(uid ? [uid] : []); onSelect(uid);}}
     onSelectCableRange={(uids, uid) => {setSelectedUids(uids); onSelect(uid);}}
     onSetCableSelection={(uids, uid) => {setSelectedUids(uids); onSelect(uid);}} onCableUpdated={() => {}}
-    selectorLabel={request.fixtureCables.length ? "Display-only fixture cables" : "Inventory cables on the selected pathway"}
+    selectorLabel={"Inventory cables on the selected pathway"}
     selectorMessage={error || null} />;
 }

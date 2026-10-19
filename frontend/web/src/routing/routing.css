@@ -47,8 +47,7 @@
 .conceptual-route-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .conceptual-route-legend i { width: 22px; border-top: 3px solid; }
 .conceptual-route-legend i.cable { border-top-width: 5px; }
-.conceptual-fixture-toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; }
-.conceptual-fixture-notice { padding: 8px 10px; margin: 6px 0; background: #fff7df; border: 1px solid #ead7a4; border-radius: 4px; color: #735416; font-size: 11px; }
+.routing-cable-toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; }
 .routing-form fieldset { display: grid; gap: 7px; border: 1px solid #d6e0eb; border-radius: 4px; }
 .routing-integrated-details { margin-top: 12px; max-height: none; }
 .routing-right-slot { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -65,7 +64,6 @@
 .routing-pathway-inspector .routing-generic-info { margin: 5px 0 10px; }
 .routing-pathway-inspector .routing-generic-info > div { grid-template-columns: 108px minmax(0,1fr); padding: 2px 0; line-height: 17px; gap: 4px; font-size: 10px; }
 .routing-generic-info dt, .routing-generic-info dd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tier-demo-banner { margin: 6px 0; padding: 6px; background: #fff7df; color: #735416; border: 1px dashed #cfb571; font-size: 10px; line-height: 1.4; }
 .tier-sections h4 { margin: 10px 0 5px; }
 .tier-stack-svg { width: 100%; max-height: 145px; display: block; background: #fafcfe; border: 1px solid #e2e8f0; }
 .segment-opening-list { color: #64748b; font-size: 10px; padding: 5px 0; line-height: 1.5; }

@@ -25,7 +25,7 @@ export function BundleSectionEditor({ data, segment, mutate, busy, placement }: 
     end_station_in: segment.end_station_in, from_passage_band_uid: segment.from_passage_band_uid, to_passage_band_uid: segment.to_passage_band_uid };
   return <div className="bundle-section-editor">
     <label>Tier<select value={tier} disabled={busy || Boolean(placement)} onChange={e => setTier(Number(e.target.value) as Tier)}>{tiers.map(t => <option key={t.uid} value={t.tier}>T{t.tier}</option>)}</select></label>
-    {!tiers.length && <p className="routing-notice">Configure a confirmed pathway tier first. Demo tiers are never saved automatically.</p>}
+    {!tiers.length && <p className="routing-notice">Configure a confirmed pathway tier first.</p>}
     <SectionSettings key={`${parent?.uid}:${parent?.updated_at}`} parent={parent} passage={Boolean(segment.passage_band_uid)} central={central} disabled={busy || !tiers.length || Boolean(segment.passage_band_uid && segment.start_station_in === segment.end_station_in)} onSave={values => mutate("segment-annotations", { ...(parent ? {} : {...span, tier}), ...values }, parent?.uid)} />
     {parent && <>
       <form className="routing-form" onSubmit={async e => {
