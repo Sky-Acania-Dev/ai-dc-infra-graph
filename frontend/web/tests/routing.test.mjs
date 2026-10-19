@@ -17,6 +17,26 @@ import {physicalJunctions,physicalPlanningTargets} from "../src/routing/physical
 import {filterSummaryGroups} from "../src/routing/routingSummaryFilter.ts";
 import {sectionGroupCounts} from "../src/routing/sectionGroupCounts.ts";
 
+test("legend filters isolate disjoint cable colors and intersect status, pair, cabinet and pathway filters", () => {
+  const base={source_cabinet_uid:'a',destination_cabinet_uid:'b',source_cabinet_id:'801',destination_cabinet_id:'811'};
+  const group=(uid,cable_class,route_source='DEFAULT',route={})=>({...base,uid,cable_class,route_source,route});
+  const groups=[group('lc','LC'),group('cross-lc','CROSS_SECTION_LC'),group('mpo','MPO','MANUAL'),group('trunk','MPO_TRUNK_T2_T1_RO'),group('unrouted-lc','LC','DEFAULT',null),group('other',null)];
+  const snapshot=structuredClone(groups),ids=groups=>groups.map(g=>g.uid);
+  assert.deepEqual(ids(filterSummaryGroups(groups,null,'LC')),['lc','unrouted-lc']);
+  assert.deepEqual(ids(filterSummaryGroups(groups,'ROUTED','LC')),['lc']);
+  assert.deepEqual(ids(filterSummaryGroups(groups,'UNROUTED','LC')),['unrouted-lc']);
+  assert.deepEqual(ids(filterSummaryGroups(groups,null,'MPO')),['mpo']);
+  assert.deepEqual(ids(filterSummaryGroups(groups,null,'OTHER')),['other']);
+  assert.deepEqual(ids(focusedRouteGroups(groups,null,null,undefined,null,null,'LC')),['lc','unrouted-lc']);
+  assert.deepEqual(ids(focusedRouteGroups(groups,null,reviewPairKey(groups[0]),undefined,null,'DEFAULT','MPO')),[]);
+  assert.deepEqual(ids(focusedRouteGroups(groups,null,null,new Set(['a']),null,'MANUAL','MPO')),['mpo']);
+  assert.deepEqual(ids(focusedRouteGroups(groups,null,null,undefined,new Set(['lc','mpo']),null,'LC')),['lc']);
+  assert.deepEqual(ids(focusedRouteGroups(groups,'mpo',null,undefined,null,null,'LC')),[]);
+  const eligible=filterSummaryGroups(groups,null,'LC');
+  assert.deepEqual(ids(rackPairCards(eligible,eligible,reviewPairKey(groups[0]))[0].groups),['lc','unrouted-lc']);
+  assert.deepEqual(groups,snapshot);
+});
+
 test("section badges count distinct endpoint groups, not cables, edges or cabinet-name prefixes", () => {
   const cabinets=[{cabinet_uid:'not-a-hall:801',data_hall_id:'DH1-1'}, {cabinet_uid:'b',data_hall_id:'DH1-1'},
     {cabinet_uid:'c',data_hall_id:'DH1-3'}];

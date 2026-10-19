@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { CABLE_STYLES, EMPTY_ROUTE_COLOR, UNUSABLE_ROUTE_COLOR } from "./RouteStroke";
 import type { CableClass, CableReview } from "./types";
-import { SUMMARY_FILTER_LABELS, type RoutingSummaryFilter } from "./routingSummaryFilter";
+import { SUMMARY_FILTER_LABELS, type RoutingSummaryFilter, type CableTypeFilter } from "./routingSummaryFilter";
 
 export function routingOverviewCounts(review: CableReview) {
   const colors = Object.fromEntries(Object.keys(CABLE_STYLES).map(key => [key,0])) as Record<CableClass,number>;
@@ -25,9 +25,10 @@ export function routingOverviewCounts(review: CableReview) {
   return {colors,other,defaultRoutes,defaultCables,manualRoutes,manualCables,invalidManualRoutes};
 }
 
-export function RoutingOverview({review,stale=false,savedAt=null,filter=null,onFilterChange,disabled=false}: {
+export function RoutingOverview({review,stale=false,savedAt=null,filter=null,onFilterChange,disabled=false,cableTypeFilter=null,onCableTypeFilterChange}: {
   review:CableReview;stale?:boolean;savedAt?:number|null;filter?:RoutingSummaryFilter|null;
   onFilterChange?:(filter:RoutingSummaryFilter|null)=>void;disabled?:boolean;
+  cableTypeFilter?:CableTypeFilter|null;onCableTypeFilterChange?:(filter:CableTypeFilter|null)=>void;
 }) {
   const totals=useMemo(()=>routingOverviewCounts(review),[review]);
   const number=(value:number)=>value.toLocaleString();
@@ -45,9 +46,13 @@ export function RoutingOverview({review,stale=false,savedAt=null,filter=null,onF
     <div className="routing-overview-local"><span>Cabinet-local cables</span><b>{number(review.same_cabinet_count)}</b></div>
     <section className="routing-cable-key" aria-label="Cable counts by route color">
       <h4>Cable types</h4>
-      <ul>{Object.entries(CABLE_STYLES).map(([key,style])=><li key={key}><span><i style={{background:style.color}} aria-hidden="true" />{style.label}</span><b>{number(totals.colors[key as CableClass])}</b></li>)}
-        {totals.other>0 && <li><span><i style={{background:EMPTY_ROUTE_COLOR}} aria-hidden="true" />Other types</span><b>{number(totals.other)}</b></li>}
+      <ul>{Object.entries(CABLE_STYLES).map(([key,style])=><li key={key}><button type="button" className="routing-legend-filter" aria-pressed={cableTypeFilter===key} disabled={disabled}
+          onClick={()=>onCableTypeFilterChange?.(cableTypeFilter===key ? null : key as CableClass)}>
+          <span><i style={{background:style.color}} aria-hidden="true" />{style.label}</span><b>{number(totals.colors[key as CableClass])}</b></button></li>)}
+        {totals.other>0 && <li><button type="button" className="routing-legend-filter" aria-pressed={cableTypeFilter==="OTHER"} disabled={disabled} onClick={()=>onCableTypeFilterChange?.(cableTypeFilter==="OTHER" ? null : "OTHER")}><span><i style={{background:EMPTY_ROUTE_COLOR}} aria-hidden="true" />Other types</span><b>{number(totals.other)}</b></button></li>}
       </ul>
+      {cableTypeFilter && <button type="button" disabled={disabled} onClick={()=>onCableTypeFilterChange?.(null)}>Show all cable types</button>}
+      <small>Click a type to isolate it; click again to show all types.</small>
       <small>All inventory cables · cross-section and trunk counts shown separately.</small>
       <div className="routing-pathway-key"><span><i style={{borderColor:EMPTY_ROUTE_COLOR}} />Empty / unassigned</span><span><i style={{borderColor:UNUSABLE_ROUTE_COLOR}} />Unusable</span></div>
     </section>

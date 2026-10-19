@@ -10,10 +10,10 @@ export const CABLE_STYLES: Record<CableClass, { label: string; color: string }> 
 };
 export const EMPTY_ROUTE_COLOR = "#4b5057", UNUSABLE_ROUTE_COLOR = "#c5cbd1";
 const DASH: Record<Tier, string | undefined> = { 1: undefined, 2: "9 5", 3: "9 4 2 4" };
-// Screen-space styling only: reduce visual weight in overviews, preserving a readable minimum.
+// Marker/hit-target readability is independent of cable stroke width.
 export const routeDetailScale = (scale: number) => Math.min(1, Math.max(0.3, Math.sqrt(Math.max(0, scale) / 0.65)));
 // Ink gets thinner faster than interaction targets or opening markers at overview zoom.
-export const routeInkScale = (scale: number) => Math.min(1, Math.max(0.12, scale / 0.65));
+export const routeInkScale = (scale: number) => Math.min(1, Math.max(0, scale));
 export const emptyRouteColor = (scale: number) => scale < 0.12 ? "#cbd2d9" : scale < 0.3 ? "#929ba5" : EMPTY_ROUTE_COLOR;
 type Point = { x: number; y: number };
 type StrokeProps = {
@@ -25,11 +25,11 @@ export function routeStrokeLines({a,b,scale,cableClasses=[],usable=true,selected
   const lanes = usable && cableClasses.length ? cableClasses : [null];
   const ink = routeInkScale(scale);
   const result:Array<{key:string;halo:boolean;cableClass:CableClass|null;a:Point;b:Point;color:string;width:number;dash?:string}>=[];
-  if(selected)result.push({key:"halo",halo:true,cableClass:null,a,b,color:"#ffcc66",width:Math.max(2,Math.max(9,lanes.length*7+5)*ink)});
+  if(selected)result.push({key:"halo",halo:true,cableClass:null,a,b,color:"#ffcc66",width:Math.max(9,lanes.length*7+5)*ink});
   lanes.forEach((kind,i)=>{
     const offset=(i-(lanes.length-1)/2)*7*ink/scale;
     result.push({key:kind??"empty",halo:false,cableClass:kind,a:{x:a.x+dx*offset,y:a.y+dy*offset},b:{x:b.x+dx*offset,y:b.y+dy*offset},
-      color:!usable?UNUSABLE_ROUTE_COLOR:kind?CABLE_STYLES[kind].color:emptyRouteColor(scale),width:kind?Math.max(selected ? 0.9 : 0.6,5*ink):Math.max(0.5,3*ink),dash:tier?DASH[tier]:undefined});
+      color:!usable?UNUSABLE_ROUTE_COLOR:kind?CABLE_STYLES[kind].color:emptyRouteColor(scale),width:(kind?5:3)*ink,dash:tier?DASH[tier]:undefined});
   });
   return result;
 }

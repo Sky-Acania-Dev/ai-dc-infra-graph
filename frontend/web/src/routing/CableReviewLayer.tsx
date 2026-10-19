@@ -5,19 +5,22 @@ import { focusedRouteGroups } from "./rackPairRoutes";
 import {OverviewStrokes,type OverviewStroke} from "./OverviewStrokes";
 import type { ConceptualLayout } from "./conceptualLayout";
 import type { CableClass, CableReview, ResolvedLayout, ReviewGroup, Tier } from "./types";
-import type { RoutingSummaryFilter } from "./routingSummaryFilter";
+import { filterSummaryGroups, type RoutingSummaryFilter, type CableTypeFilter } from "./routingSummaryFilter";
 
-export function CableReviewLayer({data, view, review, scale, selectedGroupUid, selectedSegmentId = null, onAttachment, tiers, focusedPairKey = null, viewport, selectedCabinetUids, selectionGroupUids = null, summaryFilter = null}: {
+export function CableReviewLayer({data, view, review, scale, selectedGroupUid, selectedSegmentId = null, onAttachment, tiers, focusedPairKey = null, viewport, selectedCabinetUids, selectionGroupUids = null, summaryFilter = null, cableTypeFilter = null}: {
   data: ResolvedLayout; view: ConceptualLayout; review: CableReview; scale: number; selectedGroupUid: string | null; selectedSegmentId?: string | null;
   onAttachment: (uid: string) => void;
   tiers?: Set<Tier>; focusedPairKey?: string | null; viewport?: Viewport;
   selectedCabinetUids?: ReadonlySet<string>;
   selectionGroupUids?: ReadonlySet<string> | null;
   summaryFilter?: RoutingSummaryFilter | null;
+  cableTypeFilter?: CableTypeFilter | null;
 }) {
-  const focused = focusedRouteGroups(review.groups, selectedGroupUid, focusedPairKey, selectedCabinetUids, selectionGroupUids, summaryFilter);
+  const focused = focusedRouteGroups(review.groups, selectedGroupUid, focusedPairKey, selectedCabinetUids, selectionGroupUids, summaryFilter,cableTypeFilter);
   // An empty set means a selected pathway has no cables; null means no pathway focus.
-  const hasFocus = Boolean(selectedGroupUid || focusedPairKey || selectedCabinetUids?.size || selectionGroupUids != null || summaryFilter);
+  const specificFocus = Boolean(selectedGroupUid || focusedPairKey || selectedCabinetUids?.size || selectionGroupUids != null);
+  const hasFocus = specificFocus || Boolean(summaryFilter || cableTypeFilter);
+  const typeGroupUids = useMemo(()=>cableTypeFilter ? new Set(filterSummaryGroups(review.groups,null,cableTypeFilter).map(g=>g.uid)) : null, [review.groups,cableTypeFilter]);
   const focusedUids = new Set(focused.map(g=>g.uid));
   const groupsByUid = useMemo(()=>new Map(review.groups.map(g=>[g.uid,g])),[review.groups]);
   const attachmentGroups = useMemo(()=>{
@@ -36,6 +39,7 @@ export function CableReviewLayer({data, view, review, scale, selectedGroupUid, s
   const offsetPoint = (p: {x: number; y: number}, tier: Tier | null) => {const offset = tier ? (tier - 2) * 4 * routeInkScale(scale) / scale : 0; return {x: p.x + offset, y: p.y + offset};};
   return <g className="actual-cable-review-layer" aria-label="Provisional routes for actual inventory cables">
     {review.loads.map(load => {
+      if (typeGroupUids && !load.group_uids.some(uid=>typeGroupUids.has(uid))) return null;
       if (tiers && (load.tier ? !tiers.has(load.tier) : load.lower_tier && load.upper_tier && !tiers.has(load.lower_tier) && !tiers.has(load.upper_tier))) return null;
       const rawA = projectReviewPoint(data, view, load.source), rawB = projectReviewPoint(data, view, load.target);
       if (!rawA || !rawB || !visibleLine(rawA,rawB,viewport)) return null;
@@ -44,15 +48,16 @@ export function CableReviewLayer({data, view, review, scale, selectedGroupUid, s
       const muted = hasFocus && !active.length;
       const classes = hasFocus ? [...new Set(active.flatMap(g=>g.cable_class ? [g.cable_class] : []))] : load.cable_classes;
       if(compact && load.edge_type!=="VERTICAL"){
-        overview.push({a,b,tier:load.tier??undefined,cableClasses:classes,selected:hasFocus?!muted:selectedSegmentId===load.segment_id,muted});
+        overview.push({a,b,tier:load.tier??undefined,cableClasses:classes,selected:specificFocus?!muted:selectedSegmentId===load.segment_id,muted});
         return null;
       }
       return <g key={load.id} pointerEvents="none" data-route-muted={muted || undefined} opacity={muted ? .35 : 1}>
-        {load.edge_type === "VERTICAL" ? <g><circle cx={a.x} cy={a.y} r={4*detail/scale} fill="#fff" stroke={muted ? "#94a3b8" : "#7855a1"} vectorEffect="non-scaling-stroke" />{(scale >= .8 || active.length > 0) && <text x={a.x+8/scale} y={a.y-6/scale} fontSize={10/scale}>T{load.lower_tier} ↕ T{load.upper_tier}</text>}</g> : <RouteStroke a={a} b={b} scale={scale} tier={load.tier ?? undefined} cableClasses={classes} selected={hasFocus ? !muted : selectedSegmentId === load.segment_id} />}
+        {load.edge_type === "VERTICAL" ? <g><circle cx={a.x} cy={a.y} r={4*detail/scale} fill="#fff" stroke={muted ? "#94a3b8" : "#7855a1"} vectorEffect="non-scaling-stroke" />{(scale >= .8 || specificFocus && active.length > 0) && <text x={a.x+8/scale} y={a.y-6/scale} fontSize={10/scale}>T{load.lower_tier} ↕ T{load.upper_tier}</text>}</g> : <RouteStroke a={a} b={b} scale={scale} tier={load.tier ?? undefined} cableClasses={classes} selected={specificFocus ? !muted : selectedSegmentId === load.segment_id} />}
         <title>{`${load.cable_count.toLocaleString()} actual cables · ${load.group_uids.length} type/rack-pair groups · ${load.tier ? `Tier ${load.tier}` : `Tier ${load.lower_tier} ↕ ${load.upper_tier}`}`}</title>
       </g>;
     })}
     {attachmentGroups.map(({uid,tier,groups}) => {
+      if (typeGroupUids && !groups.some(group=>typeGroupUids.has(group.uid))) return null;
       if (tiers && !tiers.has(tier)) return null;
       const first = groups[0]; if (!first?.route) return null;
       const point = first.source_cabinet_uid === uid ? first.route.points[0] : first.route.points.at(-1)!;

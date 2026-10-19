@@ -34,6 +34,7 @@ const ConceptualRoutingMap = await component("ConceptualRoutingMap", "Conceptual
 const RoutingOverview = await component("RoutingOverview", "RoutingOverview");
 const routingOverviewCounts = await component("RoutingOverview", "routingOverviewCounts");
 const DataHallSectionTabs = await component("../components/DataHallSectionTabs", "DataHallSectionTabs");
+const routeStrokeLines = await component("RouteStroke", "routeStrokeLines");
 
 test("route section tabs keep filtered counts through navigation, including active and empty sections", () => {
   const counts=new Map([['DH1-1',3],['DH1-2',0],['DH1-3',2]]);
@@ -71,7 +72,7 @@ test("overview counts include local inventory, split special colors once, and di
   assert.match(html,/Routed cables/); assert.match(html,/Unrouted cables/);
   assert.match(html,/Default routes/); assert.match(html,/Manual routes/); assert.match(html,/1 invalid/);
   assert.match(html,/<details class="routing-overview-description"><summary>Description<\/summary>/);
-  assert.match(html,/<li><span><i[^>]*><\/i>LC<\/span><b>95<\/b><\/li>/);
+  assert.match(html,/<span><i[^>]*><\/i>LC<\/span><b>95<\/b><\/button><\/li>/);
   assert.match(html,/All inventory cables/);
   assert.doesNotMatch(html,/Confirmed routes|NaN|undefined/);
   const selected=renderToStaticMarkup(React.createElement(RoutingOverview,{review,filter:'MANUAL',onFilterChange:()=>{}}));
@@ -80,7 +81,43 @@ test("overview counts include local inventory, split special colors once, and di
   assert.match(selected,/aria-pressed="true"><span>Manual routes<\/span>/);
   assert.match(selected,/Manual routes selected/); assert.match(selected,/Clear filter/);
   const busy=renderToStaticMarkup(React.createElement(RoutingOverview,{review,disabled:true}));
-  assert.equal((busy.match(/aria-pressed="false" disabled=""/g)??[]).length,4);
+  assert.equal((busy.match(/class="routing-overview-stat" aria-pressed="false" disabled=""/g)??[]).length,4);
+  const legend=renderToStaticMarkup(React.createElement(RoutingOverview,{review,cableTypeFilter:'LC'}));
+  assert.match(legend,/class="routing-legend-filter" aria-pressed="true"><span><i[^>]*><\/i>LC/);
+  assert.equal((legend.match(/class="routing-legend-filter" aria-pressed="true"/g)??[]).length,1);
+  assert.match(legend,/Show all cable types/);
+});
+
+test("zoomed-out strokes continue shrinking below the former minimum, including selected outlines", () => {
+  const props={a:{x:0,y:0},b:{x:120,y:0},cableClasses:['LC','MPO','CAT6'],tier:2};
+  const widths=[1,.4,.08,.02,.005].map(scale=>routeStrokeLines({...props,scale,selected:true}));
+  for(let i=1;i<widths.length;i++) for(let lane=0;lane<widths[i].length;lane++) assert.ok(widths[i][lane].width<widths[i-1][lane].width);
+  assert.ok(widths.at(-1)[1].width<.1);
+  const full=routeStrokeLines({...props,scale:1});
+  assert.equal(full.length,3); assert.equal(full[0].width,5);
+  assert.deepEqual(full.map(line=>line.cableClass),['LC','MPO','CAT6']);
+});
+
+test("legend filtering removes other colors on shared routes and keeps map and cable cards consistent", () => {
+  const p=x=>({x_in:x,y_in:382,tier:1,passage_band_uid:'central',cabinet_uid:null});
+  const base={source_cabinet_uid:'a',destination_cabinet_uid:'b',source_cabinet_id:'801',destination_cabinet_id:'811',start_tier:1,end_tier:1,count:2,cable_uids:[],route_source:'DEFAULT'};
+  const group=(uid,cable_class)=>({...base,uid,cable_class,cable_type:cable_class,route:{points:[p(0),p(120)],planar_length_in:120}});
+  const groups=[group('lc','LC'),group('mpo','MPO'),group('cat6','CAT6')];
+  const load=(id,group_uids,cable_classes,x)=>({id,source:p(x),target:p(x+120),group_uids,cable_classes,cable_count:4,tier:1,edge_type:'PASSAGE'});
+  const review={groups,cables:[],loads:[load('shared',['lc','mpo'],['LC','MPO'],0),load('lc-rest',['lc'],['LC'],120),load('excluded',['cat6'],['CAT6'],240)]};
+  const props={data:{geometry:{bands:[],cabinet_rows:[]}},view:{cabinets:[],passageX:new Map([['central',10]]),stationY:x=>x},review,selectedGroupUid:null,onAttachment:()=>{}};
+  for(const scale of [1,.08]) {
+    const html=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,scale,cableTypeFilter:'LC'}));
+    assert.match(html,/data-cable-class="LC"/); assert.doesNotMatch(html,/data-cable-class="MPO"|data-cable-class="CAT6"/);
+    assert.doesNotMatch(html,/#ffcc66|data-route-muted=/,'Legend filters do not highlight every remaining segment or draw excluded cables');
+    const status=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,scale,summaryFilter:'ROUTED'}));
+    assert.doesNotMatch(status,/#ffcc66/,'Summary-wide filtering must not add thousands of selection halos');
+    const focused=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,scale,cableTypeFilter:'LC',focusedPairKey:JSON.stringify(['a','b'])}));
+    assert.match(focused,/#ffcc66/,'An explicit rack-pair selection still has a route highlight');
+  }
+  const panel=renderToStaticMarkup(React.createElement(CableReviewPanel,{review,groups,cableTypeFilter:'LC',focusedPairKey:JSON.stringify(['a','b']),onViewCables:()=>{}}));
+  assert.match(panel,/View LC cable details/); assert.doesNotMatch(panel,/View MPO cable details|View CAT6 cable details/);
+  assert.match(panel,/Show all cable types/); assert.match(panel,/2 mapped cables/);
 });
 
 test("summary-filtered rack cards cannot expand to unrelated statuses on the same pair", () => {
