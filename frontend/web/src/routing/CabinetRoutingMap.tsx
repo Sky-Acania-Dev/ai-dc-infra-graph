@@ -46,7 +46,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const reviewState = useCableReview(data, realReview && project === "LBB01" && physicalHall === "DH1", "hall");
   const review = reviewState.data;
   useEffect(()=>{setRealReview(project === "LBB01" && physicalHall === "DH1");},[project,physicalHall]);
-  const manual = useManualRouteEditor(data?.layout.uid, review, reviewState.replace, reviewState.reload);
+  const manual = useManualRouteEditor(data?.layout.uid, review, reviewState.replace, reviewState.reload, !reviewState.stale);
   useEffect(() => {if (manual.editing) setCableTable(null);}, [manual.editing]);
   const [inventory, setInventory] = useState<CabinetLayoutItem[]>([]);
   const [inventoryError, setInventoryError] = useState("");
@@ -83,7 +83,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const highlightGroupUid = selectedCableId && cableTable?.groupUid ? cableTable.groupUid : review?.groups.find(g => g.cable_uids.includes(selectedCableId ?? ""))?.uid ?? null;
   const inspector = data && inspecting ? <aside className="side-pane connections-pane routing-page routing-side routing-segment-inspector" aria-label="Routing segment cable details">
     <div className="routing-inspector-heading"><span className="eyebrow">Segment cables</span><button disabled={manual.editing || manual.busy} onClick={clearPath}>Close routing details</button></div>
-    {review ? <CableReviewPanel key={JSON.stringify([review?.scope,segment?.id,attachmentUid,selectedNode?.x_in,selectedNode?.y_in])} review={review} groups={reviewGroups} focusedPairKey={focusedPairKey} onFocusPair={key=>{if (!manual.editing && !manual.busy) {setFocusedPairKey(key); setSelectedCableId(null); setCableTable(null); onClearSelection();}}} editor={manual} canManage={canManage}
+    {review ? <CableReviewPanel key={JSON.stringify([review?.scope,segment?.id,attachmentUid,selectedNode?.x_in,selectedNode?.y_in])} review={review} groups={reviewGroups} focusedPairKey={focusedPairKey} onFocusPair={key=>{if (!manual.editing && !manual.busy) {setFocusedPairKey(key); setSelectedCableId(null); setCableTable(null); onClearSelection();}}} editor={manual} canManage={canManage && !reviewState.stale}
       onViewCables={request => {if (!manual.editing) setCableTable(request);}} /> : (segment || attachmentUid) && <SegmentCables inventoryCables={cableMembers.cables} members={cableMembers.members} loading={cableMembers.loading} error={cableMembers.error}
       bundleFilter={selectedPlacementUid ? {uid: selectedPlacementUid, label: selectedBundle?.label ?? "Selected bundle"} : null}
       onClearFilter={() => setSelectedPlacementUid(null)} onViewCables={setCableTable} />}
@@ -96,7 +96,8 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
     <RouteLegend />
     {error && <p className="routing-error" role="alert">{error}</p>}
     {inventoryError && <p className="routing-error" role="alert">{inventoryError}</p>}
-    {reviewState.loading && <p role="status">Loading actual cables and provisional routes…</p>}
+    {reviewState.loading && !review && <p role="status">Loading bundle routes and counts…</p>}
+    {review && reviewState.stale && <p className="actual-review-notice routing-summary-status" role="status">Saved bundle overview{reviewState.savedAt ? ` · ${new Date(reviewState.savedAt).toLocaleString()}` : ""} · {reviewState.loading ? "Checking current routes…" : "Current routes could not be verified."} Viewing is available; route editing waits for current data.</p>}
     {reviewState.error && <p className="routing-error" role="alert">{reviewState.error}</p>}
     {reviewState.error && <button onClick={reviewState.reload}>Retry cable loading</button>}
     {review && <p className="actual-review-notice" role="status">{review.label} · {review.inventory_cable_count.toLocaleString()} cables · {review.groups.length.toLocaleString()} rack-pair/type groups · {review.routed_cable_count.toLocaleString()} inter-rack cables routed · {review.same_cabinet_count.toLocaleString()} same-cabinet cables kept local · {review.unrouted_cable_count.toLocaleString()} unrouted · {review.manual_group_count ?? 0} manual groups{review.build_ms != null ? ` · server ${ (review.build_ms / 1000).toFixed(1)}s` : ""}. A* never overwrites saved manual routes.</p>}

@@ -23,6 +23,7 @@ const TierSections = await component("TierSectionDiagrams", "TierSectionDiagrams
 const SegmentCables = await component("SegmentCables", "SegmentCables");
 const CableReviewPanel = await component("CableReviewPanel", "CableReviewPanel");
 const CableReviewLayer = await component("CableReviewLayer", "CableReviewLayer");
+const OverviewStrokes = await component("OverviewStrokes", "OverviewStrokes");
 const CabinetConnectionsPanel = await component("../components/CabinetConnectionsPanel", "CabinetConnectionsPanel", true);
 const ManualBatchPanel = await component("ManualRouteBatchPanel", "ManualRouteBatchPanel");
 const ManualLayer = await component("ManualRouteLayer", "ManualRouteLayer");
@@ -368,4 +369,27 @@ test("physical pathway focus highlights complete cable routes, both attachments,
   const cleared=render(null);
   assert.doesNotMatch(cleared,/data-route-muted=/);
   assert.match(cleared,/data-cable-class="CAT6"/);
+});
+
+test("overview batches thousands of independent bundle strokes without connecting their gaps",()=>{
+  const strokes=Array.from({length:2000},(_,i)=>({a:{x:i*20,y:0},b:{x:i*20+10,y:0},tier:2,cableClasses:['LC'],selected:false,muted:false}));
+  const html=renderToStaticMarkup(React.createElement(OverviewStrokes,{strokes,scale:.08}));
+  assert.equal((html.match(/<path /g)??[]).length,1);
+  assert.equal((html.match(/M/g)??[]).length,2000);
+  assert.match(html,/stroke-dasharray="9 5"/);
+  assert.match(html,/vector-effect="non-scaling-stroke"/);
+  assert.doesNotMatch(html,/NaN|Infinity|<line /);
+});
+
+test("compact overview preserves complete-route focus and greys unrelated types on shared spans",()=>{
+  const p=x=>({x_in:x,y_in:382,tier:2,passage_band_uid:'central',cabinet_uid:null});
+  const groups=[{uid:'lc',cable_class:'LC'},{uid:'other',cable_class:'CAT6'}];
+  const load=(id,ids,x)=>({id,source:p(x),target:p(x+120),tier:2,edge_type:'PASSAGE',group_uids:ids,cable_classes:['LC','CAT6'],cable_count:4});
+  const props={data:{geometry:{bands:[]}},view:{cabinets:[],passageX:new Map([['central',10]]),stationY:x=>x},review:{groups,loads:[load('selected',['lc','other'],0),load('tail',['lc'],120),load('unrelated',['other'],480)]},scale:.08,selectedGroupUid:null,selectionGroupUids:new Set(['lc']),onAttachment:()=>{}};
+  const html=renderToStaticMarkup(React.createElement(CableReviewLayer,props));
+  assert.match(html,/data-overview-mode="summary"/);assert.match(html,/data-cable-class="LC"/);assert.doesNotMatch(html,/data-cable-class="CAT6"/);
+  assert.match(html,/data-route-muted="true"/);
+  assert.match(html,/stroke="#ffcc66"/);
+  const empty=renderToStaticMarkup(React.createElement(CableReviewLayer,{...props,selectionGroupUids:new Set()}));
+  assert.doesNotMatch(empty,/data-cable-class=/);
 });

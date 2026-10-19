@@ -13,22 +13,27 @@ const DASH: Record<Tier, string | undefined> = { 1: undefined, 2: "9 5", 3: "9 4
 // Screen-space styling only: reduce visual weight in overviews, preserving a readable minimum.
 export const routeDetailScale = (scale: number) => Math.min(1, Math.max(0.3, Math.sqrt(Math.max(0, scale) / 0.65)));
 type Point = { x: number; y: number };
-export function RouteStroke({ a, b, scale, cableClasses = [], usable = true, selected = false, tier }: {
+type StrokeProps = {
   a: Point; b: Point; scale: number; cableClasses?: CableClass[]; usable?: boolean; selected?: boolean; tier?: Tier;
-}) {
+};
+export function routeStrokeLines({a,b,scale,cableClasses=[],usable=true,selected=false,tier}:StrokeProps) {
   const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
   const dx = -(b.y - a.y) / length, dy = (b.x - a.x) / length;
   const lanes = usable && cableClasses.length ? cableClasses : [null];
   const detail = routeDetailScale(scale);
+  const result:Array<{key:string;halo:boolean;cableClass:CableClass|null;a:Point;b:Point;color:string;width:number;dash?:string}>=[];
+  if(selected)result.push({key:"halo",halo:true,cableClass:null,a,b,color:"#ffcc66",width:Math.max(4,Math.max(9,lanes.length*7+5)*detail)});
+  lanes.forEach((kind,i)=>{
+    const offset=(i-(lanes.length-1)/2)*7*detail/scale;
+    result.push({key:kind??"empty",halo:false,cableClass:kind,a:{x:a.x+dx*offset,y:a.y+dy*offset},b:{x:b.x+dx*offset,y:b.y+dy*offset},
+      color:!usable?UNUSABLE_ROUTE_COLOR:kind?CABLE_STYLES[kind].color:EMPTY_ROUTE_COLOR,width:(kind?5:3)*detail,dash:tier?DASH[tier]:undefined});
+  });
+  return result;
+}
+export function RouteStroke(props:StrokeProps) {
   return <g pointerEvents="none" className="conceptual-route-strokes">
-    {selected && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#ffcc66" strokeWidth={Math.max(4, Math.max(9, lanes.length * 7 + 5) * detail)} vectorEffect="non-scaling-stroke" />}
-    {lanes.map((kind, i) => {
-      const offset = (i - (lanes.length - 1) / 2) * 7 * detail / scale;
-      return <line key={kind ?? "empty"} className={kind ? "conceptual-cable-line" : "conceptual-empty-line"} data-cable-class={kind ?? undefined}
-        x1={a.x + dx * offset} y1={a.y + dy * offset} x2={b.x + dx * offset} y2={b.y + dy * offset}
-        stroke={!usable ? UNUSABLE_ROUTE_COLOR : kind ? CABLE_STYLES[kind].color : EMPTY_ROUTE_COLOR}
-        strokeWidth={(kind ? 5 : 3) * detail} strokeLinecap="round" strokeDasharray={tier ? DASH[tier] : undefined} vectorEffect="non-scaling-stroke" />;
-    })}
+    {routeStrokeLines(props).map(line=><line key={line.key} className={line.halo?undefined:line.cableClass?"conceptual-cable-line":"conceptual-empty-line"} data-cable-class={line.cableClass??undefined}
+      x1={line.a.x} y1={line.a.y} x2={line.b.x} y2={line.b.y} stroke={line.color} strokeWidth={line.width} strokeLinecap={line.halo?undefined:"round"} strokeDasharray={line.dash} vectorEffect="non-scaling-stroke" />)}
   </g>;
 }
 

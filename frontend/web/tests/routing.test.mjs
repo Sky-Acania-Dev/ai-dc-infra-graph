@@ -11,7 +11,8 @@ import { projectReviewPoint, reviewConnector, reviewGroupsForPart } from "../src
 import { loadRoutingCableTable } from "../src/routing/routingCableDetails.ts";
 import { ManualRouteEngine } from "../src/routing/manualRouteEngine.ts";
 import { reviewPairKey, rackPairCards, focusedRouteGroups, routeActionLabel } from "../src/routing/rackPairRoutes.ts";
-import { decodeCableReview } from "../src/routing/reviewEncoding.ts";
+import { decodeCableReview,encodeReviewSummary } from "../src/routing/reviewEncoding.ts";
+import {validSummary,layoutSignature,SUMMARY_MAX_AGE_MS,SummaryLoadGate,readReviewSummary,writeReviewSummary} from "../src/routing/reviewSummaryCache.ts";
 import {physicalJunctions,physicalPlanningTargets} from "../src/routing/physicalTargets.ts";
 
 test("physical targets combine plan locations without merging distinct tier openings", () => {
@@ -610,4 +611,59 @@ test("physical segment and junction scope selects groups across tiers without tr
   }
   assert.deepEqual(reviewGroupsForPart(review,'empty',null,null),[]);
   assert.deepEqual(review,before);
+});
+
+function cachedReviewFixture(){
+  const p=x=>({node_id:`p${x}`,x_in:x,y_in:382,tier:2,passage_band_uid:'central',cabinet_uid:null});
+  const edge={id:'edge',segment_id:'physical',source:p(0),target:p(120),tier:2,edge_type:'PASSAGE',planar_length_in:120};
+  return {scope:'hall',topology_revision:'topology',inventory_cable_count:4,routed_cable_count:4,unrouted_cable_count:0,same_cabinet_count:0,cables:[{uid:'actual-cable',source_port_uid:'port'}],planning_segments:[edge],
+    groups:[{uid:'bundle',count:4,cable_type:'LC',cable_class:'LC',cable_uids:['actual-cable'],manual_version:'version',route_source:'MANUAL',
+      route:{method:'MANUAL',points:[p(0),p(120)],load_ids:['edge'],segment_ids:['physical'],planar_length_in:120,vertical_transition_count:0,length_label:'Planar pathway length'}}],
+    loads:[{...edge,group_uids:['bundle'],cable_classes:['LC'],cable_count:4}]};
+}
+
+test("cached overview keeps bundle references, counts, tiers and manual routes but excludes individual cables",()=>{
+  const review=cachedReviewFixture(),before=structuredClone(review),encoded=encodeReviewSummary(review);
+  assert.deepEqual(encoded.cables,[]);assert.deepEqual(encoded.groups[0].cable_uids,[]);
+  assert.doesNotMatch(JSON.stringify(encoded),/actual-cable|source_port_uid/);
+  const restored=decodeCableReview(encoded);
+  assert.equal(restored.groups[0].count,4);assert.equal(restored.groups[0].manual_version,'version');
+  assert.deepEqual(restored.groups[0].route,review.groups[0].route);
+  assert.deepEqual(restored.loads[0].group_uids,['bundle']);assert.deepEqual(review,before);
+});
+
+test("summary cache rejects expired, cross-layout, changed-geometry, corrupt-version and future entries",()=>{
+  const now=1_000_000_000,entry={key:'layout',signature:'geometry',version:1,savedAt:now-100,summary:encodeReviewSummary(cachedReviewFixture())};
+  assert.equal(validSummary(entry,'layout','geometry',now),true);
+  for(const [value,key,signature] of [[undefined,'layout','geometry'],[entry,'other','geometry'],[entry,'layout','changed'],
+    [{...entry,version:2},'layout','geometry'],[{...entry,summary:{...entry.summary,groups:null}},'layout','geometry'],[{...entry,savedAt:now+1},'layout','geometry'],
+    [{...entry,savedAt:now-SUMMARY_MAX_AGE_MS},'layout','geometry']])assert.equal(validSummary(value,key,signature,now),false);
+});
+
+test("layout signature includes pathways, tiers, occupation and cabinet ordering",async()=>{
+  const data={layout:{uid:'layout'},bands:[{width_in:34}],passage_tiers:[{tier:1,enabled:true}],cabinets:[{source_col:0}],bundle_placements:[{slot_width:3}]};
+  const first=await layoutSignature(data);
+  assert.equal(await layoutSignature(structuredClone(data)),first);
+  for(const change of [v=>v.bands[0].width_in++,v=>v.passage_tiers[0].enabled=false,v=>v.cabinets[0].source_col++,v=>v.bundle_placements[0].slot_width++]){
+    const changed=structuredClone(data);change(changed);assert.notEqual(await layoutSignature(changed),first);
+  }
+});
+
+test("late disk results and cancelled loads cannot replace authoritative current summaries",()=>{
+  const gate=new SummaryLoadGate();assert.equal(gate.acceptSaved(),true);assert.equal(gate.acceptCurrent(),true);assert.equal(gate.acceptSaved(),false);
+  const cancelled=new SummaryLoadGate();cancelled.dispose();assert.equal(cancelled.acceptSaved(),false);assert.equal(cancelled.acceptCurrent(),false);
+});
+
+test("unavailable local storage leaves live API loading available",async()=>{
+  const previous=globalThis.indexedDB;
+  globalThis.indexedDB={open(){throw new Error('Private browsing or quota failure');}};
+  try {assert.equal(await readReviewSummary({layout:{uid:'layout'}}),null);await writeReviewSummary({layout:{uid:'layout'}},cachedReviewFixture());}
+  finally {if(previous===undefined)delete globalThis.indexedDB;else globalThis.indexedDB=previous;}
+});
+
+test("cache serialization rejects missing path or group references instead of inventing a route",()=>{
+  const missingEdge=cachedReviewFixture();missingEdge.groups[0].route.load_ids=['missing'];
+  assert.throws(()=>encodeReviewSummary(missingEdge),/unavailable pathway/);
+  const missingGroup=cachedReviewFixture();missingGroup.loads[0].group_uids=['missing'];
+  assert.throws(()=>encodeReviewSummary(missingGroup),/unavailable group/);
 });

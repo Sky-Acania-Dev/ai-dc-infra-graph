@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { projectReviewPoint, reviewConnector, visibleLine, type Viewport } from "./cableReviewProjection";
 import { RouteStroke, routeDetailScale } from "./RouteStroke";
 import { focusedRouteGroups } from "./rackPairRoutes";
+import {OverviewStrokes,type OverviewStroke} from "./OverviewStrokes";
 import type { ConceptualLayout } from "./conceptualLayout";
 import type { CableClass, CableReview, ResolvedLayout, ReviewGroup, Tier } from "./types";
 
@@ -27,6 +28,8 @@ export function CableReviewLayer({data, view, review, scale, selectedGroupUid, s
     return [...byAttachment.values()];
   }, [review]);
   const detail = routeDetailScale(scale);
+  const compact=scale<.16;
+  const overview:OverviewStroke[]=[];
   const cabinetTargets = new Set<string>();
   const offsetPoint = (p: {x: number; y: number}, tier: Tier | null) => {const offset = tier ? (tier - 2) * 4 * detail / scale : 0; return {x: p.x + offset, y: p.y + offset};};
   return <g className="actual-cable-review-layer" aria-label="Provisional routes for actual inventory cables">
@@ -38,6 +41,10 @@ export function CableReviewLayer({data, view, review, scale, selectedGroupUid, s
       const active = hasFocus ? load.group_uids.filter(uid=>focusedUids.has(uid)).map(uid=>groupsByUid.get(uid)!) : [];
       const muted = hasFocus && !active.length;
       const classes = hasFocus ? [...new Set(active.flatMap(g=>g.cable_class ? [g.cable_class] : []))] : load.cable_classes;
+      if(compact && load.edge_type!=="VERTICAL"){
+        overview.push({a,b,tier:load.tier??undefined,cableClasses:classes,selected:hasFocus?!muted:selectedSegmentId===load.segment_id,muted});
+        return null;
+      }
       return <g key={load.id} pointerEvents="none" data-route-muted={muted || undefined} opacity={muted ? .35 : 1}>
         {load.edge_type === "VERTICAL" ? <g><circle cx={a.x} cy={a.y} r={4*detail/scale} fill="#fff" stroke={muted ? "#94a3b8" : "#7855a1"} vectorEffect="non-scaling-stroke" />{(scale >= .8 || active.length > 0) && <text x={a.x+8/scale} y={a.y-6/scale} fontSize={10/scale}>T{load.lower_tier} ↕ T{load.upper_tier}</text>}</g> : <RouteStroke a={a} b={b} scale={scale} tier={load.tier ?? undefined} cableClasses={classes} selected={hasFocus ? !muted : selectedSegmentId === load.segment_id} />}
         <title>{`${load.cable_count.toLocaleString()} actual cables · ${load.group_uids.length} type/rack-pair groups · ${load.tier ? `Tier ${load.tier}` : `Tier ${load.lower_tier} ↕ ${load.upper_tier}`}`}</title>
@@ -53,8 +60,10 @@ export function CableReviewLayer({data, view, review, scale, selectedGroupUid, s
       const active = groups.filter(g=>focusedUids.has(g.uid));
       const muted = hasFocus && !active.length;
       const classes = [...new Set((hasFocus ? active : groups).flatMap(g => g.cable_class ? [g.cable_class] : []))] as CableClass[];
+      if(compact)overview.push({...connector,tier,cableClasses:classes,selected:false,muted});
+      if(compact && !interactive)return null;
       return <g key={`${uid}:${tier}`} data-route-muted={muted || undefined} opacity={muted ? .35 : 1}>
-        <g pointerEvents="none"><RouteStroke {...connector} scale={scale} cableClasses={classes} tier={tier} /></g>
+        {!compact && <g pointerEvents="none"><RouteStroke {...connector} scale={scale} cableClasses={classes} tier={tier} /></g>}
         {interactive && <g role="button" tabIndex={0} data-selectable="true" aria-label={`Inspect actual cable attachment ${data.cabinets.find(c => c.cabinet_uid === uid)?.cabinet_id}`}
           onClick={e=>{e.stopPropagation();onAttachment(uid);}} onKeyDown={e=>{if(e.key === "Enter" || e.key === " "){e.preventDefault();e.stopPropagation();onAttachment(uid);}}}>
           <rect x={Math.min(connector.a.x,connector.b.x)-8/scale} y={Math.min(connector.a.y,connector.b.y)-8/scale} width={Math.abs(connector.a.x-connector.b.x)+16/scale} height={Math.abs(connector.a.y-connector.b.y)+16/scale} fill="transparent" />
@@ -62,5 +71,6 @@ export function CableReviewLayer({data, view, review, scale, selectedGroupUid, s
         <title>Schematic cabinet takeoff · actual cable members · no measured drop length</title>
       </g>;
     })}
+    {compact && <OverviewStrokes strokes={overview} scale={scale} />}
   </g>;
 }

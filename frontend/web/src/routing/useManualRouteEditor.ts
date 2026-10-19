@@ -4,7 +4,7 @@ import { ManualRouteEngine, emptyDraft, sameRackPair } from "./manualRouteEngine
 import { formatInches } from "./dimensions";
 import type { CableReview, ManualDraft, ReviewGroup } from "./types";
 
-export function useManualRouteEditor(layoutUid: string | undefined, review: CableReview | null, replace: (data: CableReview) => void, reload: () => void) {
+export function useManualRouteEditor(layoutUid: string | undefined, review: CableReview | null, replace: (data: CableReview) => void, reload: () => void, confirmed=true) {
   const [selected, setSelected] = useState<string[]>([]);
   const [editing, setEditing] = useState(false);
   const [activeUid, setActiveUid] = useState("");
@@ -45,7 +45,7 @@ export function useManualRouteEditor(layoutUid: string | undefined, review: Cabl
   };
   const begin = (groupUids: string[] = selected) => {
     const chosen = review?.groups.filter(g=>groupUids.includes(g.uid)) ?? [];
-    if (!review || !chosen.length) return;
+    if (!confirmed || !review || !chosen.length) return;
     setSelected(chosen.map(g=>g.uid));
     setDrafts(Object.fromEntries(chosen.map(g => [g.uid, emptyDraft(g)])));
     setVersions(Object.fromEntries(chosen.map(g => [g.uid, g.manual_version])));
@@ -53,7 +53,7 @@ export function useManualRouteEditor(layoutUid: string | undefined, review: Cabl
   };
   const cancel = () => {setEditing(false); setError(""); setMessage("Draft discarded. Saved routes are unchanged.");};
   const save = async () => {
-    if (!layoutUid || !review || busy || !editing) return;
+    if (!confirmed || !layoutUid || !review || busy || !editing) return;
     // Recheck every full chain locally immediately before making the only route-write request.
     if (!groups.length || groups.length !== selected.length || completed !== groups.length || topologyChanged) {setError("Complete every selected route against the current graph before saving."); return;}
     for (const g of groups) if (!engine.isComplete(g, drafts[g.uid])) return;
@@ -66,7 +66,7 @@ export function useManualRouteEditor(layoutUid: string | undefined, review: Cabl
   };
   const reset = async () => {
     const manual = groups.filter(g => g.route_source === "MANUAL");
-    if (!layoutUid || !review || busy || !manual.length || editing) return;
+    if (!confirmed || !layoutUid || !review || busy || !manual.length || editing) return;
     setBusy(true); setError("");
     try {
       const result = await routingApi.manualBatch(layoutUid, {scope: review.scope ?? "pilot", topology_revision: review.topology_revision,
@@ -75,7 +75,7 @@ export function useManualRouteEditor(layoutUid: string | undefined, review: Cabl
     } catch (reason) {setError(String(reason));} finally {setBusy(false);}
   };
   return {selected, editing, active, activeUid, setActiveUid, draft, preview: local.preview, error: error || local.error || (topologyChanged ? "Pathways changed. Reload before editing." : ""), message, notes, setNotes, busy, groups, completed, complete,
-    canSave: Boolean(groups.length && groups.length === selected.length && completed === groups.length && !topologyChanged && !busy),
+    canSave: Boolean(confirmed && groups.length && groups.length === selected.length && completed === groups.length && !topologyChanged && !busy),
     toggle: (uid: string) => {if (!editing && !busy) setSelected(ids => ids.includes(uid) ? ids.filter(id => id !== uid) : [...ids, uid]);},
     selectShown: (shown: ReviewGroup[]) => {if (!editing && !busy) setSelected(ids => [...new Set([...ids, ...shown.map(g => g.uid)])]);},
     clearSelected: () => {if (!editing && !busy) setSelected([]);}, begin, cancel, append, chooseSegments, chooseSegment: (id:string)=>chooseSegments([id]), save, reset,
