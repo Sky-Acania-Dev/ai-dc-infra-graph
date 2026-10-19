@@ -6,7 +6,7 @@ import type { CabinetLayoutItem } from "../types";
 import type { CabinetGraphicPosition, CabinetGraphicSettings } from "../components/CabinetGraphics";
 import { ConceptualRoutingMap } from "./ConceptualRoutingMap";
 import { conceptualSegments, edgeSegment } from "./conceptualSegments";
-import { RouteLegend } from "./RouteStroke";
+import { RoutingOverview } from "./RoutingOverview";
 import { PathwayInspector } from "./PathwayInspector";
 import { TierVisibility } from "./TierVisibility";
 import { SegmentCables } from "./SegmentCables";
@@ -100,13 +100,11 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
     {error && <p className="routing-error" role="alert">{error}</p>}
     {inventoryError && <p className="routing-error" role="alert">{inventoryError}</p>}
     {reviewState.loading && !review && <p role="status">Loading bundle routes and counts…</p>}
-    {review && reviewState.stale && <p className="actual-review-notice routing-summary-status" role="status">Saved bundle overview{reviewState.savedAt ? ` · ${new Date(reviewState.savedAt).toLocaleString()}` : ""} · {reviewState.loading ? "Checking current routes…" : "Current routes could not be verified."} Viewing is available; route editing waits for current data.</p>}
+    {review && reviewState.stale && <p className="actual-review-notice routing-summary-status" role="status">Saved overview · {reviewState.loading ? "Checking current routes…" : "Current routes could not be verified."}</p>}
     {reviewState.error && <p className="routing-error" role="alert">{reviewState.error}</p>}
     {reviewState.error && <button onClick={reviewState.reload}>Retry cable loading</button>}
-    {review && <p className="actual-review-notice" role="status">{review.label} · {review.inventory_cable_count.toLocaleString()} cables · {review.groups.length.toLocaleString()} rack-pair/type groups · {review.routed_cable_count.toLocaleString()} inter-rack cables routed · {review.same_cabinet_count.toLocaleString()} same-cabinet cables kept local · {review.unrouted_cable_count.toLocaleString()} unrouted · {review.manual_group_count ?? 0} manual groups{review.build_ms != null ? ` · server ${ (review.build_ms / 1000).toFixed(1)}s` : ""}. A* never overwrites saved manual routes.</p>}
-    <RouteLegend />
+    {review && <RoutingOverview review={review} stale={reviewState.stale} savedAt={reviewState.savedAt} />}
     {project === "LBB01" && physicalHall === "DH1" && <label className="routing-cable-toggle"><input disabled={manual.editing || manual.busy} type="checkbox" checked={realReview} onChange={event => {clearPath(); setRealReview(event.target.checked);}} />Actual cable review</label>}
-    {review?.scope === "hall" && <details className="inventory-test-info"><summary>Routing defaults and unrouted cables</summary><p>{review.notes}</p><p>Unmapped endpoints: {(review.unmapped_cable_count ?? 0).toLocaleString()} cables.</p>{Object.entries(review.unrouted_reasons ?? {}).map(([reason,count])=><p key={reason}>{count.toLocaleString()} · {reason}</p>)}<p>Rows/CENTRAL: 8′2″ / 9′2″ / 10′2″ AFF. NORTH/SOUTH: 8′2″ / 9′8″ AFF. Row Tier 3 uses the confirmed row-end opening to outer passage Tier 2. Gaps use two test layers. FE inner-side intent has no measured bundle footprint.</p></details>}
   </>;
   return <div className="routing-page routing-integrated">
     {tierHost && createPortal(<TierVisibility tiers={tiers} onChange={setTiers} />,tierHost)}

@@ -31,6 +31,38 @@ const RackPairCards = await component("RackPairRouteCards", "RackPairRouteCards"
 const ConceptualGraph = await component("ConceptualGraph", "ConceptualGraph");
 const PathwayInspector = await component("PathwayInspector", "PathwayInspector");
 const ConceptualRoutingMap = await component("ConceptualRoutingMap", "ConceptualRoutingMap");
+const RoutingOverview = await component("RoutingOverview", "RoutingOverview");
+const routingOverviewCounts = await component("RoutingOverview", "routingOverviewCounts");
+
+test("overview counts include local inventory, split special colors once, and distinguish manual assignments", () => {
+  const group=(cable_class,count,route_source='DEFAULT',route={})=>({cable_class,count,route_source,route});
+  const review={label:'All five sections',inventory_cable_count:182,routed_cable_count:23,unrouted_cable_count:13,same_cabinet_count:146,
+    cable_types:{LC:100,CAT6a:50,'MPO12-SMF':30,RJ12:2},
+    groups:[group('LC',10),group('CROSS_SECTION_LC',5),group('MPO_TRUNK_T2_T1_RO',6),group('LC',2,'MANUAL'),group('MPO',1,'MANUAL',null)],
+    loads:[{cable_count:999999}],notes:'Policy details'};
+  const totals=routingOverviewCounts(review);
+  assert.equal(totals.colors.LC,95); assert.equal(totals.colors.CROSS_SECTION_LC,5);
+  assert.equal(totals.colors.MPO,24); assert.equal(totals.colors.MPO_TRUNK_T2_T1_RO,6);
+  assert.equal(Object.values(totals.colors).reduce((a,b)=>a+b,totals.other),182);
+  assert.deepEqual([totals.defaultRoutes,totals.defaultCables,totals.manualRoutes,totals.manualCables,totals.invalidManualRoutes],[3,21,2,3,1]);
+  const html=renderToStaticMarkup(React.createElement(RoutingOverview,{review}));
+  assert.match(html,/Routed cables/); assert.match(html,/Unrouted cables/);
+  assert.match(html,/Default routes/); assert.match(html,/Manual routes/); assert.match(html,/1 invalid/);
+  assert.match(html,/<details class="routing-overview-description"><summary>Description<\/summary>/);
+  assert.match(html,/<li><span><i[^>]*><\/i>LC<\/span><b>95<\/b><\/li>/);
+  assert.match(html,/All inventory cables/);
+  assert.doesNotMatch(html,/Confirmed routes|NaN|undefined/);
+});
+
+test("pathway user guide is collapsed without hiding geometry", () => {
+  const data={layout:{physical_hall_code:'DH1',row_pair_module_in:264,section_extra_gap_in:216},
+    bands:[],cabinets:[],cross_routes:[],cabinet_rows:[],sections:[],vertical_transitions:[],
+    geometry:{cabinet_rows:[],cross_routes:[],sections:[],gaps:[],bands:[],total_width_in:788,hall_length_in:11544}};
+  const html=renderToStaticMarkup(React.createElement(PathwayInspector,{data,graph:{nodes:[],edges:[]},selection:null,segment:null,
+    attachmentUid:null,canManage:false,busy:false,mutate:async()=>true,onSelect:()=>{},onOpenRouting:()=>{},selectedPlacementUid:null,onSelectPlacement:()=>{}}));
+  assert.match(html,/<details class="routing-guide"><summary>Inspect a pathway<\/summary>/);
+  assert.match(html,/<details class="routing-geometry-summary" open="">/);
+});
 
 test("conceptual viewport keeps direct zoom controls and collapses section options instead of a tall toolbar", () => {
   const data={layout:{cabinets_per_row:10,cabinet_row_depth_in:24},cabinets:[],vertical_transitions:[],segment_annotations:[],

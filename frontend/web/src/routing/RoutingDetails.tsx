@@ -10,7 +10,7 @@ type Props = { data: ResolvedLayout; graph: RoutingGraph; selection: Selection; 
 export function RoutingDetails({ data, graph, selection, onSelect, canManage, busy, mutate }: Props) {
   const crossName = (uid: string) => routingCrossName(data, uid);
   const field = (name: string, value: unknown) => <div key={name}><dt>{name}</dt><dd>{String(value ?? "—")}</dd></div>;
-  if (!selection) return <div className="routing-empty"><h3>Inspect a pathway</h3><p>Select a passage, cold-side route, cabinet row, graph node, edge, or opening.</p><p>Tier 1 is solid, Tier 2 dashed, Tier 3 dash-dot.</p></div>;
+  if (!selection) return <details className="routing-guide"><summary>Inspect a pathway</summary><p>Select a passage, cold-side route, cabinet row, graph node, edge, or opening.</p><p>Tier 1 is solid, Tier 2 dashed, Tier 3 dash-dot.</p></details>;
   if (selection.kind === "cabinet") {
     const cabinet = data.cabinets?.find(c => c.cabinet_uid === selection.uid);
     const row = data.geometry.cabinet_rows.find(r => r.existing_cabinet_uids.includes(selection.uid));

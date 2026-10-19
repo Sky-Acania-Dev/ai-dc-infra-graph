@@ -102,6 +102,30 @@
 .section-bundle-detail p { font-size: 10px; line-height: 1.5; margin: 4px 0; }
 .segment-bundle-filter { padding: 8px; border: 1px solid #b4cce7; background: #eff6ff; border-radius: 4px; display: grid; gap: 6px; font-size: 11px; }
 .actual-review-notice { margin: 6px 0; padding: 8px 10px; background: #eef6ff; border: 1px solid #aac7e7; color: #254d76; font-size: 11px; line-height: 1.5; border-radius: 4px; }
+.routing-overview { margin: 8px 0; }
+.routing-overview-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.routing-overview-heading h3 { margin: 0 0 10px; font-size: 16px; }
+.routing-overview-heading > b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.routing-overview-stats { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+.routing-overview-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 9px; background: #eef6ff; border: 1px solid #aac7e7; border-radius: 4px; color: #254d76; }
+.routing-overview-stat > span { font-size: 12px; font-weight: 700; }
+.routing-overview-stat > strong { font-size: 22px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.routing-overview-stat > small { font-size: 10px; line-height: 1.4; }
+.routing-overview-local { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 10px 0; border-bottom: 1px solid #dbe3ec; }
+.routing-cable-key h4 { margin: 12px 0 5px; }
+.routing-cable-key ul { list-style: none; margin: 0; padding: 0; }
+.routing-cable-key li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #edf2f7; font-size: 13px; }
+.routing-cable-key li > span { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.routing-cable-key li i { display: inline-block; width: 22px; height: 5px; flex-shrink: 0; border-radius: 2px; }
+.routing-cable-key li b { font-variant-numeric: tabular-nums; }
+.routing-cable-key > small { display: block; margin-top: 6px; font-size: 10px; line-height: 1.4; color: #64748b; }
+.routing-pathway-key { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: #64748b; margin-top: 10px; }
+.routing-pathway-key span { display: flex; align-items: center; gap: 5px; }
+.routing-pathway-key i { display: inline-block; width: 20px; border-top: 3px solid; }
+.routing-side .routing-overview-description, .routing-side .routing-guide { background: #eef6ff; border: 1px solid #aac7e7; border-radius: 4px; color: #254d76; margin: 10px 0; }
+.routing-side .routing-overview-description > summary, .routing-side .routing-guide > summary { font-size: 14px; padding: 9px 10px; }
+.routing-overview-description > div, .routing-guide > p { padding: 0 10px; font-size: 11px; line-height: 1.5; }
+.routing-summary-status { font-size: 12px; }
 .cable-review-panel > label { display: grid; gap: 5px; font-size: 11px; }
 .cable-review-panel select { width: 100%; min-width: 0; }
 .route-pair-card { cursor: pointer; border: 1px solid transparent; }
