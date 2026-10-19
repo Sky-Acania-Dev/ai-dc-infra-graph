@@ -3,10 +3,11 @@ import { pointLabel } from "./manualRouteEngine";
 import { routeDetailScale } from "./RouteStroke";
 import type { ConceptualLayout } from "./conceptualLayout";
 import type { ManualPreview, PlanningSegment, ResolvedLayout, ReviewPath, Tier } from "./types";
+import { physicalPlanningTargets } from "./physicalTargets";
 
-export function ManualRouteLayer({data, view, segments, preview, scale, onAppend, onSegment, disabled, tiers, viewport}: {
+export function ManualRouteLayer({data, view, segments, preview, scale, onAppend, onSegment, onSegments, disabled, tiers, viewport}: {
   data: ResolvedLayout; view: ConceptualLayout; segments: PlanningSegment[]; preview: ManualPreview | null;
-  scale: number; onAppend: (ids: string[]) => void; onSegment: (id: string) => void; disabled: boolean; tiers?: Set<Tier>;
+  scale: number; onAppend: (ids: string[]) => void; onSegment?: (id: string) => void; onSegments?: (ids:string[])=>void; disabled: boolean; tiers?: Set<Tier>;
   viewport?: Viewport;
 }) {
   const detail = routeDetailScale(scale);
@@ -23,17 +24,19 @@ export function ManualRouteLayer({data, view, segments, preview, scale, onAppend
   const segmentDisabled = disabled || !preview || preview.complete;
   const currentTier = preview?.prefix.points.at(-1)?.tier;
   return <g className="manual-route-layer" aria-label="Manual route building paths">
-    {segments.filter(s => !tiers || tiers.has(s.source.tier) || tiers.has(s.target.tier)).sort((a,b)=>Number(a.tier === currentTier)-Number(b.tier === currentTier)).map(segment => {
+    {physicalPlanningTargets(segments,tiers).map(target => {
+      const segment = target.members.find(s=>s.tier === currentTier) ?? target.members[0];
       const a = projectReviewPoint(data,view,segment.source), b = projectReviewPoint(data,view,segment.target);
       if (!a || !b || !visibleLine(a,b,viewport)) return null;
       const route = {points: [segment.source, segment.target]} as ReviewPath;
-      return <g key={segment.id} className="manual-segment-target" data-planning-segment-id={segment.id} role="button" tabIndex={segmentDisabled ? -1 : 0} data-selectable="true"
-        aria-label={`Route via ${segment.label} · ${segment.edge_type === "VERTICAL" ? `Tier ${segment.source.tier} ↔ Tier ${segment.target.tier}` : `Tier ${segment.source.tier}`}`} aria-disabled={segmentDisabled}
-        onClick={event => {event.stopPropagation(); if (!segmentDisabled) onSegment(segment.id);}}
-        onKeyDown={event => {if (event.key === "Enter" || event.key === " ") {event.preventDefault(); event.stopPropagation(); if (!segmentDisabled) onSegment(segment.id);}}}>
+      const choose = ()=>onSegments ? onSegments(target.members.map(s=>s.id)) : onSegment?.(segment.id);
+      return <g key={target.id} className="manual-segment-target" data-planning-segment-id={segment.id} data-physical-pathway={target.id} role="button" tabIndex={segmentDisabled ? -1 : 0} data-selectable="true"
+        aria-label={`Route via ${segment.label}${segment.edge_type === "VERTICAL" ? ` · Tier ${segment.source.tier} ↔ Tier ${segment.target.tier}` : ""}`} aria-disabled={segmentDisabled}
+        onClick={event => {event.stopPropagation(); if (!segmentDisabled) choose();}}
+        onKeyDown={event => {if (event.key === "Enter" || event.key === " ") {event.preventDefault(); event.stopPropagation(); if (!segmentDisabled) choose();}}}>
         <g className="manual-segment-ink" pointerEvents="none">{line(route, "#94a3b8", 1.5)}</g>
         {hitArea(route)}
-        <title>{`Route via ${segment.label}; local A* connects the closer reachable endpoint. No request is sent.`}</title>
+        <title>{`Route via ${segment.label}; local A* connects the closer reachable endpoint on an available tier. No request is sent.`}</title>
       </g>;
     })}
     {preview && <>

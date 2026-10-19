@@ -88,6 +88,21 @@ export class ManualRouteEngine {
     const {draft: next, bridge} = candidates[0];
     return {draft: next, bridge, segment};
   }
+  connectPhysicalSegment(group: ReviewGroup, draft: ManualDraft, segmentIds: string[]) {
+    const candidates = [];
+    for (const id of [...new Set(segmentIds)].sort()) {
+      try {
+        const result = this.connectSegment(group,draft,id);
+        const added = result.draft.ids.slice(draft.ids.length);
+        const cost = {vertical:added.filter(e=>this.edges.get(e)!.edge_type === "VERTICAL").length,
+          length:added.reduce((n,e)=>n+this.edges.get(e)!.planar_length_in,0),ids:added};
+        candidates.push({...result,cost});
+      } catch { /* A physical target can have a tier that is unreachable from this draft. */ }
+    }
+    candidates.sort((a,b)=>compareCost(a.cost,b.cost));
+    if (!candidates.length) throw new Error("No visible tier of this pathway can connect without backtracking or a missing opening. Undo or choose another pathway.");
+    return candidates[0];
+  }
   validate(group: ReviewGroup, draft: ManualDraft) {
     const start = this.endpoint(group.source_cabinet_uid, draft.startTier), end = this.endpoint(group.destination_cabinet_uid, draft.endTier);
     if (!start || !end) throw new Error("The endpoints need enabled pathways on the selected tiers.");

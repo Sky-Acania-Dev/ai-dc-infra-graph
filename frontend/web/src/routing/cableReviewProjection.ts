@@ -30,8 +30,8 @@ export function reviewConnector(data: ResolvedLayout, view: ConceptualLayout, ui
   return {a: {x: tile.x + (tile.width - 2) / 2, y: tile.y + (row.position_in_pair === "A" ? 0 : tile.height - 2)}, b: route};
 }
 
-export function reviewGroupsForPart(review: CableReview, segmentId: string | null | undefined, loadId: string | null, cabinetUid: string | null) {
+export function reviewGroupsForPart(review: CableReview, segmentId: string | null | undefined, loadId: string | null, cabinetUid: string | null, junction?: {x_in:number;y_in:number}) {
   const load = review.loads.find(l => l.id === loadId);
   const members = new Set(load?.group_uids ?? []);
-  return review.groups.filter(g => load ? members.has(g.uid) : cabinetUid ? [g.source_cabinet_uid, g.destination_cabinet_uid].includes(cabinetUid) : segmentId ? g.route?.segment_ids.includes(segmentId) : true);
+  return review.groups.filter(g => load ? members.has(g.uid) : cabinetUid ? [g.source_cabinet_uid, g.destination_cabinet_uid].includes(cabinetUid) : segmentId ? g.route?.segment_ids.includes(segmentId) : junction ? g.route?.points.some(p=>p.x_in === junction.x_in && p.y_in === junction.y_in) : true);
 }

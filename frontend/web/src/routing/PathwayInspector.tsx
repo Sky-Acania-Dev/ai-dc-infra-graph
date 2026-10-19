@@ -31,13 +31,14 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
   const node = selection?.kind === "node" ? graph.nodes.find(n => n.id === selection.uid) : selectedEdge ? graph.nodes.find(n => n.id === selectedEdge.source_node_id) : undefined;
   const pointOwner = opening?.passage_band_uid ?? node?.passage_band_uid;
   const pointStation = opening?.station_in ?? node?.station_in;
-  const active = selection?.kind === "node" || selection?.kind === "transition" || selectedEdge?.edge_type === "VERTICAL" ? null : segment ?? conceptualSegments(data).find(s => s.cross_route_uid === fallbackRoute?.uid)
+  const pointSegment = pointOwner && pointStation != null ? { id: selection!.uid, label: opening?.label ?? (node ? `${node.passage_code} junction` : "Passage station"), passage_band_uid: pointOwner, cross_route_uid: null,
+    start_station_in: pointStation, end_station_in: pointStation, from_passage_band_uid: null, to_passage_band_uid: null,
+    width_in: data.bands.find(b => b.uid === pointOwner)!.width_in, planar_length_in: 0 } : null;
+  const active = selection?.kind === "node" ? pointSegment : selection?.kind === "transition" || selectedEdge?.edge_type === "VERTICAL" ? null : segment ?? conceptualSegments(data).find(s => s.cross_route_uid === fallbackRoute?.uid)
     ?? (selection?.kind === "passage" ? { id: selection.uid, label: `${data.bands.find(b => b.uid === selection.uid)?.code} passage`, passage_band_uid: selection.uid,
       cross_route_uid: null, start_station_in: 0, end_station_in: data.geometry.hall_length_in, from_passage_band_uid: null, to_passage_band_uid: null,
       width_in: data.bands.find(b => b.uid === selection.uid)!.width_in, planar_length_in: data.geometry.hall_length_in } : null)
-    ?? (pointOwner && pointStation != null ? { id: selection!.uid, label: opening?.label ?? node?.label ?? "Passage station", passage_band_uid: pointOwner, cross_route_uid: null,
-      start_station_in: pointStation, end_station_in: pointStation, from_passage_band_uid: null, to_passage_band_uid: null,
-      width_in: data.bands.find(b => b.uid === pointOwner)!.width_in, planar_length_in: 0 } : null);
+    ?? pointSegment;
   const model = useMemo(() => {
     if (!active) return null;
     const result = segmentTierModel(data, active, demoCables);

@@ -3,11 +3,11 @@ import { projectReviewPoint, reviewConnector, visibleLine, type Viewport } from 
 import { RouteStroke, routeDetailScale } from "./RouteStroke";
 import { focusedRouteGroups } from "./rackPairRoutes";
 import type { ConceptualLayout } from "./conceptualLayout";
-import type { CableClass, CableReview, ResolvedLayout, ReviewGroup, ReviewLoad, Tier } from "./types";
+import type { CableClass, CableReview, ResolvedLayout, ReviewGroup, Tier } from "./types";
 
-export function CableReviewLayer({data, view, review, scale, selectedGroupUid, selectedLoadId, onLoad, onAttachment, tiers, focusedPairKey = null, viewport, selectedCabinetUids}: {
-  data: ResolvedLayout; view: ConceptualLayout; review: CableReview; scale: number; selectedGroupUid: string | null; selectedLoadId: string | null;
-  onLoad: (load: ReviewLoad) => void; onAttachment: (uid: string) => void;
+export function CableReviewLayer({data, view, review, scale, selectedGroupUid, selectedSegmentId = null, onAttachment, tiers, focusedPairKey = null, viewport, selectedCabinetUids}: {
+  data: ResolvedLayout; view: ConceptualLayout; review: CableReview; scale: number; selectedGroupUid: string | null; selectedSegmentId?: string | null;
+  onAttachment: (uid: string) => void;
   tiers?: Set<Tier>; focusedPairKey?: string | null; viewport?: Viewport;
   selectedCabinetUids?: ReadonlySet<string>;
 }) {
@@ -25,6 +25,7 @@ export function CableReviewLayer({data, view, review, scale, selectedGroupUid, s
     return [...byAttachment.values()];
   }, [review]);
   const detail = routeDetailScale(scale);
+  const cabinetTargets = new Set<string>();
   const offsetPoint = (p: {x: number; y: number}, tier: Tier | null) => {const offset = tier ? (tier - 2) * 4 * detail / scale : 0; return {x: p.x + offset, y: p.y + offset};};
   return <g className="actual-cable-review-layer" aria-label="Provisional routes for actual inventory cables">
     {review.loads.map(load => {
@@ -35,10 +36,8 @@ export function CableReviewLayer({data, view, review, scale, selectedGroupUid, s
       const active = hasFocus ? load.group_uids.filter(uid=>focusedUids.has(uid)).map(uid=>groupsByUid.get(uid)!) : [];
       const muted = hasFocus && !active.length;
       const classes = hasFocus ? [...new Set(active.flatMap(g=>g.cable_class ? [g.cable_class] : []))] : load.cable_classes;
-      return <g key={load.id} data-selectable="true" role="button" tabIndex={0} aria-label={`Inspect actual cable segment ${load.id}`} data-route-muted={muted || undefined} opacity={muted ? .35 : 1}
-        onClick={e => {e.stopPropagation(); onLoad(load);}} onKeyDown={e => {if (e.key === "Enter" || e.key === " ") {e.preventDefault(); e.stopPropagation(); onLoad(load);}}}>
-        {load.edge_type === "VERTICAL" ? <g><circle cx={a.x} cy={a.y} r={4*detail/scale} fill="#fff" stroke={muted ? "#94a3b8" : "#7855a1"} vectorEffect="non-scaling-stroke" />{(scale >= .8 || active.length > 0 || selectedLoadId === load.id) && <text x={a.x+8/scale} y={a.y-6/scale} fontSize={10/scale}>T{load.lower_tier} ↕ T{load.upper_tier}</text>}</g> : <RouteStroke a={a} b={b} scale={scale} tier={load.tier ?? undefined} cableClasses={classes} selected={hasFocus ? !muted : selectedLoadId === load.id} />}
-        <rect x={Math.min(a.x,b.x)-8/scale} y={Math.min(a.y,b.y)-8/scale} width={Math.abs(a.x-b.x)+16/scale} height={Math.abs(a.y-b.y)+16/scale} fill="transparent" />
+      return <g key={load.id} pointerEvents="none" data-route-muted={muted || undefined} opacity={muted ? .35 : 1}>
+        {load.edge_type === "VERTICAL" ? <g><circle cx={a.x} cy={a.y} r={4*detail/scale} fill="#fff" stroke={muted ? "#94a3b8" : "#7855a1"} vectorEffect="non-scaling-stroke" />{(scale >= .8 || active.length > 0) && <text x={a.x+8/scale} y={a.y-6/scale} fontSize={10/scale}>T{load.lower_tier} ↕ T{load.upper_tier}</text>}</g> : <RouteStroke a={a} b={b} scale={scale} tier={load.tier ?? undefined} cableClasses={classes} selected={hasFocus ? !muted : selectedSegmentId === load.segment_id} />}
         <title>{`${load.cable_count.toLocaleString()} actual cables · ${load.group_uids.length} type/rack-pair groups · ${load.tier ? `Tier ${load.tier}` : `Tier ${load.lower_tier} ↕ ${load.upper_tier}`}`}</title>
       </g>;
     })}
@@ -47,14 +46,17 @@ export function CableReviewLayer({data, view, review, scale, selectedGroupUid, s
       const first = groups[0]; if (!first?.route) return null;
       const point = first.source_cabinet_uid === uid ? first.route.points[0] : first.route.points.at(-1)!;
       const connector = reviewConnector(data, view, uid, point); if (!connector || !visibleLine(connector.a,connector.b,viewport)) return null;
+      const interactive = !cabinetTargets.has(uid); cabinetTargets.add(uid);
       connector.b = offsetPoint(connector.b,tier);
       const active = groups.filter(g=>focusedUids.has(g.uid));
       const muted = hasFocus && !active.length;
       const classes = [...new Set((hasFocus ? active : groups).flatMap(g => g.cable_class ? [g.cable_class] : []))] as CableClass[];
-      return <g key={`${uid}:${tier}`} role="button" tabIndex={0} data-selectable="true" aria-label={`Inspect actual cable attachment ${data.cabinets.find(c => c.cabinet_uid === uid)?.cabinet_id} Tier ${tier}`} data-route-muted={muted || undefined} opacity={muted ? .35 : 1}
-        onClick={e => {e.stopPropagation(); onAttachment(uid);}} onKeyDown={e => {if (e.key === "Enter") onAttachment(uid);}}>
-        <RouteStroke {...connector} scale={scale} cableClasses={classes} tier={tier} />
-        <rect x={Math.min(connector.a.x,connector.b.x)-8/scale} y={Math.min(connector.a.y,connector.b.y)-8/scale} width={Math.abs(connector.a.x-connector.b.x)+16/scale} height={Math.abs(connector.a.y-connector.b.y)+16/scale} fill="transparent" />
+      return <g key={`${uid}:${tier}`} data-route-muted={muted || undefined} opacity={muted ? .35 : 1}>
+        <g pointerEvents="none"><RouteStroke {...connector} scale={scale} cableClasses={classes} tier={tier} /></g>
+        {interactive && <g role="button" tabIndex={0} data-selectable="true" aria-label={`Inspect actual cable attachment ${data.cabinets.find(c => c.cabinet_uid === uid)?.cabinet_id}`}
+          onClick={e=>{e.stopPropagation();onAttachment(uid);}} onKeyDown={e=>{if(e.key === "Enter" || e.key === " "){e.preventDefault();e.stopPropagation();onAttachment(uid);}}}>
+          <rect x={Math.min(connector.a.x,connector.b.x)-8/scale} y={Math.min(connector.a.y,connector.b.y)-8/scale} width={Math.abs(connector.a.x-connector.b.x)+16/scale} height={Math.abs(connector.a.y-connector.b.y)+16/scale} fill="transparent" />
+        </g>}
         <title>Schematic cabinet takeoff · actual cable members · no measured drop length</title>
       </g>;
     })}

@@ -27,6 +27,39 @@ const CabinetConnectionsPanel = await component("../components/CabinetConnection
 const ManualBatchPanel = await component("ManualRouteBatchPanel", "ManualRouteBatchPanel");
 const ManualLayer = await component("ManualRouteLayer", "ManualRouteLayer");
 const RackPairCards = await component("RackPairRouteCards", "RackPairRouteCards");
+const ConceptualGraph = await component("ConceptualGraph", "ConceptualGraph");
+const PathwayInspector = await component("PathwayInspector", "PathwayInspector");
+
+test("physical junction inspection shows every tier instead of one graph node's tier", () => {
+  const band={uid:'central',kind:'PASSAGE',code:'CENTRAL',width_in:24,center_in:382,ordinal:2};
+  const nodes=[1,2,3].map(tier=>({id:`node${tier}`,tier,passage_code:'CENTRAL',passage_band_uid:'central',station_in:900,x_in:900,y_in:382,label:null}));
+  const data={layout:{physical_hall_code:'DH1',longitudinal_direction:'EAST',bottom_basket_elevation_in:98},
+    bands:[band],geometry:{bands:[band],cabinet_rows:[],cross_routes:[],sections:[],gaps:[],hall_length_in:1000,total_width_in:788},
+    passage_tiers:[1,2,3].map(tier=>({tier,passage_band_uid:'central',enabled:true,pathway_type:tier===1?'BASKET_TRAY':'LADDER_RACK',effective_elevation_in:98+(tier-1)*12})),
+    cross_route_tiers:[],vertical_transitions:[],segment_annotations:[],bundle_placements:[],bundle_connections:[],cabinet_attachments:[],section_occupations:[],cabinets:[],cross_routes:[],cabinet_rows:[],sections:[]};
+  const html=renderToStaticMarkup(React.createElement(PathwayInspector,{data,graph:{nodes,edges:[]},selection:{kind:'node',uid:'node1'},segment:null,attachmentUid:null,canManage:false,busy:false,mutate:async()=>true,onSelect:()=>{},onOpenRouting:()=>{},selectedPlacementUid:null,onSelectPlacement:()=>{},reviewGroupCount:406}));
+  assert.match(html,/CENTRAL junction/);
+  for(const tier of [1,2,3]) assert.match(html,new RegExp(`aria-label="T${tier} 12 by 8 occupation grid`));
+  assert.match(html,/406 actual type\/rack-pair groups/);
+  assert.doesNotMatch(html,/Junction.*Tier 1<\/h3>|Stable node ID/);
+});
+
+test("conceptual junctions have one click target across three graph tiers", () => {
+  const nodes=[1,2,3].map(tier=>({id:`n${tier}`,tier,node_type:'JUNCTION',x_in:120,y_in:382,station_in:120,passage_code:'CENTRAL',passage_band_uid:'central'}));
+  const html=renderToStaticMarkup(React.createElement(ConceptualGraph,{data:{vertical_transitions:[]},graph:{nodes,edges:[]},view:{projectNode:()=>({x:10,y:120})},scale:1,tiers:new Set([1,2,3]),selection:null,onSelect:()=>{}}));
+  assert.equal((html.match(/data-physical-junction=/g)??[]).length,1);
+  assert.equal((html.match(/role="button"/g)??[]).length,1);
+  assert.match(html,/Tier 1 \/ Tier 2 \/ Tier 3/);
+  assert.doesNotMatch(html,/Select node n[123]/);
+});
+
+test("manual pathway targets combine tiers while retaining each physical opening", () => {
+  const p=(x,tier)=>({node_id:`${x}:${tier}`,x_in:x,y_in:382,tier,passage_band_uid:'central',cabinet_uid:null});
+  const segments=[1,2,3].map(tier=>({id:`edge${tier}`,segment_id:'physical',label:'Central R1–2',source:p(0,tier),target:p(120,tier),tier,edge_type:'PASSAGE'}));
+  const html=renderToStaticMarkup(React.createElement(ManualLayer,{data:{geometry:{bands:[]}},view:{cabinets:[],passageX:new Map([['central',10]]),stationY:x=>x},segments,preview:null,scale:1,onAppend:()=>{},onSegments:()=>{},disabled:false,tiers:new Set([1,2,3])}));
+  assert.equal((html.match(/class="manual-segment-target"/g)??[]).length,1);
+  assert.match(html,/aria-label="Route via Central R1–2"/);
+});
 
 test("full inventory rack cards paginate and expose search instead of rendering the whole hall", () => {
   const groups = Array.from({length:500},(_,i)=>({uid:`g${i}`,source_cabinet_uid:`s${i}`,destination_cabinet_uid:`z${i}`,source_cabinet_id:String(i),destination_cabinet_id:String(i+801),cable_type:'LC',count:100,cable_uids:[],route:null,start_tier:2,end_tier:2,route_source:'DEFAULT'}));
@@ -74,13 +107,13 @@ test("manual SVG makes distant enabled segments accessible and locks them after 
   const props={data:{geometry:{bands:[]}},view:{cabinets:[],passageX:new Map([['central',10]]),stationY:x=>x},segments:[segment,{...segment,id:'hidden',source:p(240,2),target:p(360,2)}],
     preview:{complete:false,prefix:{points:[p(0)]},next_chains:[],destination:p(480)},scale:1,onAppend:()=>{},onSegment:()=>{},disabled:false,tiers:new Set([1])};
   const html=renderToStaticMarkup(React.createElement(ManualLayer,props));
-  assert.match(html,/data-planning-segment-id="remote" role="button" tabindex="0"/);
-  assert.match(html,/Route via Central R3–4 · Tier 1/);
+  assert.match(html,/data-planning-segment-id="remote" data-physical-pathway="[^"]+" role="button" tabindex="0"/);
+  assert.match(html,/aria-label="Route via Central R3–4"/);
   assert.match(html,/local A\* connects the closer reachable endpoint/);
   assert.match(html,/<rect x="1" y="231" width="18" height="138" fill="transparent"/);
   assert.doesNotMatch(html,/data-planning-segment-id="hidden"/);
   const complete=renderToStaticMarkup(React.createElement(ManualLayer,{...props,preview:{...props.preview,complete:true}}));
-  assert.match(complete,/data-planning-segment-id="remote" role="button" tabindex="-1"/);
+  assert.match(complete,/data-planning-segment-id="remote" data-physical-pathway="[^"]+" role="button" tabindex="-1"/);
   assert.match(complete,/aria-disabled="true"/);
 });
 
@@ -265,12 +298,13 @@ test("cabinet cards preserve completion, type totals and cable actions after sha
   }
 });
 
-test("a straight actual-cable segment has a nonzero rectangular mouse target", () => {
+test("actual tier strokes defer selection to the shared physical pathway target", () => {
   const point = x => ({x_in:x, y_in:382, passage_band_uid:'central', cabinet_uid:null});
   const review = {groups:[], cabinet_uids:[], loads:[{id:'load', source:point(0), target:point(120), cable_classes:['LC'], group_uids:[], cable_count:4}]};
   const view = {cabinets:[], passageX:new Map([['central',10]]), stationY:x=>x};
   const html = renderToStaticMarkup(React.createElement(CableReviewLayer, {data:{geometry:{bands:[]}}, view, review, scale:1, selectedGroupUid:null, selectedLoadId:null, onLoad:()=>{}, onAttachment:()=>{}}));
-  assert.match(html, /<rect x="2" y="-8" width="16" height="136" fill="transparent"/);
+  assert.match(html, /pointer-events="none"/);
+  assert.doesNotMatch(html, /role="button"|tabindex=|Inspect actual cable segment/);
 });
 
 test("rectangle editor accepts feet/inches and does not treat rectangle-only records as grid placements", () => {

@@ -14,6 +14,53 @@ import { loadRoutingCableTable } from "../src/routing/routingCableDetails.ts";
 import { ManualRouteEngine } from "../src/routing/manualRouteEngine.ts";
 import { reviewPairKey, rackPairCards, focusedRouteGroups, routeActionLabel } from "../src/routing/rackPairRoutes.ts";
 import { decodeCableReview } from "../src/routing/reviewEncoding.ts";
+import {physicalJunctions,physicalPlanningTargets} from "../src/routing/physicalTargets.ts";
+
+test("physical targets combine plan locations without merging distinct tier openings", () => {
+  const p=(x,tier)=>({id:`${x}:${tier}`,x_in:x,y_in:382,tier});
+  assert.equal(physicalJunctions([p(0,1),p(0,2),p(0,3),p(120,1)],new Set([1,2,3])).length,2);
+  assert.deepEqual(physicalJunctions([p(0,1),p(0,2),p(0,3)],new Set([2]))[0].members.map(p=>p.tier),[2]);
+  const horizontal=[1,2,3].map(tier=>({id:`e${tier}`,segment_id:'physical',edge_type:'PASSAGE',source:p(0,tier),target:p(120,tier)}));
+  const openings=[{id:'v12',edge_type:'VERTICAL',vertical_transition_uid:'opening12',source:p(0,1),target:p(0,2)},{id:'v23',edge_type:'VERTICAL',vertical_transition_uid:'opening23',source:p(0,2),target:p(0,3)}];
+  const result=physicalPlanningTargets([...horizontal,...openings],new Set([1,2,3]));
+  assert.deepEqual(result.map(t=>t.members.length),[3,1,1]);
+});
+
+test("physical segment and junction inspection include all tiers without unrelated cables", () => {
+  const p=(x,tier)=>({x_in:x,y_in:382,tier});
+  const group=(uid,tier,segment='physical')=>({uid,route:{segment_ids:[segment],points:[p(0,tier),p(120,tier)]}});
+  const review={groups:[group('bottom',1),group('middle',2),group('top',3),{uid:'away',route:{segment_ids:['elsewhere'],points:[p(240,1),p(360,1)]}}],loads:[]};
+  assert.deepEqual(reviewGroupsForPart(review,'physical',null,null).map(g=>g.uid),['bottom','middle','top']);
+  assert.deepEqual(reviewGroupsForPart(review,null,null,null,p(0,1)).map(g=>g.uid),['bottom','middle','top']);
+});
+
+test("manual physical clicks choose a reachable tier locally and keep one undo action", () => {
+  const {segments,group,draft}=manualFixture();
+  const unavailable={...segments[2],id:'upper',source:{...segments[2].source,tier:2},target:{...segments[2].target,tier:2}};
+  const engine=new ManualRouteEngine([...segments,unavailable]);
+  const oldFetch=globalThis.fetch;globalThis.fetch=()=>assert.fail('No request during physical pathway selection');
+  try {
+    const result=engine.connectPhysicalSegment(group,draft,['upper','n-ne']);
+    assert.equal(result.segment.id,'n-ne');
+    assert.deepEqual(result.draft.checkpoints,[0]);
+    assert.equal(result.bridge.vertical_transition_count,0);
+    assert.throws(()=>engine.connectPhysicalSegment(group,draft,['upper']),/No visible tier/);
+  } finally {globalThis.fetch=oldFetch;}
+});
+
+test("physical manual targets prefer fewer tier changes and require an actual opening for another tier", () => {
+  const {segments,group,draft}=manualFixture(), base=segments.find(e=>e.id === 'n-ne');
+  const upper={...base,id:'upper',source:{...base.source,tier:2},target:{...base.target,tier:2},tier:2};
+  const opening={id:'opening',segment_id:'opening',label:'Physical T1-T2 opening',source:base.source,target:upper.source,
+    edge_type:'VERTICAL',lower_tier:1,upper_tier:2,tier:null,vertical_transition_uid:'hole',planar_length_in:0};
+  const engine=new ManualRouteEngine([...segments,upper,opening]);
+  assert.equal(engine.connectPhysicalSegment(group,draft,['upper','n-ne']).segment.id,'n-ne');
+  const changed=engine.connectPhysicalSegment(group,draft,['upper']);
+  assert.equal(changed.segment.id,'upper');
+  assert.ok(changed.draft.ids.includes('opening'));
+  assert.equal(changed.bridge.vertical_transition_count,1);
+  assert.equal(opening.planar_length_in,0);
+});
 
 test("full inventory hydrates indexed tier paths without fetching individual cables", () => {
   const {segments} = manualFixture();

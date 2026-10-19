@@ -33,10 +33,10 @@ export function useManualRouteEditor(layoutUid: string | undefined, review: Cabl
     const next = {...draft, ids: [...draft.ids, ...ids], checkpoints: [...draft.checkpoints, draft.ids.length]};
     try {engine.preview(active, next); change(next);} catch (reason) {setError(String(reason));}
   };
-  const chooseSegment = (id: string) => {
+  const chooseSegments = (ids: string[]) => {
     if (!editing || !active || !draft || busy || topologyChanged) return;
     try {
-      const result = engine.connectSegment(active, draft, id);
+      const result = engine.connectPhysicalSegment(active, draft, ids);
       change(result.draft);
       setMessage(result.bridge.load_ids.length
         ? `Connected to ${result.segment.label} with a local A* bridge: ${formatInches(result.bridge.planar_length_in)} · ${result.bridge.vertical_transition_count} tier changes. Undo removes this whole choice.`
@@ -78,7 +78,7 @@ export function useManualRouteEditor(layoutUid: string | undefined, review: Cabl
     canSave: Boolean(groups.length && groups.length === selected.length && completed === groups.length && !topologyChanged && !busy),
     toggle: (uid: string) => {if (!editing && !busy) setSelected(ids => ids.includes(uid) ? ids.filter(id => id !== uid) : [...ids, uid]);},
     selectShown: (shown: ReviewGroup[]) => {if (!editing && !busy) setSelected(ids => [...new Set([...ids, ...shown.map(g => g.uid)])]);},
-    clearSelected: () => {if (!editing && !busy) setSelected([]);}, begin, cancel, append, chooseSegment, save, reset,
+    clearSelected: () => {if (!editing && !busy) setSelected([]);}, begin, cancel, append, chooseSegments, chooseSegment: (id:string)=>chooseSegments([id]), save, reset,
     reload: () => {cancel(); reload();},
     undo: () => {if (draft) change({...draft, ids: draft.ids.slice(0, draft.checkpoints.at(-1) ?? Math.max(0, draft.ids.length - 1)), checkpoints: draft.checkpoints.slice(0, -1)});},
     clearDraft: () => {if (draft) change({...draft, ids: [], checkpoints: []});},
