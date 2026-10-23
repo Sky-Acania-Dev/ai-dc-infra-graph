@@ -53,6 +53,10 @@ def snapshot(session: Session, uid: str) -> dict:
     for resource, (model, _) in RESOURCES.items():
         result[resource.replace('-', '_')] = [record(row) for row in session.scalars(
             select(model).where(model.routing_layout_uid == uid).order_by(model.uid))]
+    # The global graph/overview needs revision metadata, never every explicit cable ID.
+    columns = [c for c in db.RoutingBundleContents.__table__.columns if c.name != 'units']
+    result['bundle_contents'] = [dict(row._mapping) for row in session.execute(select(*columns)
+        .where(db.RoutingBundleContents.routing_layout_uid == uid).order_by(db.RoutingBundleContents.uid))]
     return result
 
 
@@ -254,6 +258,9 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
             if referenced is None or referenced.routing_layout_uid != layout_uid:
                 raise RoutingConfigurationError(f'{field} must reference a record in this layout.')
     if resource == 'bundle-placements':
+        if existing is not None and original_source != (values['source_kind'], values['source_uid']) and session.scalar(
+            select(db.RoutingBundleContents.uid).where(db.RoutingBundleContents.bundle_placement_uid == existing.uid).limit(1)):
+            raise RoutingConfigurationError('Clear bundle-local contents before changing the parent membership reference.')
         parent = session.get(db.RoutingSegmentAnnotation, values['segment_annotation_uid'])
         if parent is None or parent.routing_layout_uid != layout_uid:
             raise RoutingConfigurationError('Bundle placement must reference a segment marking in this layout.')

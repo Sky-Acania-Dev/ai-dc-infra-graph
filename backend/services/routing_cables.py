@@ -22,8 +22,24 @@ def placement_cables(session, layout_uid, placement_uid):
         raise RoutingNotFound('Bundle placement was not found in this layout.')
     label, available = resolve_source(session, layout, record(placement))
     result = {'placement_uid': placement_uid, 'label': label, 'source_available': available, 'cables': [], 'summary': []}
-    if not available or placement.source_kind == 'MANUAL':
+    if not available:
         return result
+    if placement.source_kind == 'MANUAL':
+        from backend.services.routing_bundle_contents import manual_content_members
+        members = manual_content_members(session, layout, placement)
+        if not members:
+            return result
+    else:
+        members = placement_member_query(session, layout, placement)
+    result['cables'] = inventory_cables(session, layout, members=members)
+    counts = Counter((c['cable_type'], c['source_cabinet_id'], c['destination_cabinet_id']) for c in result['cables'])
+    result['summary'] = [{'cable_type': key[0], 'source_cabinet_id': key[1], 'destination_cabinet_id': key[2], 'count': count}
+                         for key, count in sorted(counts.items(), key=lambda item: tuple(v or '' for v in item[0]))]
+    return result
+
+
+def placement_member_query(session, layout, placement):
+    """Existing authoritative membership; ordering never rewrites it."""
     room = session.get(db.Room, layout.room_uid)
     if placement.source_kind == 'BUNDLE':
         members = select(db.CableBundleCable.cable_uid).where(db.CableBundleCable.cable_bundle_uid == placement.source_uid)
@@ -35,11 +51,7 @@ def placement_cables(session, layout_uid, placement_uid):
             db.CableBundleCable.cable_bundle_uid.in_(bundles), db.CableBundle.project_uid == room.project_uid,
             db.CableBundle.building_uid == room.building_uid, db.CableBundle.deleted_at.is_(None))
         members = union(direct, indirect)
-    result['cables'] = inventory_cables(session, layout, members=members)
-    counts = Counter((c['cable_type'], c['source_cabinet_id'], c['destination_cabinet_id']) for c in result['cables'])
-    result['summary'] = [{'cable_type': key[0], 'source_cabinet_id': key[1], 'destination_cabinet_id': key[2], 'count': count}
-                         for key, count in sorted(counts.items(), key=lambda item: tuple(v or '' for v in item[0]))]
-    return result
+    return members
 
 
 def inventory_cables(session, layout, *, members=None, cabinet_uids=None):

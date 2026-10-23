@@ -17,6 +17,7 @@ from backend.services import routing_configuration as config
 from backend.services.routing_graph import derive_graph
 from backend.services.routing_pathfinding import NoRoutingPath, preview_route
 from backend.schemas.routing_manual import ManualBatchInput, ManualPreviewInput
+from backend.schemas.routing_bundle_contents import BundleContentsInput, SectionEnd
 from backend.services.routing_manual_routes import RoutingRouteConflict, preview_manual_route, update_manual_batch, initialize_test_tiers
 
 router = APIRouter(prefix='/routing', tags=['routing'])
@@ -134,6 +135,43 @@ def get_placement_cables(layout_uid: str, placement_uid: str, user: AuthUser = D
     from backend.services.routing_cables import placement_cables
     with routing_session() as session:
         return placement_cables(session, layout_uid, placement_uid)
+
+
+@router.get('/layouts/{layout_uid}/bundle-placements/{placement_uid}/contents')
+def get_bundle_contents(layout_uid: str, placement_uid: str, section_end: SectionEnd = 'SPAN', user: AuthUser = Depends(current_user)):
+    from backend.services.routing_bundle_contents import get_contents
+    with routing_session() as session:
+        return get_contents(session, layout_uid, placement_uid, section_end)
+
+
+@router.put('/layouts/{layout_uid}/bundle-placements/{placement_uid}/contents')
+def set_bundle_contents(layout_uid: str, placement_uid: str, request: BundleContentsInput, section_end: SectionEnd = 'SPAN', user: AuthUser = Depends(current_user)):
+    require_manager(user)
+    from backend.services.routing_bundle_contents import write_contents
+    with routing_session() as session:
+        return write_contents(session, layout_uid, placement_uid, section_end, request)
+
+
+@router.delete('/layouts/{layout_uid}/bundle-placements/{placement_uid}/contents', status_code=204)
+def delete_bundle_contents(layout_uid: str, placement_uid: str, expected_version: str, section_end: SectionEnd = 'SPAN', user: AuthUser = Depends(current_user)):
+    require_manager(user)
+    from backend.services.routing_bundle_contents import write_contents
+    with routing_session() as session:
+        write_contents(session, layout_uid, placement_uid, section_end, expected_version, remove=True)
+
+
+@router.get('/layouts/{layout_uid}/bundle-placements/{placement_uid}/contents/units/{unit_uid}/cables')
+def get_content_unit_cables(layout_uid: str, placement_uid: str, unit_uid: str, section_end: SectionEnd = 'SPAN', user: AuthUser = Depends(current_user)):
+    from backend.services.routing_bundle_contents import unit_cables
+    with routing_session() as session:
+        return unit_cables(session, layout_uid, placement_uid, section_end, unit_uid)
+
+
+@router.get('/layouts/{layout_uid}/bundle-connections/{connection_uid}/unit-order')
+def get_connection_unit_order(layout_uid: str, connection_uid: str, user: AuthUser = Depends(current_user)):
+    from backend.services.routing_bundle_contents import connection_unit_order
+    with routing_session() as session:
+        return connection_unit_order(session, layout_uid, connection_uid)
 
 
 @router.get('/layouts/{layout_uid}/cable-review')

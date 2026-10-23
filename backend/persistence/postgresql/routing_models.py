@@ -260,6 +260,22 @@ class RoutingBundleConnection(LayoutChild, Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class RoutingBundleContents(LayoutChild, Base):
+    """Bundle-local ordinal packing of rack-pair or explicit cable-list units."""
+    __tablename__ = 'routing_bundle_contents'
+    __table_args__ = (
+        UniqueConstraint('bundle_placement_uid', 'section_end', name='uq_routing_bundle_contents_end'),
+        CheckConstraint("section_end IN ('SPAN','START','END')", name='ck_routing_bundle_contents_end'),
+        CheckConstraint('grid_columns BETWEEN 1 AND 64 AND grid_rows BETWEEN 1 AND 64', name='ck_routing_bundle_contents_grid'),
+    )
+    bundle_placement_uid: Mapped[str] = mapped_column(ForeignKey('routing_bundle_placements.uid', ondelete='CASCADE'), index=True)
+    section_end: Mapped[str] = mapped_column(Text)
+    grid_columns: Mapped[int] = mapped_column(Integer, default=12)
+    grid_rows: Mapped[int] = mapped_column(Integer, default=8)
+    units: Mapped[list[dict]] = mapped_column(JSONB, default=list)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
 class RoutingJunctionArea(LayoutChild, Base):
     """Physical working area anchored to domain topology, never a generated node FK."""
     __tablename__ = 'routing_junction_areas'

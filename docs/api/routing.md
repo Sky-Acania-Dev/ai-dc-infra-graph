@@ -1,6 +1,6 @@
 # LBB01 schematic routing API
 
-Routing describes technician-facing cold-aisle pathways in local integer inches. It uses existing PostgreSQL `Room` and `Cabinet` entities and stores fourteen routing domain tables, including optional manual segment markings, bundle occupations/connections, cabinet attachments and manual cable-group routes. Generated graph nodes and edges are never persisted. Existing cable topology and halls without routing layouts continue to work independently.
+Routing describes technician-facing cold-aisle pathways in local integer inches. It uses existing PostgreSQL `Room` and `Cabinet` entities and stores routing domain tables, including optional manual segment markings, bundle occupations/contents/connections, junction working areas, cabinet attachments and manual cable-group routes. Generated graph nodes and edges are never persisted. Existing cable topology and halls without routing layouts continue to work independently.
 
 ## Setup
 
@@ -298,5 +298,46 @@ Read-only validation on an isolated full database clone covered 699,243 cables, 
 Repeat the isolated read-only audit with `python -m tests.performance.check_routing_junctions` after setting `DATABASE_URL` to a migrated test copy. It writes node previews and a manual-route fingerprint under `tmp/`; it does not create fixtures or save assignments.
 
 Final checks: 79 routing/junction/manual/inventory/group backend tests and 91 frontend routing tests pass; TypeScript and the production build pass. Migration upgrade/downgrade/upgrade, backend startup and rollback-only junction-area CRUD pass against the isolated PostgreSQL copy. Browser checks verify the actual 801↔811 four-cable LC detail table, retained connection sections after mouse selection, plan/underside invariance and navigation from a physical opening to its junction. Upper-tier previews correctly report unknown geometry for explicit vertical-opening traversals. Production remains on `074ca9e2b613`, with the original manual-route fingerprint and Docker containers unchanged.
+
+### Bundle-local atomic-unit ordering (2026-10-23)
+
+Migration `2b6e9a1c4d70` adds `routing_bundle_contents`, keyed by existing bundle placement and section end. Each record stores a configurable **12-column × 8-layer ordinal grid** inside that placement's occupation box, plus actual-unit selectors and footprints. This is a second coordinate level: pathway placement locates the outer box; bundle-local positions locate units inside it. Internal layers are not routing tiers, feet/inches, cable diameters or a capacity calculation.
+
+An atomic unit is either:
+
+- `RACK_PAIR`: actual `source_cabinet_uid`, `destination_cabinet_uid` and one `cable_type`. Both A/Z directions are included, using existing cabinet identities. Membership follows the live matching inventory; no cable rows are copied.
+- `CABLE_LIST`: a nonempty, duplicate-free `cable_uids` array. One ID is a single-cable unit; several IDs remain **one unit with one footprint**, even if they have different pairs/types. Input list order is retained as metadata. The stable unit identity depends on membership, independent of list ordering or view direction. Lists currently accept at most 10,000 IDs.
+
+Each unit has 1-based `layer`, `position`, `slot_width` and `slot_height`. Footprints may span multiple cells; they must fit and cannot overlap. A cable cannot occur in two units in the same arrangement, including overlap between a rack-pair selector and an explicit list. Every member must be an active cable with active endpoints in the layout's hall/building. For an outer box referencing an existing GROUP/BUNDLE, contents must be subsets of that authoritative membership. Partial assignment is allowed and its unassigned count is explicit. A labeled MANUAL outer box gets its actual membership from its defined units; existing entity-group/bundle memberships are never rewritten.
+
+Column 1 begins at the outer placement's section-reference side: INNER toward cabinets/hot aisle where defined, otherwise a cardinal reference. CENTRAL uses NORTH and has no INNER side. Layer 1 is the bottom of the **bundle box**. Responses include the reference frame, a 2D integer `cells` array (row zero = layer 1/bottom), stable unit IDs, labels, counts and membership status. Nonzero cells reference unit ordinals, not individual cables. Quantities never create extra stack layers automatically; four units can all be at layer 1 if their declared footprints fit. Physical packing remains unverified.
+
+Endpoints under `/routing/layouts/{layout_uid}`:
+
+- `GET /bundle-placements/{placement_uid}/contents?section_end=SPAN`: read the grid, units, coverage, errors and optimistic `version`. `section_end` also accepts `START` or `END`.
+- `PUT` on the same URL: atomically replace that entire arrangement with `{expected_version, grid_columns, grid_rows, units, notes}`. Use the version from GET. All units are validated before any write, so swaps do not fail against intermediate positions. Stale parent/configuration/inventory versions return 409; invalid footprints, references or duplicate members return 422. Manager access is required.
+- `DELETE` on the same URL with `expected_version` and optional `section_end`: remove that arrangement. Manager access is required. Deleting an endpoint override restores inheritance from SPAN.
+- `GET /bundle-placements/{placement_uid}/contents/units/{unit_uid}/cables?section_end=SPAN`: lazily read only that unit's real cable records, using the existing cable-detail fields. Rack-pair units do not expand member IDs in the global/resolved-layout metadata.
+- `GET /bundle-connections/{connection_uid}/unit-order`: return the effective FROM/TO endpoint arrangements and links matched by actual cable membership. Links include their cable counts; split/partial memberships remain explicit through unmatched counts. Status `ORDINAL_ONLY` means no physical internal cable curve or bend length has been generated.
+
+SPAN is the default arrangement at both ends. A START or END record is a **complete endpoint override**, not a per-unit merge. Missing or unpositioned units are never silently packed into spare cells. Retired references retain their stored positions and return `STALE`; reads do not delete them. Parent membership references cannot change until their existing local arrangements are explicitly cleared.
+
+Example PUT body (replace placeholder UIDs and use a current version):
+
+```json
+{
+  "expected_version": "version-from-GET",
+  "grid_columns": 12,
+  "grid_rows": 8,
+  "units": [
+    {"kind": "RACK_PAIR", "source_cabinet_uid": "cabinet-a-uid", "destination_cabinet_uid": "cabinet-b-uid", "cable_type": "MPO12-SMF", "layer": 1, "position": 1, "slot_width": 3},
+    {"kind": "CABLE_LIST", "cable_uids": ["actual-cable-uid-1", "actual-cable-uid-2"], "layer": 1, "position": 4, "slot_width": 2}
+  ]
+}
+```
+
+These APIs do not optimize or automatically repack the current schematic preview. Bundle-centerline intersection statistics retain their existing scope; sub-unit physical paths/crossing counts need a later resolver. Manual route assignments, enabled topology, tiers and planar pathway lengths are unchanged. The resolved layout includes only `bundle_contents` revision/grid metadata, excluding unit selectors and explicit cable IDs; detailed arrangements are loaded through the selected-placement endpoints.
+
+Validation: 90 targeted backend tests passed, including 11 bundle-contents tests. PostgreSQL upgrade, downgrade and re-upgrade passed on an isolated full database copy. `python -m tests.performance.check_routing_bundle_contents` exercised four units containing 131 actual cables (two rack-pair/type units, a two-cable list and a single-cable list), all on layer 1, with endpoint overrides and membership-matched connections. It rejected duplicated membership and rolled back every temporary record; all five saved manual routes retained the same fingerprint. This audit refuses database names outside `junction_test_*`. Production Docker containers and the production schema were not changed.
 
 With the full inventory, the browser global view dropped from 57,010 to 24,943 SVG elements; the cable layer dropped from 37,591 to approximately 5,409 elements, using 15 batched paths in the unfocused view. Saved summaries appeared in 0.88 s on reopening and 1.28 s after a page reload in browser automation (including control round trips). A repeat three-sample server-render-only benchmark measured 256 ms median for detailed global cable strokes and 36 ms for the compact summary, excluding browser paint. Summary encoding took 14 ms and persisted zero individual cables. The 74 frontend routing tests cover summary round trips, invalidation/expiry, missing storage, response races, disconnected subpaths and focused-route colors; TypeScript and the production build pass. Browser checks confirmed cached inspection is read-only until current data restores editing controls.
