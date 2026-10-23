@@ -384,5 +384,13 @@
         "DEMO-H-048"
       ]
     }
-  ]
+  ],
+  "expected_node_statistics": {
+    "node_uid": "DEMO-NORTH-ROW3-JUNCTION",
+    "tier": 1,
+    "cable_intersection_point_count": 7,
+    "bundle_pair_crossing_count": 7,
+    "intersection_count_status": "ESTIMATED",
+    "method": "POLYLINE_96_PER_QUARTER_ARC"
+  }
 }

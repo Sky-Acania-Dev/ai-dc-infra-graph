@@ -78,6 +78,31 @@ An OVER/UNDER relation alone is not a verified clearance. For example, an upper 
 
 Local stacking layers are distinct from routing tiers. Passing over another bundle inside a tray does not introduce a new graph tier or a tier-changing edge. A real T1/T2/T3 change still requires the existing explicit physical opening.
 
+### Derived intersection counts per node
+
+Add the following statistics to the proposed resolved junction/node representation for later optimization:
+
+| Field | Meaning |
+| --- | --- |
+| `cable_intersection_point_count` | Number of distinct planar locations with a proper crossing between enabled bundle centerlines inside this physical junction area on this tier. Nonnegative integer, or null when movement geometry is incomplete. |
+| `bundle_pair_crossing_count` | Number of unordered bundle-movement pairs at those crossing locations. The same pair crossing twice contributes two. Nonnegative integer, or null when incomplete. |
+| `intersection_count_status` | `EXACT`, `ESTIMATED` or `UNKNOWN`, with the geometry method/version identifying how the count was derived. |
+
+Count from the full resolved movement set before selection, cable-type filters, tier visibility or viewing-side transforms. The count belongs to the physical junction area/tier, rather than to one incident edge or a duplicate domain association at the same graph node. Reversing FROM/TO or changing plan/underside view must not change it. Aggregate hall-wide totals once per physical area/tier; keep tier-level values available instead of flattening all tiers onto one plan.
+
+Counting rules:
+
+- Count an interior transverse plan crossing even if one bundle passes safely above the other within the same routing tier. This is a routing-complexity measure, not a collision count. Crossings across distinct routing tiers do not contribute to each other's node counts.
+- Exclude shared port endpoints, intentional continuation/join points, self-intersections of one movement, tangential touches, and coincident/collinear runs from this proper-crossing metric. Record overlaps or contacts separately for occupation/conflict checking; a zero point count does not establish physical validity.
+- Deduplicate the same unordered movement pair/location returned twice at adjacent sampled segments. Distinct geometric crossing locations remain distinct; use a deterministic geometry-solver numerical tolerance/version, not inch rounding, pixels, zoom or a display collision radius.
+- Three movement pairs crossing at one common XY location produce one intersection point and three bundle-pair crossings. Keep both counts so an optimizer can distinguish that concentration from a simple pair crossing.
+- Bundle size does not multiply the point count. Two bundles of 16 and 24 cables crossing once contribute one point and one bundle-pair crossing, not 384 measured individual-cable intersections. A separate cable-count weight can be added later if needed.
+- Complete, known-empty geometry returns zero. Missing/incomplete geometry returns null with `UNKNOWN`, never an optimistic zero. A sampled preview reports `ESTIMATED`; exact curve-solving support must explicitly report its method/version before supplying `EXACT` counts. An optimizer must define how it treats unknown and estimated values.
+
+Derive or revision-cache these statistics from the movement geometry; do not add an independently editable database counter or persist redundant generated graph records. Invalidate on route, occupation, turn-start, enable-state, tier, width or working-area changes. Physical clearance checks remain separate, and existing manual assignments are not changed by exposing these metrics.
+
+The display-only fixture returns **7 intersection points and 7 bundle-pair crossings** for its Tier 1 node. Selecting bundle A shows its 4 participating points while the node total stays 7. These are estimated from the fixture's sampled centerlines. The fixture stores its expected test result only; the preview computes its displayed statistics. This contract is part of the junction proposal: the production graph has no resolved junction movement curves yet and does not claim measured crossing counts.
+
 ## Handling requirements and dimensions
 
 Use the actual cable construction/SKU and manufacturer requirements to supply diameter or bundle envelope, installed minimum bend radius and installation/under-load minimum bend radius. LC/MPO connector labels and Cat6 category are insufficient to select one universal numeric radius. A bundle uses the most restrictive requirement among its applicable members for the operation being checked; missing member specifications prevent a complete verification.
