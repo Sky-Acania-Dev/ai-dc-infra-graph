@@ -13,7 +13,7 @@ import { ManualRouteEngine } from "../src/routing/manualRouteEngine.ts";
 import { reviewPairKey, rackPairCards, focusedRouteGroups, routeActionLabel } from "../src/routing/rackPairRoutes.ts";
 import { decodeCableReview,encodeReviewSummary } from "../src/routing/reviewEncoding.ts";
 import {validSummary,layoutSignature,SUMMARY_MAX_AGE_MS,SummaryLoadGate,readReviewSummary,writeReviewSummary} from "../src/routing/reviewSummaryCache.ts";
-import {physicalJunctions,physicalPlanningTargets} from "../src/routing/physicalTargets.ts";
+import {physicalJunctions,physicalPlanningTargets,junctionHitTargets} from "../src/routing/physicalTargets.ts";
 import {filterSummaryGroups} from "../src/routing/routingSummaryFilter.ts";
 import {sectionGroupCounts} from "../src/routing/sectionGroupCounts.ts";
 
@@ -23,6 +23,17 @@ test("derived curve radii retain half inches without relaxing persisted dimensio
   assert.throws(()=>formatInches(10.5));
   assert.throws(()=>parseInches('10.5'));
   assert.throws(()=>formatDerivedInches(Number.NaN));
+});
+
+test("dense junction hit areas never overlap neighboring stations or passage columns",()=>{
+  const nodes=[{id:'a',x_in:0,y_in:0,tier:1},{id:'b',x_in:1,y_in:0,tier:1},{id:'c',x_in:0,y_in:1,tier:1}];
+  const before=structuredClone(nodes);
+  const targets=junctionHitTargets(physicalJunctions(nodes,new Set([1])),n=>({x:n.y_in*4,y:n.x_in*5}),.1);
+  for(const a of targets)for(const b of targets)if(a.id!==b.id){
+    assert.ok(a.hitRadius+b.hitRadius<Math.hypot(a.point.x-b.point.x,a.point.y-b.point.y));
+  }
+  assert.ok(targets.every(t=>t.hitRadius>0&&t.hitRadius<=80));
+  assert.deepEqual(nodes,before);
 });
 
 test("legend filters isolate disjoint cable colors and intersect status, pair, cabinet and pathway filters", () => {

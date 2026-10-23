@@ -103,7 +103,7 @@ export function RoutingSchematic({ data, graph, tiers, selection, preview, start
         const y = band.center_in + (18 + same * 23) / v.scale;
         const used = preview?.edges.some(e => e.vertical_transition_uid === vt.uid);
         return <g key={vt.uid} data-selectable="true" role="button" tabIndex={0} aria-label={`Select opening ${vt.label ?? vt.uid}`} opacity={vt.enabled ? preview && !used ? 0.3 : 1 : 0.35} onClick={event => { event.stopPropagation(); onSelect({ kind: "transition", uid: vt.uid }); }} onKeyDown={event => { if (event.key === "Enter") onSelect({ kind: "transition", uid: vt.uid }); }}>
-          <line x1={vt.station_in} x2={vt.station_in} y1={band.center_in} y2={y} stroke="var(--routing-opening)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          <line x1={vt.station_in} x2={vt.station_in} y1={band.center_in} y2={y} pointerEvents="none" stroke="var(--routing-opening)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
           <g transform={orientation === "cabinet-map" ? `rotate(-90 ${vt.station_in} ${y})` : undefined}>
             <rect x={vt.station_in - 29 / v.scale} y={y - 9 / v.scale} width={58 / v.scale} height={18 / v.scale} rx={3 / v.scale} className={`routing-opening ${selected("transition", vt.uid) || used ? "selected" : ""}`} vectorEffect="non-scaling-stroke" />
             <text x={vt.station_in} y={y} dy="0.35em" textAnchor="middle" fontSize={10 / v.scale}>T{vt.lower_tier} ↕ T{vt.upper_tier}</text>

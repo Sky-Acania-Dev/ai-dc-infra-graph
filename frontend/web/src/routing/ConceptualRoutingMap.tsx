@@ -99,8 +99,10 @@ export function ConceptualRoutingMap({ data, graph, tiers, selection, onSelect, 
           <title>{`${segment.label}\nPlanar pathway length ${formatInches(segment.planar_length_in)} · Width ${formatInches(segment.width_in)}`}</title>
         </g>;
       })}
-      <ConceptualGraph data={data} graph={graph} view={display} scale={v.scale} tiers={tiers} selection={selection} onSelect={onSelect} viewport={v.view} muteCableMarkings={muteCableMarkings} />
+      <ConceptualGraph layer="pathways" data={data} graph={graph} view={display} scale={v.scale} tiers={tiers} selection={selection} onSelect={onSelect} viewport={v.view} muteCableMarkings={muteCableMarkings} />
       {!manual && review && onReviewAttachment && <CableReviewLayer data={data} view={display} review={review} scale={v.scale} tiers={tiers} selectedGroupUid={selectedReviewGroupUid} selectedSegmentId={selectedSegmentId} focusedPairKey={focusedReviewPairKey} selectedCabinetUids={cabinetInteraction.selected} selectionGroupUids={selectionGroupUids} summaryFilter={summaryFilter} cableTypeFilter={cableTypeFilter} onAttachment={onReviewAttachment} viewport={v.view} />}
+      {/* Junction targets sit above padded attachments, while cabinets retain their interiors. */}
+      <ConceptualGraph layer="targets" data={data} graph={graph} view={display} scale={v.scale} tiers={tiers} selection={selection} onSelect={onSelect} viewport={v.view} />
       {/* Cabinet graphics own their interiors; padded pathway targets stay underneath. */}
       <g className="conceptual-cabinet-foreground" pointerEvents={manual ? "none" : undefined} onKeyDownCapture={event => {if (manual) {event.preventDefault(); event.stopPropagation();}}}>{renderCabinets(display.cabinets.filter(c=>visibleLine(c,{x:c.x+c.width,y:c.y+c.height},v.view)))}</g>
       {manual && <ManualRouteLayer data={data} view={display} segments={manual.segments} preview={manual.preview} scale={v.scale} onAppend={manual.append} onSegments={manual.chooseSegments} disabled={manual.disabled} tiers={tiers} viewport={v.view} />}

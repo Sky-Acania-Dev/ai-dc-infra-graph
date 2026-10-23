@@ -235,13 +235,15 @@ test("conceptual viewport keeps direct zoom controls and collapses section optio
     geometry:{bands:[],sections:[],gaps:[],row_pairs:[],cabinet_rows:[],cross_routes:[],hall_length_in:0}};
   const html=renderToStaticMarkup(React.createElement(ConceptualRoutingMap,{data,graph:{nodes:[],edges:[]},tiers:new Set([1,2,3]),selection:null,
     onSelect:()=>{},initialSectionUid:'',cabinetInteraction:{selected:new Set(),connected:new Set()},
-    settings:{cellWidth:46,cellHeight:30,hotAisleGap:10},renderCabinets:()=>null,segments:[],selectedSegmentId:null,onSelectSegment:()=>{}}));
+    settings:{cellWidth:46,cellHeight:30,hotAisleGap:10},renderCabinets:()=>null,segments:[],selectedSegmentId:null,onSelectSegment:()=>{},review:{groups:[],loads:[],cabinet_uids:[]},onReviewAttachment:()=>{}}));
   assert.match(html,/class="conceptual-map-controls"/);
   assert.match(html,/aria-label="Zoom in"/);
   assert.match(html,/Fit \/ reset view/);
   assert.match(html,/<details class="conceptual-view-options"><summary>Sections \/ focus/);
   assert.match(html,/class="routing-svg conceptual-svg"/);
   assert.doesNotMatch(html,/routing-view-footer|Geometric routing map|Review cable groups|NaN|undefined/);
+  assert.ok(html.indexOf('actual-cable-review-layer')<html.indexOf('conceptual-graph-targets'));
+  assert.ok(html.indexOf('conceptual-graph-targets')<html.indexOf('conceptual-cabinet-foreground'));
 });
 
 test("physical junction inspection shows every tier instead of one graph node's tier", () => {
@@ -281,6 +283,22 @@ test("conceptual junctions have one click target across three graph tiers", () =
   assert.equal((html.match(/role="button"/g)??[]).length,1);
   assert.match(html,/Tier 1 \/ Tier 2 \/ Tier 3/);
   assert.doesNotMatch(html,/Select node n[123]/);
+});
+
+test("compact openings stay outside the junction hit circle and retain separate adjacent-tier targets",()=>{
+  const nodes=[1,2,3].map(tier=>({id:`n${tier}`,tier,node_type:'JUNCTION',x_in:120,y_in:17,station_in:120,passage_code:'NORTH',passage_band_uid:'north'}));
+  const openings=[1,2].map(tier=>({uid:`opening${tier}`,passage_band_uid:'north',station_in:120,lower_tier:tier,upper_tier:tier+1,enabled:true}));
+  const props={data:{bands:[{uid:'north',code:'NORTH'}],vertical_transitions:openings},graph:{nodes,edges:[]},view:{projectNode:()=>({x:10,y:120}),passageX:new Map([['north',10]]),stationY:()=>120},scale:.25,tiers:new Set([1,2,3]),selection:null,onSelect:()=>{},layer:'targets'};
+  const html=renderToStaticMarkup(React.createElement(ConceptualGraph,props));
+  assert.match(html, /cx="10" cy="120" r="32" fill="transparent" data-junction-hit-target/);
+  assert.match(html, /<rect x="54" y="100" width="40" height="40" fill="transparent"/);
+  assert.match(html, /<rect x="102" y="100" width="40" height="40" fill="transparent"/);
+  assert.equal((html.match(/data-physical-opening=/g)??[]).length,2);
+  assert.doesNotMatch(html,/<circle[^>]*class="routing-opening"/);
+  const expanded=renderToStaticMarkup(React.createElement(ConceptualGraph,{...props,scale:1}));
+  assert.match(expanded, /x1="10" y1="120" x2="50" y2="120" pointer-events="none"/);
+  const ink=renderToStaticMarkup(React.createElement(ConceptualGraph,{...props,layer:'pathways'}));
+  assert.doesNotMatch(ink,/data-physical-junction|data-physical-opening/);
 });
 
 test("manual pathway targets combine tiers while retaining each physical opening", () => {
