@@ -35,6 +35,27 @@ const RoutingOverview = await component("RoutingOverview", "RoutingOverview");
 const routingOverviewCounts = await component("RoutingOverview", "routingOverviewCounts");
 const DataHallSectionTabs = await component("../components/DataHallSectionTabs", "DataHallSectionTabs");
 const routeStrokeLines = await component("RouteStroke", "routeStrokeLines");
+const RoutingLoadStatus = await component("RoutingLoadStatus", "RoutingLoadStatus");
+
+test("map loading notice distinguishes cold load, saved-route refresh, failure and ready state", () => {
+  const props={loading:false,hasRoutes:false,error:'',onRetry:()=>{}};
+  const render=values=>renderToStaticMarkup(React.createElement(RoutingLoadStatus,{...props,...values}));
+  assert.equal(render({}),'');
+  const cold=render({loading:true});
+  assert.match(cold,/role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(cold,/Loading cable route data/); assert.match(cold,/map-loading-spinner/);
+  assert.doesNotMatch(cold,/Retry loading|\d+%/);
+  assert.match(render({layoutLoading:true}),/Loading routing layout/);
+  const refresh=render({loading:true,hasRoutes:true});
+  assert.match(refresh,/Updating cable routes/); assert.match(refresh,/Saved routes remain visible/);
+  assert.doesNotMatch(refresh,/could not be loaded/);
+  const failure=render({error:'Request failed'});
+  assert.match(failure,/Cable route data could not be loaded/); assert.match(failure,/Retry loading/);
+  assert.doesNotMatch(failure,/map-loading-spinner/);
+  const saved=render({hasRoutes:true,error:'Request failed'});
+  assert.match(saved,/Showing saved cable routes/); assert.match(saved,/route editing is unavailable/);
+  assert.match(saved,/Retry loading/);
+});
 
 test("route section tabs keep filtered counts through navigation, including active and empty sections", () => {
   const counts=new Map([['DH1-1',3],['DH1-2',0],['DH1-3',2]]);

@@ -43,6 +43,14 @@
 .routing-integrated .routing-toolbar { margin-top: 0; padding-top: 0; border-top: 0; }
 .routing-integrated .conceptual-viewer { position: relative; flex: 1; min-height: 0; display: flex; border: 0; border-radius: 0; }
 .routing-integrated .conceptual-svg { flex: 1; height: 100%; min-height: 0; }
+.routing-load-status { position: absolute; z-index: 7; bottom: 12px; left: 12px; right: 12px; width: fit-content; max-width: min(520px,calc(100% - 24px)); box-sizing: border-box; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 14px; border: 1px solid var(--routing-t1); border-radius: 6px; background: #f0fbff; color: #18364c; box-shadow: 0 3px 12px #0f172a26; pointer-events: none; }
+.routing-load-status > .map-loading-spinner { flex-shrink: 0; }
+.routing-load-status > div { flex: 1; min-width: 150px; }
+.routing-load-status strong { display: block; font-size: 14px; line-height: 1.4; }
+.routing-load-status div > span { display: block; margin-top: 3px; font-size: 12px; line-height: 1.5; }
+.routing-load-status.has-error { border-color: var(--routing-selected); background: #fff7ed; }
+.routing-load-status button { pointer-events: auto; }
+@media (prefers-reduced-motion: reduce) { .routing-load-status .map-loading-spinner { animation: none; } }
 .conceptual-map-controls { position: absolute; z-index: 3; top: 8px; left: 8px; right: 8px; display: flex; align-items: flex-start; gap: 5px; flex-wrap: wrap; pointer-events: none; }
 .conceptual-map-controls > * { pointer-events: auto; }
 .conceptual-view-options { min-width: 0; max-width: 100%; max-height: min(300px, 45dvh); overflow: auto; }

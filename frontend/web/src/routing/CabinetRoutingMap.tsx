@@ -23,6 +23,7 @@ import { useManualRouteEditor } from "./useManualRouteEditor";
 import type { RoutingSummaryFilter, CableTypeFilter } from "./routingSummaryFilter";
 import { focusedRouteGroups } from "./rackPairRoutes";
 import { sectionGroupCounts, type RoutingSectionGroupCounts } from "./sectionGroupCounts";
+import { RoutingLoadStatus } from "./RoutingLoadStatus";
 import "./routing.css";
 
 type Props = {
@@ -131,6 +132,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
     {project === "LBB01" && physicalHall === "DH1" && <label className="routing-cable-toggle"><input disabled={manual.editing || manual.busy} type="checkbox" checked={realReview} onChange={event => {clearPath(); setRealReview(event.target.checked);}} />Actual cable review</label>}
   </>;
   return <div className="routing-page routing-integrated">
+    {realReview && <RoutingLoadStatus layoutLoading={loading && !data} loading={reviewState.loading} hasRoutes={Boolean(review)} error={reviewState.error} onRetry={reviewState.reload} />}
     {tierHost && createPortal(<TierVisibility tiers={tiers} onChange={setTiers} />,tierHost)}
     {!data && error && <p role="alert" className="routing-error">{error}</p>}
     {loading && !data ? <p>Loading pathways…</p> : !data ? <div className="routing-empty"><p>No routing layout is available for this hall. The standard cabinet map remains available.</p><button onClick={onOpenRouting}>Open routing configuration</button></div> : <>
