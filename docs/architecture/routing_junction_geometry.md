@@ -16,12 +16,22 @@ Keep the graph node as a connectivity point. Add an optional persistent `Routing
 
 - Stable domain UID and layout reference.
 - Passage and intersection anchor: cabinet cold-route or section-gap route reference, or an explicit station for a standalone passage station. Derive row/gap stations so they continue to move with section geometry.
-- Extents on each side of the anchor in local hall X/Y and usable height above the tier's tray bed. Unknown dimensions stay null.
+- Default plan footprint derived from the widths and directions of the incident pathways, plus optional explicit extent overrides and usable height above the tier's tray bed. Unknown height stays null.
 - Cardinal reference frame, notes, enabled state and whether the configuration is schematic, manually specified or measured.
 
 Do not use a generated node ID as a persistent foreign key. Resolve it from the domain anchor. Coincident CENTRAL intersections have one physical area per tier, with ports for all incident pathways, rather than duplicate working volumes for aligned north/south row records. Contradictory coincident area configurations must be reported.
 
 Incident ports refer to stable domain span endpoints. Their local sectional axes are width-across and height-above-tray-bed, with an explicit cardinal orientation. Reuse the existing section conventions: INNER faces cabinets/hot aisle where defined; CENTRAL has no INNER side. A turn must transform the incoming rectangle into the outgoing port's reference frame; it cannot simply reuse screen X or assume that their left/right directions agree.
+
+### Width-derived plan footprint
+
+For a perpendicular passage/cross-route intersection, derive the central overlap rectangle from the two widths. In the existing hall coordinates, a cross-route of width `Wc` occupies X from `anchor_x - Wc/2` to `anchor_x + Wc/2`; a passage of width `Wp` occupies Y from `anchor_y - Wp/2` to `anchor_y + Wp/2`. The overlap is therefore `Wc` by `Wp`. These dimensions are resolved from domain records, not copied into a second authoritative junction-width record.
+
+The complete tray outline is the union of the incident straight pathway envelopes. Only present arms contribute: an L, T or four-way intersection must not acquire a missing arm. All tray corners remain square. A rounded cable path does not round the tray or introduce a tray bend-radius field. At unequal-width or asymmetric intersections, derive ports from the actual incident envelopes and report inconsistent geometry rather than inventing an adapter.
+
+Use the overlap boundary as the default local port boundary for a perpendicular intersection. If a turn needs to start farther along a tray arm, explicitly extend that working area along the arm and recompute its port boundary. The extension cannot create tray area outside the incident envelopes. Preserve the area mode/provenance so the footprint is not accidentally treated as field measured.
+
+Width alone does not establish usable vertical clearance, supports, separators or a cable's minimum bend radius. It defines the default plan boundary only. A rectangular bounding box of the full junction is also not the usable tray polygon: the absent quadrant of an L junction remains outside the tray.
 
 ## Bundle movements through the junction
 
@@ -29,12 +39,26 @@ Extend `RoutingBundleConnection` with a junction-area reference and optional mov
 
 - Movement kind: straight, turn or explicit tier-opening traversal.
 - Existing incoming/outgoing placement and endpoint references, retaining the actual bundle/group's cable membership.
-- Planned inner bend radius, local height/stack arrangement and optional designer-specified guide points. Record intent/measurement provenance.
+- Two nullable integer-inch turn-start distances, `from_turn_start_in` and `to_turn_start_in`, as defined below; local height/stack arrangement and intent/measurement provenance.
 - Reference to a configured cable-handling profile; missing requirements remain unknown.
 
-Derive a tangent-continuous path and the swept volume of the bundle's rectangle from these inputs. A smooth-looking Bézier is not evidence that a bend-radius requirement has been met. A radius check must consider the innermost cable path, not just the bundle centerline. The endpoint footprints alone also do not uniquely determine a collision-free turn; radius, available area and crossing arrangement are necessary inputs.
+### Two turn-start distances
+
+For a turning connection, each distance is measured from its referenced port boundary inward into the junction, along that placement's straight bundle centerline. It locates the tangent point where the cable bundle leaves its straight run. The outgoing endpoint is measured inward from its own boundary as well; its tangent point is where the bundle becomes straight when traversing from FROM to TO. FROM/TO refer to the existing placement endpoints, not signal direction. Reversing traversal swaps their roles without changing the physical curve.
+
+Both distances must be supplied together and must be nonnegative. Straight movements leave them null. A zero value means the turn starts at the port boundary. A tangent point must lie inside the configured working area; enlarge that area explicitly if the bend must begin on an adjoining arm. Moving an extended boundary does not silently move a saved tangent point: preserve its anchored physical position and recalculate its boundary-relative distance, or report an invalidated placement for review. Derived row/gap anchors still move with their parent geometry.
+
+For an initial 90-degree turn, derive a circular centerline arc from the two tangent points and their straight directions. Intersect the two extended straight bundle centerlines at virtual corner `C`. The distances from `C` to both tangent points must be equal and positive for a circular, tangent-continuous quarter turn. Boundary-relative turn-start values can differ when the tray widths or bundle offsets differ. Reject an inconsistent pair for this curve type; do not silently substitute a free-form spline or call it a circular radius. An unequal footprint across the two ports likewise needs an explicitly designed transition, not an assumed constant-width bend.
+
+For example, with centered bundle placements, a 24-in cross-route and a 34-in passage give a 24-by-34-in overlap. Entering from WEST and leaving SOUTH, a 2-in FROM inset and a 7-in TO inset both place their tangent points 10 in from `C`, yielding a 10-in centerline radius. This is an illustrative geometry example, not a selected or verified cable-handling radius.
+
+![Square tray outline and a curved bundle with two boundary-relative turn starts](routing_junction_plan.svg)
+
+Do not store an independent planned radius that can contradict these two inputs. Derive the planned centerline radius; keep the manufacturer's required minimum inner radius as a separate handling constraint. A smooth-looking Bézier is not evidence that a bend-radius requirement has been met. A radius check must consider the innermost cable path, not just the bundle centerline. For a constant-width planar bundle swept normally along a circular centerline, its inner envelope radius is the centerline radius minus half the occupied width. Missing or changing envelope dimensions leave that check unresolved.
 
 Persist the design inputs, not a redundant sampled curve or mesh. Generated curves and a conservative occupation envelope can support plan, elevation and section views. Grid-only footprints remain schematic unless the cell-to-dimension mapping is explicitly configured; never infer physical inches from a 12x8 array alone. Conservative bounding-box overlap should be labeled a possible conflict, not proof that actual swept volumes collide.
+
+The two turn-start distances define a planar corner; they do not define a vertical climb, crossover hump or opening traversal. Those movements still need local height/clearance information. Keep a valid graph route usable even when this optional physical movement geometry is unchecked.
 
 ## Crossings and stacking within one tier
 
@@ -65,10 +89,12 @@ Checks should cover enabled continuation of the same cable group; available junc
 
 Selecting a junction should show:
 
-1. A local plan view of straight/turning bundle movements, with over/under indications.
+1. A local SVG top-down plan view of the square tray footprint, placement envelopes, straight/turning bundle paths and editable turn-start markers, with over/under indications. Cable geometry comes from the backend movement resolver; React applies only the display transform.
 2. A sectional or elevation view showing occupation and stack order within each routing tier.
 3. Actual group membership, handling-spec source and unresolved checks.
 
 Implementation sequence: domain area/connection/crossing metadata and validation first; local preview second; optional route-cost integration only after geometry and specifications are available. These additions do not require CAD or a surveyed hall model.
+
+Provide a clearly labeled top-down/reflected-ceiling view switch for the same resolved movement geometry. Use an explicit mirrored display convention and transform the cardinal compass, ports, selection and hit targets together. A view change must not alter stored coordinates, placement sides, actual over/under relationships or graph connectivity. Show overlap breaks/bridges according to which bundle is nearer the selected viewing side; retain explicit ABOVE/BELOW labels so the physical stack order remains clear. Handle tier visibility independently; tier elevation is not screen depth.
 
 Existing PLANAR PATHWAY LENGTH remains unchanged. Future bend-travel estimates must trim the consumed straight portions and count each junction curve once, without adding a curve to an already counted corner. Unknown vertical travel, rack drops and slack still prevent reporting an exact cable length.
