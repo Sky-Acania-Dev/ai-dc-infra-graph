@@ -1,3 +1,5 @@
+import type { OrderUnit } from "./bundleOrderTypes";
+import { useOrderedUnitCables } from "./useOrderedUnitCables";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { SelectionGesture } from "../App";
@@ -47,6 +49,9 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const [selectedCableId, setSelectedCableId] = useState<string | null>(null);
   const [cableTable, setCableTable] = useState<RoutingCableTableRequest | null>(null);
   const [selectedPlacementUid, setSelectedPlacementUid] = useState<string | null>(null);
+  const [selectedOrderUnit,setSelectedOrderUnit]=useState<OrderUnit|null>(null);
+  const orderedUnit=useOrderedUnitCables(data?.layout.uid,selectedOrderUnit);
+  useEffect(()=>{setCableTable(null);setSelectedCableId(null);},[selectedOrderUnit?.unit_uid]);
   const [junctionGroupUid,setJunctionGroupUid]=useState<string|null>(null);
   const [realReview, setRealReview] = useState(project === "LBB01" && physicalHall === "DH1");
   const [focusedPairKey, setFocusedPairKey] = useState<string | null>(null);
@@ -78,9 +83,9 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const selectedEdge = selection?.kind === "edge" ? graph.edges.find(e => e.id === selection.uid) : undefined;
   const segment = segments.find(s => s.id === segmentId) ?? (data && selectedEdge ? edgeSegment(data, graph, selectedEdge) : null);
   const cableMembers = useSegmentCableMembers(data, segment);
-  useEffect(() => { setSelectedPlacementUid(null);setJunctionGroupUid(null); }, [segmentId, attachmentUid, selection?.uid]);
+  useEffect(() => { setSelectedPlacementUid(null);setJunctionGroupUid(null);setSelectedOrderUnit(null); }, [segmentId, attachmentUid, selection?.uid]);
   useEffect(() => { setCableTable(null); }, [project, building, physicalHall, segmentId, attachmentUid, selection?.uid, selectedPlacementUid, realReview]);
-  const clearPath = () => { setCableTable(null); setSelection(null); setSegmentId(null); setAttachmentUid(null); setSelectedCableId(null); setFocusedPairKey(null); setSummaryFilter(null); setReviewInspectorOpen(false); };
+  const clearPath = () => { setSelectedOrderUnit(null); setCableTable(null); setSelection(null); setSegmentId(null); setAttachmentUid(null); setSelectedCableId(null); setFocusedPairKey(null); setSummaryFilter(null); setReviewInspectorOpen(false); };
   const selectSummaryFilter = (next: RoutingSummaryFilter | null) => {
     if (manual.editing || manual.busy) return;
     clearPath(); onClearSelection(); manual.clearSelected();
@@ -105,7 +110,13 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const selectedBundle = sectionModel?.blocks.find(b => b.uid === selectedPlacementUid);
   const selectedNode = selection?.kind === "node" ? graph.nodes.find(n=>n.id === selection.uid) : undefined;
   const reviewGroups = useMemo(()=>review ? reviewGroupsForPart(review, segment?.id, null, attachmentUid, selectedNode) : [], [review, segment?.id, attachmentUid, selectedNode]);
-  const selectionGroupUids = useMemo(() => review && (segment || selectedNode || attachmentUid) ? new Set(reviewGroups.map(g => g.uid)) : null, [review, segment?.id, selectedNode, attachmentUid, reviewGroups]);
+  const unitGroupUids=useMemo(()=>{
+    if(!selectedOrderUnit||!review)return null;
+    const key=(a:string,b:string,t:string)=>JSON.stringify([...([a,b].sort()),t]);
+    const pairs=new Set(orderedUnit.cables.filter(c=>c.source_cabinet_uid&&c.destination_cabinet_uid).map(c=>key(c.source_cabinet_uid!,c.destination_cabinet_uid!,c.cable_type)));
+    return new Set(review.groups.filter(g=>pairs.has(key(g.source_cabinet_uid,g.destination_cabinet_uid,g.cable_type))).map(g=>g.uid));
+  },[selectedOrderUnit,orderedUnit.cables,review]);
+  const selectionGroupUids = useMemo(() => unitGroupUids??(review && (segment || selectedNode || attachmentUid) ? new Set(reviewGroups.map(g => g.uid)) : null), [review, segment?.id, selectedNode, attachmentUid, reviewGroups,unitGroupUids]);
   const highlightGroupUid = selectedCableId && cableTable?.groupUid ? cableTable.groupUid : review?.groups.find(g => g.cable_uids.includes(selectedCableId ?? ""))?.uid ?? null;
   const activeGroupUid = manual.editing ? manual.activeUid : junctionGroupUid??highlightGroupUid;
   const routeFocusActive = Boolean(activeGroupUid || focusedPairKey || selected.size || selectionGroupUids != null || summaryFilter || cableTypeFilter);
@@ -116,7 +127,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   useEffect(() => () => onSectionGroupCountsChange(null), [onSectionGroupCountsChange]);
   const inspector = data && inspecting ? <aside className="side-pane connections-pane routing-page routing-side routing-segment-inspector" aria-label="Routing segment cable details">
     <div className="routing-inspector-heading"><span className="eyebrow">Segment cables</span><button disabled={manual.editing || manual.busy} onClick={clearPath}>Close routing details</button></div>
-    {review ? <CableReviewPanel key={JSON.stringify([review?.scope,segment?.id,attachmentUid,selectedNode?.x_in,selectedNode?.y_in,summaryFilter,cableTypeFilter,junctionGroupUid])} review={review} groupFilterUid={junctionGroupUid} groups={junctionGroupUid?reviewGroups.filter(g=>g.uid===junctionGroupUid):reviewGroups} focusedPairKey={focusedPairKey} onFocusPair={key=>{if (!manual.editing && !manual.busy) {setJunctionGroupUid(null); setFocusedPairKey(key); setSelectedCableId(null); setCableTable(null); onClearSelection();}}} editor={manual} canManage={canManage && !reviewState.stale} summaryFilter={summaryFilter} onClearSummaryFilter={()=>selectSummaryFilter(null)} cableTypeFilter={cableTypeFilter} onClearCableTypeFilter={()=>selectCableTypeFilter(null)}
+    {selectedOrderUnit?<SegmentCables inventoryCables={orderedUnit.cables} loading={orderedUnit.loading} error={orderedUnit.error} onViewCables={setCableTable} bundleFilter={{uid:selectedOrderUnit.unit_uid,label:selectedOrderUnit.resolved_label}} members={{[selectedOrderUnit.unit_uid]:orderedUnit.cables.map(c=>c.uid)}} onClearFilter={()=>setSelectedOrderUnit(null)}/>:review ? <CableReviewPanel key={JSON.stringify([review?.scope,segment?.id,attachmentUid,selectedNode?.x_in,selectedNode?.y_in,summaryFilter,cableTypeFilter,junctionGroupUid])} review={review} groupFilterUid={junctionGroupUid} groups={junctionGroupUid?reviewGroups.filter(g=>g.uid===junctionGroupUid):reviewGroups} focusedPairKey={focusedPairKey} onFocusPair={key=>{if (!manual.editing && !manual.busy) {setJunctionGroupUid(null); setFocusedPairKey(key); setSelectedCableId(null); setCableTable(null); onClearSelection();}}} editor={manual} canManage={canManage && !reviewState.stale} summaryFilter={summaryFilter} onClearSummaryFilter={()=>selectSummaryFilter(null)} cableTypeFilter={cableTypeFilter} onClearCableTypeFilter={()=>selectCableTypeFilter(null)}
       onViewCables={request => {if (!manual.editing) setCableTable(request);}} /> : (segment || attachmentUid) && <SegmentCables inventoryCables={cableMembers.cables} members={cableMembers.members} loading={cableMembers.loading} error={cableMembers.error}
       bundleFilter={selectedPlacementUid ? {uid: selectedPlacementUid, label: selectedBundle?.label ?? "Selected bundle"} : null}
       onClearFilter={() => setSelectedPlacementUid(null)} onViewCables={setCableTable} />}
@@ -153,7 +164,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
       {inspectorHost && inspector && createPortal(inspector, inspectorHost)}
       {pathwayInspectorHost && data && pathwayInspecting && createPortal(<PathwayInspector data={data} graph={graph} selection={selection} segment={segment} selectedEdge={selectedEdge} overview={overview}
         attachmentUid={attachmentUid} canManage={canManage} busy={busy} mutate={mutate} onSelect={setSelection} onOpenRouting={onOpenRouting}
-        selectedPlacementUid={selectedPlacementUid} reviewGroupCount={reviewGroups.length} reviewLoads={review?.loads} onSelectJunctionGroup={setJunctionGroupUid} onSelectPlacement={uid => { setSelectedPlacementUid(uid); setSelectedCableId(null); }} />, pathwayInspectorHost)}
+        selectedPlacementUid={selectedPlacementUid} reviewGroupCount={reviewGroups.length} reviewLoads={review?.loads} onSelectJunctionGroup={setJunctionGroupUid} onSelectCableUnit={setSelectedOrderUnit} onSelectPlacement={uid => { setSelectedOrderUnit(null); setSelectedPlacementUid(uid); setSelectedCableId(null); }} />, pathwayInspectorHost)}
     </>}
   </div>;
 }

@@ -1,12 +1,17 @@
+import type { OrderUnit } from "./bundleOrderTypes";
 import { formatInches } from "./dimensions";
 import type { segmentTierModel } from "./segmentTierModel";
 import type { ResolvedLayout, Tier } from "./types";
 import { SectionOccupationDiagram, type SectionDisplayMode } from "./SectionOccupationDiagram";
 import { SectionBundleDetail } from "./SectionBundleDetail";
 import { directionName, sectionView } from "./sectionDirections";
+import { ActualSectionOrderPanel } from "./ActualSectionOrderPanel";
+import { BundleContentsPanel } from "./BundleContentsPanel";
+import type { SegmentSpan } from "./types";
 
 type Model = ReturnType<typeof segmentTierModel>;
-export function TierSectionDiagrams({ data, model, onSelectPlacement, selectedPlacementUid, mode, onModeChange, reversed, onReverse }: { data: ResolvedLayout; model: Model; onSelectPlacement: (uid: string | null) => void; selectedPlacementUid: string | null; mode: SectionDisplayMode; onModeChange: (mode: SectionDisplayMode) => void; reversed: boolean; onReverse: () => void }) {
+export function TierSectionDiagrams({ data, model, onSelectPlacement, selectedPlacementUid, mode, onModeChange, reversed, onReverse, segment, canManage=false, onSelectGroup, onSelectUnit }: { data: ResolvedLayout; model: Model; onSelectPlacement: (uid: string | null) => void; selectedPlacementUid: string | null; mode: SectionDisplayMode; onModeChange: (mode: SectionDisplayMode) => void; reversed: boolean; onReverse: () => void; segment?:SegmentSpan;canManage?:boolean;onSelectGroup?:(uid:string|null)=>void;onSelectUnit?:(unit:OrderUnit|null)=>void }) {
+  const actualSection = Boolean(segment && data.layout?.room_uid?.startsWith("LBB01:") && data.layout.physical_hall_code==="DH1" && model.records.some(t=>t.enabled));
   const selected = model.blocks.find(b => b.uid === selectedPlacementUid);
   const parent = model.parents.find(p => p.tier === selected?.tier) ?? model.parents.find(p => p.tier == null);
   const view = sectionView(model.directions, parent?.section_inner_direction, reversed);
@@ -40,6 +45,8 @@ export function TierSectionDiagrams({ data, model, onSelectPlacement, selectedPl
     </div>
     <small className="section-view-caption">{view.from && view.to ? `View ${directionName(view.from)} → ${directionName(view.to)}` : "View direction unset"} · bottom stays down</small>
     {selected && <SectionBundleDetail block={selected} mode={mode} onClose={() => onSelectPlacement(null)} />}
-    {(model.tiers.length ? model.tiers : [null]).map(tier => <SectionOccupationDiagram key={tier ?? "unassigned"} tier={tier} model={model} mode={mode} reversed={reversed} selectedPlacementUid={selectedPlacementUid} onSelectPlacement={onSelectPlacement} />)}
+    {selected&&data.layout?.uid&&<BundleContentsPanel layout={data.layout.uid} placement={selected.uid} canManage={canManage} onSelectGroup={onSelectGroup} onSelectUnit={onSelectUnit}/>}
+    {actualSection&&segment&&<ActualSectionOrderPanel key={JSON.stringify(segment)} data={data} span={segment} canManage={canManage} reversed={reversed} mode={mode} onSelectGroup={onSelectGroup} onSelectUnit={onSelectUnit}/>}
+    {(!actualSection||model.blocks.length>0)&&(model.tiers.length ? model.tiers : [null]).map(tier => <SectionOccupationDiagram key={tier ?? "unassigned"} tier={tier} model={model} mode={mode} reversed={reversed} selectedPlacementUid={selectedPlacementUid} onSelectPlacement={onSelectPlacement} />)}
   </section>;
 }

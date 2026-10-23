@@ -17,7 +17,8 @@ from backend.services import routing_configuration as config
 from backend.services.routing_graph import derive_graph
 from backend.services.routing_pathfinding import NoRoutingPath, preview_route
 from backend.schemas.routing_manual import ManualBatchInput, ManualPreviewInput
-from backend.schemas.routing_bundle_contents import BundleContentsInput, SectionEnd
+from backend.schemas.routing_bundle_contents import BundleContentsInput, ContentUnitInput, SectionEnd
+from backend.schemas.routing_section_order import SectionOrderRequest, JunctionOrderRequest
 from backend.services.routing_manual_routes import RoutingRouteConflict, preview_manual_route, update_manual_batch, initialize_test_tiers
 
 router = APIRouter(prefix='/routing', tags=['routing'])
@@ -113,7 +114,49 @@ def junction_preview(layout_uid: str, node_id: str, actual_groups: bool = False,
             from backend.services.routing_junction_cache import junction_review
             review = junction_review(session, layout_uid, data)
             result = actual_junction(result, review, node, longitudinal_direction=data['layout'].get('longitudinal_direction'))
+            from backend.services.routing_ordered_junction import ordered_actual_junction
+            result = ordered_actual_junction(session,data,review,node,graph,result)
+        else:
+            from backend.services.routing_ordered_junction import ordered_saved_junction
+            result = ordered_saved_junction(session,data,result)
         return result
+
+
+@router.post('/layouts/{layout_uid}/junction-preview')
+def draft_junction_preview(layout_uid: str, request: JunctionOrderRequest, user: AuthUser = Depends(current_user)):
+    from backend.services.routing_junction_geometry import saved_junction
+    from backend.services.routing_junction_inventory import actual_junction
+    from backend.services.routing_junction_cache import junction_review
+    from backend.services.routing_ordered_junction import ordered_actual_junction
+    with routing_session() as session:
+        data=config.resolved_layout(session,layout_uid);graph=derive_graph(data)
+        node=next((n for n in graph.nodes if n.id==request.node_id),None)
+        if node is None:raise config.RoutingNotFound('Junction node was not found.')
+        result=saved_junction(data,data['geometry'],node,graph)
+        review=junction_review(session,layout_uid,data)
+        result=actual_junction(result,review,node,longitudinal_direction=data['layout'].get('longitudinal_direction'))
+        return ordered_actual_junction(session,data,review,node,graph,result,request.overrides)
+
+
+@router.post('/layouts/{layout_uid}/section-order/preview')
+def preview_section_order(layout_uid: str, request: SectionOrderRequest, user: AuthUser = Depends(current_user)):
+    from backend.services.routing_junction_cache import junction_review
+    from backend.services.routing_section_order import section_order
+    with routing_session() as session:
+        data=config.resolved_layout(session,layout_uid)
+        return section_order(session,data,junction_review(session,layout_uid,data),request.span.model_dump(),request.section_end,request.contents)
+
+
+@router.put('/layouts/{layout_uid}/section-order')
+def put_section_order(layout_uid: str, request: SectionOrderRequest, user: AuthUser = Depends(current_user)):
+    require_manager(user)
+    from backend.services.routing_junction_cache import junction_review
+    from backend.services.routing_section_order import save_section_order
+    with routing_session() as session:
+        if request.contents is None:raise config.RoutingConfigurationError('Provide a complete sectional arrangement to save.')
+        session.scalar(select(db.RoutingLayout).where(db.RoutingLayout.uid==layout_uid).with_for_update())
+        data=config.resolved_layout(session,layout_uid)
+        return save_section_order(session,data,junction_review(session,layout_uid,data),request.span.model_dump(),request.section_end,request.contents)
 
 
 @router.get('/layouts/{layout_uid}/junctions')
@@ -142,6 +185,16 @@ def get_bundle_contents(layout_uid: str, placement_uid: str, section_end: Sectio
     from backend.services.routing_bundle_contents import get_contents
     with routing_session() as session:
         return get_contents(session, layout_uid, placement_uid, section_end)
+
+
+@router.post('/layouts/{layout_uid}/unit-cables')
+def get_selected_unit_cables(layout_uid: str, request: ContentUnitInput, user: AuthUser = Depends(current_user)):
+    from backend.services.routing_content_units import resolve_unit
+    from backend.services.routing_cables import inventory_cables
+    with routing_session() as session:
+        layout=config.get_layout(session,layout_uid)
+        _,info,members=resolve_unit(session,layout,request.model_dump())
+        return dict(**info,cables=inventory_cables(session,layout,members=sorted(members)))
 
 
 @router.put('/layouts/{layout_uid}/bundle-placements/{placement_uid}/contents')

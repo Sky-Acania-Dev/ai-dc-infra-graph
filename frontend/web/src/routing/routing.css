@@ -270,3 +270,18 @@
 .junction-port-section > b, .junction-port-section > small { display: block; overflow-wrap: anywhere; }
 .junction-port-section svg { width: 100%; display: block; }
 .junction-inspector .section-bundle-detail small { display: block; }
+.cable-unit-order-editor { border: 1px solid #dbe3ec; border-radius: 5px; padding: 8px; margin: 8px 0; min-width: 0; }
+.cable-unit-order-editor > h4 { margin: 0 0 6px; }
+.bundle-order-grid { width: 100%; display: block; margin: 6px 0; }
+.bundle-order-grid g[role=button] { cursor: pointer; }
+.bundle-order-grid g[role=button]:focus rect { stroke: #111827; stroke-width: 2; }
+.order-default-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 6px; margin: 8px 0; }
+.order-default-controls label { flex: 1; min-width: 100px; font-size: 11px; }
+.order-default-controls button { margin: 0; }
+.order-unit-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
+.order-unit-fields label { display: grid; gap: 4px; font-size: 11px; }
+.order-unit-wide { grid-column: 1 / -1; }
+.cable-unit-order-editor small, .actual-section-order > small { display: block; color: #586b7e; font-size: 11px; }
+.actual-section-order { border-top: 1px solid #dbe3ec; margin-top: 10px; }
+.junction-end-flips { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; }
+.junction-end-flips button { flex: 1; margin: 0; font-size: 11px; }

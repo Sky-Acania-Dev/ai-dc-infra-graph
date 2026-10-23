@@ -215,12 +215,13 @@ class RoutingSegmentAnnotation(LayoutChild, Base):
 class RoutingBundlePlacement(LayoutChild, Base):
     """Optional multi-cell grid footprint and/or physical sectional rectangle."""
     __tablename__ = "routing_bundle_placements"
+    is_section_container: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     __table_args__ = (
         UniqueConstraint("segment_annotation_uid", "tier", "layer", "position", name="uq_routing_bundle_position"),
         CheckConstraint("tier BETWEEN 1 AND 3", name="ck_routing_bundle_position"),
         CheckConstraint("(layer IS NULL AND position IS NULL AND slot_width IS NULL AND slot_height IS NULL) OR (layer IS NOT NULL AND position IS NOT NULL AND slot_width IS NOT NULL AND slot_height IS NOT NULL AND layer BETWEEN 1 AND 64 AND position BETWEEN 1 AND 64 AND slot_width BETWEEN 1 AND 64 AND slot_height BETWEEN 1 AND 64)", name="ck_routing_bundle_slots"),
         CheckConstraint("(offset_across_in IS NULL AND offset_up_in IS NULL AND occupied_width_in IS NULL AND occupied_height_in IS NULL) OR (offset_across_in IS NOT NULL AND offset_up_in IS NOT NULL AND occupied_width_in IS NOT NULL AND occupied_height_in IS NOT NULL AND offset_across_in >= 0 AND offset_up_in >= 0 AND occupied_width_in > 0 AND occupied_height_in > 0)", name="ck_routing_bundle_rectangle"),
-        CheckConstraint("layer IS NOT NULL OR offset_across_in IS NOT NULL", name="ck_routing_bundle_occupation"),
+        CheckConstraint("(is_section_container AND layer IS NULL AND offset_across_in IS NULL AND source_kind = 'MANUAL') OR (NOT is_section_container AND (layer IS NOT NULL OR offset_across_in IS NOT NULL))", name="ck_routing_bundle_occupation"),
         CheckConstraint("(source_kind = 'MANUAL' AND source_uid IS NULL AND label IS NOT NULL AND length(label) > 0) OR (source_kind IN ('BUNDLE','GROUP') AND source_uid IS NOT NULL)", name="ck_routing_bundle_source"),
     )
     segment_annotation_uid: Mapped[str] = mapped_column(ForeignKey("routing_segment_annotations.uid", ondelete="CASCADE"), index=True)

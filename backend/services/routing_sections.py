@@ -45,7 +45,7 @@ def validate_sections(data, geometry):
     seen = set()
     rectangles = {}
     for placement in data['bundle_placements']:
-        BundlePlacementInput.model_validate({k: placement[k] for k in BundlePlacementInput.model_fields})
+        BundlePlacementInput.model_validate({k: placement[k] for k in BundlePlacementInput.model_fields if k in placement})
         parent = annotations[placement['segment_annotation_uid']]
         kind = 'passage' if parent['passage_band_uid'] else 'cross'
         owner = parent['passage_band_uid'] or parent['cross_route_uid']
@@ -84,7 +84,7 @@ def resolve_sections(data, geometry):
     """Integer arrays are projections, never a second persisted source of occupancy."""
     result = []
     for parent in data['segment_annotations']:
-        placements = sorted((p for p in data['bundle_placements'] if p['segment_annotation_uid'] == parent['uid'] and p['enabled']), key=lambda p: p['uid'])
+        placements = sorted((p for p in data['bundle_placements'] if p['segment_annotation_uid'] == parent['uid'] and p['enabled'] and not p.get('is_section_container')), key=lambda p: p['uid'])
         owner_tiers = (p['tier'] for p in data['passage_tiers'] if p['passage_band_uid'] == parent['passage_band_uid']) if parent['passage_band_uid'] else (p['tier'] for p in data['cross_route_tiers'] if p['cross_route_uid'] == parent['cross_route_uid'])
         tiers = {parent['tier']} if parent['tier'] is not None else set(owner_tiers) | {p['tier'] for p in placements}
         for tier in sorted(tiers):

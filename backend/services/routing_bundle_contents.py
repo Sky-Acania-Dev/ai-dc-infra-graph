@@ -84,9 +84,11 @@ def _view(context, section_end):
             for x in range(unit['position']-1,unit['position']-1+unit['slot_width']):
                 cells[y][x] = ordinal
     unassigned = None if context.parent_members is None else len(context.parent_members-used)
-    data = config.snapshot(context.session, context.layout.uid)
-    from backend.services.routing_geometry import resolve_geometry
-    data['geometry'] = resolve_geometry(data)
+    data = config.resolved_layout(context.session, context.layout.uid)
+    from backend.services.routing_section_order import group_positions, rack_positions
+    positions=rack_positions(data)
+    for unit in units:
+        if unit['kind']=='RACK_PAIR':unit.update(group_positions(data,unit,positions))
     return dict(bundle_placement_uid=context.placement.uid, parent_enabled=context.placement.enabled, requested_end=section_end,
         defined_end=selected.section_end if selected else None, inherited=bool(selected and selected.section_end!=section_end),
         version=context.version(), grid_columns=columns, grid_rows=rows, cells=cells, units=units,
@@ -157,7 +159,10 @@ def connection_unit_order(session, layout_uid, connection_uid):
     for side in ('from','to'):
         context = ContentsContext(session,layout_uid,getattr(connection,side+'_placement_uid'))
         view = _view(context,getattr(connection,side+'_end')); sides[side] = view
-        indexed[side] = {c:unit['unit_uid'] for unit in view['units'] for c in context.resolve(unit)[2]}
+        indexed[side] = {}
+        for unit in view['units']:
+            _,_,members,error=context.resolve(unit)
+            if not error:indexed[side].update((c,unit['unit_uid']) for c in members)
     links = Counter((indexed['from'][c],indexed['to'][c]) for c in indexed['from'].keys() & indexed['to'].keys())
     return dict(connection_uid=connection_uid,enabled=connection.enabled,from_section=sides['from'],to_section=sides['to'],
         links=[dict(from_unit_uid=a,to_unit_uid=b,cable_count=count) for (a,b),count in sorted(links.items())],

@@ -196,6 +196,7 @@ class SegmentAnnotationInput(Record):
 
 
 class BundlePlacementInput(Record):
+    is_section_container: bool = False
     segment_annotation_uid: str
     tier: Tier
     layer: Annotated[int, Field(strict=True, ge=1, le=64)] | None = 1
@@ -225,7 +226,9 @@ class BundlePlacementInput(Record):
             raise ValueError('Provide all four grid footprint values, or set all four to null.')
         if any(v is not None for v in rectangle) and any(v is None for v in rectangle):
             raise ValueError('Provide all four physical rectangle values, or leave all four unset.')
-        if self.layer is None and self.offset_across_in is None:
+        if self.is_section_container and (self.source_kind != 'MANUAL' or any(v is not None for v in slots + rectangle)):
+            raise ValueError('A whole-section container uses local contents, with no outer packing footprint or external membership.')
+        if not self.is_section_container and self.layer is None and self.offset_across_in is None:
             raise ValueError('A bundle needs a grid footprint, a physical rectangle, or both.')
         return self
 

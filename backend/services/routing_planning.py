@@ -33,7 +33,7 @@ def cabinet_review_attachments(data, cabinets):
             low = field['end_in'] - (slot + 1) * field['width_in'] // count
             high = field['end_in'] - slot * field['width_in'] // count
             result[c['cabinet_uid']] = dict(cabinet_uid=c['cabinet_uid'], row_uid=row['uid'], cross_route_uid=route['uid'],
-                point=(route['station_in'], (low + high) // 2, 1))
+                point=(route['station_in'], (low + high) // 2, 1), row_position=slot+1)
     return result
 
 

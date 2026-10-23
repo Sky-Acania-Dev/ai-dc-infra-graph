@@ -39,6 +39,15 @@ const RoutingLoadStatus = await component("RoutingLoadStatus", "RoutingLoadStatu
 const JunctionPlan = await component("JunctionPlan", "JunctionPlan");
 const JunctionPortSections = await component("JunctionPlan", "JunctionPortSections");
 const movementOrder = await component("JunctionPlan", "movementOrder");
+const CableUnitOrderEditor = await component("CableUnitOrderEditor", "CableUnitOrderEditor");
+
+test("actual ordering editor exposes rack flip, selected unit controls and an empty grid",()=>{
+  const value={version:'v',status:'DEFAULT',grid_columns:12,grid_rows:8,units:[{kind:'RACK_PAIR',unit_uid:'group-a',resolved_label:'801 ↔ 811 · MPO × 16',cable_count:16,source_rack_position:1,destination_rack_position:10,layer:1,position:1,slot_width:1,slot_height:1}],reference:{column_1_direction:'NORTH',column_1_is_inner:true},errors:[]};
+  const html=renderToStaticMarkup(React.createElement(CableUnitOrderEditor,{value,canManage:true,onSave:async()=>{}}));
+  assert.match(html,/Flip source rack position order/);assert.match(html,/bundle-local ordering grid/);assert.match(html,/801.*811/);assert.match(html,/Save this end/);
+  const viewer=renderToStaticMarkup(React.createElement(CableUnitOrderEditor,{value:{...value,units:[]},canManage:false,onSave:async()=>{}}));
+  assert.match(viewer,/Empty section/);assert.doesNotMatch(viewer,/Save this end/);
+});
 
 function junctionExample() {
   const occupation={offset_across_in:4,offset_up_in:0,occupied_width_in:2,occupied_height_in:1,layer:1,position:2,slot_width:2,slot_height:1};

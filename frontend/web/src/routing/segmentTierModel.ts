@@ -11,7 +11,7 @@ export function segmentTierModel(data: ResolvedLayout, segment: ConceptualSegmen
     ? a.passage_band_uid === segment.passage_band_uid && a.start_station_in! <= segment.start_station_in! && a.end_station_in! >= segment.end_station_in!
     : a.cross_route_uid === segment.cross_route_uid && a.from_passage_band_uid === segment.from_passage_band_uid && a.to_passage_band_uid === segment.to_passage_band_uid);
   const parentIds = new Set(parents.map(p => p.uid));
-  const placements = (data.bundle_placements ?? []).filter(p => parentIds.has(p.segment_annotation_uid) && p.enabled);
+  const placements = (data.bundle_placements ?? []).filter(p => parentIds.has(p.segment_annotation_uid) && p.enabled && !p.is_section_container);
   const tiers: Tier[] = records.map(t => t.tier).sort();
   const markedClasses: Partial<Record<Tier, CableClass[]>> = Object.fromEntries(tiers.map(tier => [tier,
     [...new Set(parents.filter(p => p.usable && (p.tier == null || p.tier === tier)).flatMap(p => p.cable_classes))]]));

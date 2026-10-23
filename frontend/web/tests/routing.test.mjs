@@ -16,6 +16,32 @@ import {validSummary,layoutSignature,SUMMARY_MAX_AGE_MS,SummaryLoadGate,readRevi
 import {physicalJunctions,physicalPlanningTargets,junctionHitTargets} from "../src/routing/physicalTargets.ts";
 import {filterSummaryGroups} from "../src/routing/routingSummaryFilter.ts";
 import {sectionGroupCounts} from "../src/routing/sectionGroupCounts.ts";
+import {orderProblem,rackOrderedUnits,orderDraft,rackOrderDirection,defaultRackBasis} from "../src/routing/bundleOrdering.ts";
+
+test("bundle ordering flips relative rack positions with stable units and multi-cell footprints",()=>{
+  const units=[{kind:'RACK_PAIR',unit_uid:'a',source_rack_position:9,destination_rack_position:1,layer:1,position:1,slot_width:2,slot_height:1},
+    {kind:'CABLE_LIST',unit_uid:'b',cable_uids:['real-1','real-2'],source_rack_position:2,destination_rack_position:8,layer:1,position:3,slot_width:2,slot_height:2}];
+  const before=JSON.stringify(units);
+  const ascending=rackOrderedUnits(units,'source',false,12,8),descending=rackOrderedUnits(units,'source',true,12,8);
+  assert.equal(ascending[0].unit_uid,'b');assert.equal(descending[0].unit_uid,'a');
+  assert.equal(rackOrderDirection(ascending,'source'),'ASC');assert.equal(rackOrderDirection(descending,'source'),'DESC');
+  assert.equal(defaultRackBasis(units.map(u=>({...u,source_rack_position:1})),'source'),'destination');
+  assert.equal(ascending[1].position,3);assert.equal(orderProblem(ascending,12,8),null);
+  assert.equal(rackOrderedUnits(units,'destination',false,12,8)[0].unit_uid,'a');
+  assert.equal(JSON.stringify(units),before);
+  assert.deepEqual(ascending.find(u=>u.unit_uid==='b').cable_uids,['real-1','real-2']);
+});
+
+test("invalid sectional drafts are detected locally and metadata cannot leak into writes",()=>{
+  const a={kind:'CABLE_LIST',cable_uids:['actual-1'],unit_uid:'a',resolved_label:'Actual group',review_group_uid:'group',layer:1,position:1,slot_width:2,slot_height:1};
+  assert.match(orderProblem([a,{...a,unit_uid:'b',cable_uids:['actual-2'],position:2}],12,8),/overlap/);
+  assert.match(orderProblem([{...a,position:12}],12,8),/outside/);
+  assert.match(orderProblem([{...a,layer:1.5}],12,8),/outside/);
+  assert.match(orderProblem([a,{...a,unit_uid:'b',position:4}],12,8),/cable ID/);
+  const payload=orderDraft({version:'v1',grid_columns:12,grid_rows:8,units:[a]});
+  assert.equal(payload.expected_version,'v1');assert.equal('unit_uid' in payload.units[0],false);assert.equal('review_group_uid' in payload.units[0],false);
+  assert.deepEqual(payload.units[0].cable_uids,['actual-1']);
+});
 
 test("derived curve radii retain half inches without relaxing persisted dimensions",()=>{
   assert.equal(formatDerivedInches(10.5),'10.5 in');
