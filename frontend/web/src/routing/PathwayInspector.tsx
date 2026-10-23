@@ -11,8 +11,9 @@ import { BundleSectionEditor } from "./BundleSectionEditor";
 import { occupationLabel } from "./occupation";
 import type { SectionDisplayMode } from "./SectionOccupationDiagram";
 import { directionName } from "./sectionDirections";
+import { JunctionInspector } from "./JunctionInspector";
 
-export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, canManage, busy, mutate, onSelect, onOpenRouting, selectedPlacementUid, onSelectPlacement, reviewGroupCount = 0, reviewLoads = [], overview }: {
+export function PathwayInspector({ data, graph, selection, segment, selectedEdge, attachmentUid, canManage, busy, mutate, onSelect, onOpenRouting, selectedPlacementUid, onSelectPlacement, reviewGroupCount = 0, reviewLoads = [], overview, onSelectJunctionGroup }: {
   data: ResolvedLayout; graph: RoutingGraph; selection: Selection; segment: ConceptualSegment | null | undefined; selectedEdge?: GraphEdge;
   attachmentUid: string | null; canManage: boolean; busy: boolean;
   mutate: Mutate; onSelect: (selection: Selection) => void; onOpenRouting: () => void;
@@ -20,6 +21,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
   reviewGroupCount?: number;
   reviewLoads?: ReviewLoad[];
   overview?: ReactNode;
+  onSelectJunctionGroup?:(uid:string|null)=>void;
 }) {
   const row = attachmentUid ? data.geometry.cabinet_rows.find(r => r.existing_cabinet_uids.includes(attachmentUid))
     : selection?.kind === "row" ? data.geometry.cabinet_rows.find(r => r.uid === selection.uid) : undefined;
@@ -27,6 +29,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
   const section = data.geometry.sections.find(s => s.uid === (row?.section_uid ?? data.geometry.cabinet_rows.find(r => r.uid === route?.cabinet_row_uid)?.section_uid));
   const fallbackRoute = route ?? data.geometry.cross_routes.find(r => r.cabinet_row_uid === row?.uid);
   const opening = selection?.kind === "transition" ? data.vertical_transitions.find(v => v.uid === selection.uid) : undefined;
+  const openingNode=opening?graph.nodes.filter(n=>n.passage_band_uid===opening.passage_band_uid&&n.station_in===opening.station_in).sort((a,b)=>a.tier-b.tier)[0]:undefined;
   const node = selection?.kind === "node" ? graph.nodes.find(n => n.id === selection.uid) : selectedEdge ? graph.nodes.find(n => n.id === selectedEdge.source_node_id) : undefined;
   const pointOwner = opening?.passage_band_uid ?? node?.passage_band_uid;
   const pointStation = opening?.station_in ?? node?.station_in;
@@ -52,6 +55,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
   const placement = data.bundle_placements?.find(p => p.uid === selectedBlockUid);
   const marking = active ? annotationFor(data, active, selectedEdge?.tier ?? null) : undefined;
   const field = (name: string, value: string) => <div key={name}><dt>{name}</dt><dd title={value}>{value}</dd></div>;
+  if(selection?.kind==="node"&&node)return <aside className="side-pane routing-page routing-side routing-pathway-inspector" aria-label="Pathway metadata and geometry"><JunctionInspector data={data} graph={graph} node={node} canManage={canManage} busy={busy} mutate={mutate} onSelectGroup={onSelectJunctionGroup} sectionMode={sectionMode} onSectionModeChange={setSectionMode}/>{reviewGroupCount>0&&<p className="actual-review-notice">{reviewGroupCount} actual type/rack-pair groups use this junction.</p>}{model&&<details open className="junction-passage-tier-sections"><summary>Passage tier sections</summary><TierSectionDiagrams data={data} model={model} selectedPlacementUid={selectedPlacementUid} mode={sectionMode} onModeChange={setSectionMode} reversed={reversed} onReverse={()=>setReversed(v=>!v)} onSelectPlacement={onSelectPlacement}/></details>}</aside>;
   return <aside className="side-pane routing-page routing-side routing-pathway-inspector" aria-label="Pathway metadata and geometry">
     <span className="eyebrow">Pathway inspection</span>
     {!selection && !segment && !attachmentUid && overview}
@@ -69,6 +73,7 @@ export function PathwayInspector({ data, graph, selection, segment, selectedEdge
         {field("Section reference", model.reference ?? (!model.directions.hasInner ? "North / South · no inner side" : model.directions.inner ? `Inner ${directionName(model.directions.inner)} · toward cabinets` : "Inner side unassigned"))}
         {field("Notes / hall", attachmentUid ? "Schematic connector; no measured drop dimensions" : opening?.notes ?? marking?.notes ?? `${data.geometry.sections.length} sections · ${data.geometry.gaps.length} gaps · ${formatInches(data.geometry.total_width_in)} wide`)}
       </dl>
+      {openingNode&&<button onClick={()=>onSelect({kind:"node",uid:openingNode.id})}>Inspect junction and bundle turns</button>}
       {reviewGroupCount > 0 && <p className="actual-review-notice">{reviewGroupCount} actual type/rack-pair groups use this selection in the provisional plan. Configured tiers are shown on the cable cards; sectional positions remain unassigned.</p>}
       <TierSectionDiagrams data={data} model={model} selectedPlacementUid={selectedPlacementUid} mode={sectionMode} onModeChange={setSectionMode} reversed={reversed} onReverse={() => setReversed(current => !current)} onSelectPlacement={onSelectPlacement} />
       {canManage && <details className="section-configuration" open={configureOpen} onToggle={e => setConfigureOpen(e.currentTarget.open)}><summary>Configure heights / bundle sections</summary>

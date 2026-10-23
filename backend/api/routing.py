@@ -97,6 +97,31 @@ def get_placement_sources(layout_uid: str, user: AuthUser = Depends(current_user
         return placement_sources(session, config.get_layout(session, layout_uid))
 
 
+@router.get('/layouts/{layout_uid}/junction-preview')
+def junction_preview(layout_uid: str, node_id: str, actual_groups: bool = False, user: AuthUser = Depends(current_user)):
+    from backend.services.routing_junction_geometry import saved_junction
+    from backend.services.routing_junction_inventory import actual_junction
+    with routing_session() as session:
+        data = config.resolved_layout(session, layout_uid)
+        graph = derive_graph(data)
+        node = next((n for n in graph.nodes if n.id == node_id), None)
+        if node is None:
+            raise config.RoutingNotFound('Routing junction node was not found.')
+        result = saved_junction(data, data['geometry'], node, graph)
+        if actual_groups:
+            from backend.services.routing_junction_cache import junction_review
+            review = junction_review(session, layout_uid, data)
+            result = actual_junction(result, review, node, longitudinal_direction=data['layout'].get('longitudinal_direction'))
+        return result
+
+
+@router.get('/layouts/{layout_uid}/junctions')
+def junction_statistics(layout_uid: str, user: AuthUser = Depends(current_user)):
+    with routing_session() as session:
+        graph = derive_graph(config.snapshot(session, layout_uid))
+        return [n.model_dump() for n in graph.nodes]
+
+
 @router.post('/layouts/{layout_uid}/route-preview', response_model=RoutePreview)
 def route_preview(layout_uid: str, request: PreviewInput, user: AuthUser = Depends(current_user)):
     with routing_session() as session:

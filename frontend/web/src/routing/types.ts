@@ -10,7 +10,12 @@ export type SegmentSpan = {
 export type SegmentAnnotation = RecordBase & SegmentSpan & { updated_at: string; tier: Tier | null; usable: boolean; cable_classes: CableClass[]; notes: string | null; section_reference: string | null; section_inner_direction: CardinalDirection | null; grid_columns: number; grid_rows: number; section_height_in: number | null };
 export type Occupation = { layer: number | null; position: number | null; slot_width: number | null; slot_height: number | null; offset_across_in: number | null; offset_up_in: number | null; occupied_width_in: number | null; occupied_height_in: number | null };
 export type BundlePlacement = RecordBase & Occupation & { segment_annotation_uid: string; tier: Tier; source_kind: "MANUAL" | "BUNDLE" | "GROUP"; source_uid: string | null; label: string | null; resolved_label: string; source_available: boolean; cable_class: CableClass | null; notes: string | null; enabled: boolean };
-export type BundleConnection = RecordBase & { from_placement_uid: string; from_end: "START" | "END"; to_placement_uid: string; to_end: "START" | "END"; vertical_transition_uid: string | null; enabled: boolean; notes: string | null; from_node_id: string; to_node_id: string };
+export type BundleConnection = RecordBase & { from_placement_uid: string; from_end: "START" | "END"; to_placement_uid: string; to_end: "START" | "END"; vertical_transition_uid: string | null; junction_area_uid?: string | null; from_turn_start_in?: number | null; to_turn_start_in?: number | null; enabled: boolean; notes: string | null; from_node_id: string; to_node_id: string };
+export type JunctionArea = RecordBase & {passage_band_uid:string;cross_route_uid:string|null;station_in:number|null;tier:Tier;west_extension_in:number;east_extension_in:number;north_extension_in:number;south_extension_in:number;usable_height_in:number|null;provenance:"SCHEMATIC"|"MANUAL"|"FIELD_MEASURED";label:string|null;notes:string|null;enabled:boolean};
+export type JunctionCrossing = RecordBase & {above_connection_uid:string;below_connection_uid:string;clearance_in:number|null;notes:string|null;enabled:boolean};
+export type JunctionPort = {direction:CardinalDirection;width_in:number;inner_direction:CardinalDirection|null;point:[number,number]|null;occupation:Occupation;placement_uid:string|null;placement_tier?:Tier;grid_columns?:number;grid_rows?:number;label:string};
+export type JunctionMovement = {uid:string;tier:Tier;label:string;cable_class:CableClass|null;cable_count?:number;group_uid?:string;route_source?:string;source_uid?:string;provenance?:string;geometry_status:"UNKNOWN"|"RESOLVED";path:string|null;display_path?:string;from_port:JunctionPort|null;to_port:JunctionPort|null;centerline_radius_in?:number|null;inner_envelope_radius_in?:number;from_turn_start_in?:number|null;to_turn_start_in?:number|null;checks:string[]};
+export type JunctionPreview = {area:{uid:string;node_id:string;tier:Tier;label:string;passage_code:PassageCode;passage_band_uid:string;station_in:number;configured:boolean;bounds:{west_in:number;east_in:number;north_in:number;south_in:number};passage_width_in:number;cross_route_width_in:number;usable_height_in:number|null;elevation_in?:number|null;provenance:string;notes:string|null;display_tray_rectangles?:Array<{x_in:number;y_in:number;width_in:number;height_in:number}>;ports:Array<{uid:string;direction:CardinalDirection;width_in:number;label:string;edge_id:string}>};movements:JunctionMovement[];statistics:{cable_intersection_point_count:number|null;bundle_pair_crossing_count:number|null;observed_intersection_point_count:number;unresolved_movement_count:number;intersection_count_status:"EXACT"|"ESTIMATED"|"UNKNOWN";method:string;points:Array<{x_in:number;y_in:number;movement_uids:string[]}>;overlapping_movement_pairs:string[][]};scope:string;notes?:string;crossing_orders:JunctionCrossing[]};
 export type CabinetAttachment = RecordBase & { segment_annotation_uid: string; cabinet_uid: string; offset_in: number; tier: Tier | null; label: string | null; notes: string | null; enabled: boolean; cabinet_available: boolean; x_in: number; y_in: number };
 export type SectionOccupation = { segment_annotation_uid: string; tier: Tier; grid_columns: number; grid_rows: number; cells: number[][]; occupants: Array<{value: number; placement_uid: string}>; rectangles: Array<Pick<BundlePlacement, "uid" | "offset_across_in" | "offset_up_in" | "occupied_width_in" | "occupied_height_in">>; width_in: number; height_in: number | null };
 export type PlacementSource = { kind: "BUNDLE" | "GROUP"; uid: string; name: string };
@@ -78,6 +83,8 @@ export type ResolvedLayout = {
   bundle_placements: BundlePlacement[];
   bundle_connections: BundleConnection[];
   cabinet_attachments: CabinetAttachment[];
+  junction_areas?: JunctionArea[];
+  junction_crossings?: JunctionCrossing[];
   section_occupations: SectionOccupation[];
   cabinets: RoutingCabinet[];
   geometry: {
@@ -97,6 +104,7 @@ export type GraphNode = {
   cross_route_uid: string | null; cross_route_kind: string | null; cabinet_row_uid: string | null;
   vertical_transition_uids: string[]; label: string | null;
   cross_route_uids: string[]; cabinet_row_uids: string[]; bundle_connection_uids: string[];
+  cable_intersection_point_count?:number|null;bundle_pair_crossing_count?:number|null;intersection_count_status?:"EXACT"|"ESTIMATED"|"UNKNOWN";intersection_count_scope?:string;
 };
 export type GraphEdge = {
   id: string; edge_type: "CROSS_ROUTE" | "PASSAGE" | "VERTICAL"; source_node_id: string; target_node_id: string;
@@ -113,5 +121,5 @@ export type RoutePreview = RoutingGraph & {
   steps: string[]; vertical_opening_labels: string[];
 };
 export type Selection = { kind: "passage" | "cross" | "row" | "transition" | "edge" | "node" | "cabinet"; uid: string } | null;
-export type Resource = "sections" | "bands" | "row-pairs" | "cabinet-rows" | "cross-routes" | "cross-route-tiers" | "passage-tiers" | "vertical-transitions" | "segment-annotations" | "bundle-placements" | "bundle-connections" | "cabinet-attachments";
+export type Resource = "sections" | "bands" | "row-pairs" | "cabinet-rows" | "cross-routes" | "cross-route-tiers" | "passage-tiers" | "vertical-transitions" | "segment-annotations" | "bundle-placements" | "bundle-connections" | "cabinet-attachments" | "junction-areas" | "junction-crossings";
 export type Mutate = (resource: Resource | "layout", values: object, uid?: string, remove?: boolean) => Promise<boolean>;

@@ -1,4 +1,5 @@
 import type { Mutate, ResolvedLayout, RoutingGraph, Selection } from "./types";
+import { JunctionInspector } from "./JunctionInspector";
 import { formatInches } from "./dimensions";
 import { TierEditor } from "./TierEditor";
 import { OpeningEditor } from "./OpeningEditor";
@@ -48,13 +49,14 @@ export function RoutingDetails({ data, graph, selection, onSelect, canManage, bu
   if (selection.kind === "transition") {
     const opening = data.vertical_transitions.find(o => o.uid === selection.uid);
     if (!opening) return null;
+    const junction=graph.nodes.filter(n=>n.passage_band_uid===opening.passage_band_uid&&n.station_in===opening.station_in).sort((a,b)=>a.tier-b.tier)[0];
     return <div><h3>{opening.label ?? "Physical opening"}</h3><dl>{field("Passage", data.bands.find(b => b.uid === opening.passage_band_uid)?.code)}{field("Station", formatInches(opening.station_in))}{field("Tier pair", `T${opening.lower_tier} ↕ T${opening.upper_tier}`)}{field("Notes", opening.notes)}{field("Enabled", opening.enabled ? "Yes" : "No")}</dl>
-      {canManage && <OpeningEditor key={opening.uid} opening={opening} data={data} disabled={busy} mutate={mutate} onDone={() => onSelect(null)} />}</div>;
+      {junction&&<button onClick={()=>onSelect({kind:"node",uid:junction.id})}>Inspect junction and bundle turns</button>}{canManage && <OpeningEditor key={opening.uid} opening={opening} data={data} disabled={busy} mutate={mutate} onDone={() => onSelect(null)} />}</div>;
   }
   if (selection.kind === "node") {
     const node = graph.nodes.find(n => n.id === selection.uid);
     if (!node) return null;
-    return <div><h3>{node.node_type === "JUNCTION" ? "Junction" : "Pathway station"} · Tier {node.tier}</h3><dl>{field("Roles", node.roles.join(", "))}{field("Passage", node.passage_code)}{field("Station", formatInches(node.station_in))}{field("Cross routes", [...new Set(node.cross_route_uids.map(crossName))].join(", ") || "—")}{field("Bundle continuations", node.bundle_connection_uids.length)}</dl><h4>Connected edges</h4><div className="routing-linked-list">{graph.edges.filter(e => e.source_node_id === node.id || e.target_node_id === node.id).map(edge => <button key={edge.id} onClick={() => onSelect({ kind: "edge", uid: edge.id })}>{edge.label ?? edge.edge_type} · {formatInches(edge.planar_length_in)}</button>)}</div>{node.bundle_connection_uids.map(uid => { const c = data.bundle_connections.find(c => c.uid === uid); return c && <p key={uid}>{data.bundle_placements.find(p => p.uid === c.from_placement_uid)?.resolved_label} · {c.from_end} → {c.to_end}{c.vertical_transition_uid ? " · physical opening" : ""}</p>; })}<details><summary>Stable node ID</summary><code>{node.id}</code></details></div>;
+    return <JunctionInspector data={data} graph={graph} node={node} canManage={canManage} busy={busy} mutate={mutate}/>;
   }
   const edge = graph.edges.find(e => e.id === selection.uid);
   if (!edge) return null;

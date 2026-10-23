@@ -6,7 +6,7 @@ from backend.services.routing_geometry import resolve_geometry, passage_span_lab
 from backend.services.routing_elevations import tier_elevation
 
 
-def derive_graph(data: dict) -> RoutingGraph:
+def derive_graph(data: dict, *, junction_statistics=True) -> RoutingGraph:
     geometry = resolve_geometry(data)
     bands = [b for b in geometry['bands'] if b['kind'] == 'PASSAGE']
     passage_tiers = {(p['passage_band_uid'], p['tier']): p for p in data['passage_tiers'] if p['enabled']}
@@ -23,6 +23,9 @@ def derive_graph(data: dict) -> RoutingGraph:
             for (band_uid, tier), station_set in stations.items():
                 if band_uid == item['passage_band_uid'] and item['tier'] in (None, tier):
                     station_set.update((item['start_station_in'], item['end_station_in']))
+    for item in data.get('junction_areas', []):
+        if item['enabled'] and item.get('station_in') is not None and (item['passage_band_uid'], item['tier']) in stations:
+            stations[(item['passage_band_uid'], item['tier'])].add(item['station_in'])
 
     def passage_node(band: dict, station: int, tier: int, landing: str | None = None) -> str:
         uid = f"cross:{landing}:passage:{band['uid']}:tier:{tier}" if landing else f"passage:{band['uid']}:station:{station}:tier:{tier}"
@@ -121,4 +124,13 @@ def derive_graph(data: dict) -> RoutingGraph:
         node.cross_route_uids = sorted(set(node.cross_route_uids))
         node.cabinet_row_uids = sorted(set(node.cabinet_row_uids))
         node.bundle_connection_uids.sort()
-    return RoutingGraph(nodes=sorted(nodes.values(), key=lambda n: n.id), edges=sorted(edges.values(), key=lambda e: e.id))
+    result = RoutingGraph(nodes=sorted(nodes.values(), key=lambda n: n.id), edges=sorted(edges.values(), key=lambda e: e.id))
+    if junction_statistics:
+        from backend.services.routing_junction_geometry import saved_junction, area_key
+        configured = {area_key(a, geometry) for a in data.get('junction_areas', []) if a['enabled']}
+        for node in result.nodes:
+            if node.bundle_connection_uids or (node.passage_band_uid, node.station_in, node.tier) in configured:
+                stats = saved_junction(data, geometry, node, result)['statistics']
+                for field in ('cable_intersection_point_count', 'bundle_pair_crossing_count', 'intersection_count_status'):
+                    setattr(node, field, stats[field])
+    return result

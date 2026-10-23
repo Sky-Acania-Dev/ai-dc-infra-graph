@@ -246,12 +246,55 @@ class RoutingBundleConnection(LayoutChild, Base):
     __tablename__ = "routing_bundle_connections"
     __table_args__ = (
         CheckConstraint("from_end IN ('START','END') AND to_end IN ('START','END') AND from_placement_uid <> to_placement_uid", name="ck_routing_connection_ends"),
+        CheckConstraint("(from_turn_start_in IS NULL AND to_turn_start_in IS NULL) OR (from_turn_start_in >= 0 AND to_turn_start_in >= 0 AND from_turn_start_in IS NOT NULL AND to_turn_start_in IS NOT NULL)", name="ck_routing_connection_turn_starts"),
     )
     from_placement_uid: Mapped[str] = mapped_column(ForeignKey("routing_bundle_placements.uid", ondelete="CASCADE"), index=True)
     from_end: Mapped[str] = mapped_column(Text)
     to_placement_uid: Mapped[str] = mapped_column(ForeignKey("routing_bundle_placements.uid", ondelete="CASCADE"), index=True)
     to_end: Mapped[str] = mapped_column(Text)
     vertical_transition_uid: Mapped[str | None] = mapped_column(ForeignKey("routing_vertical_transitions.uid"), index=True)
+    junction_area_uid: Mapped[str | None] = mapped_column(ForeignKey("routing_junction_areas.uid", ondelete="SET NULL"), index=True)
+    from_turn_start_in: Mapped[int | None] = mapped_column(Integer)
+    to_turn_start_in: Mapped[int | None] = mapped_column(Integer)
+    notes: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class RoutingJunctionArea(LayoutChild, Base):
+    """Physical working area anchored to domain topology, never a generated node FK."""
+    __tablename__ = 'routing_junction_areas'
+    __table_args__ = (
+        CheckConstraint('tier BETWEEN 1 AND 3', name='ck_routing_junction_tier'),
+        UniqueConstraint('passage_band_uid', 'cross_route_uid', 'tier', name='uq_routing_junction_cross_anchor'),
+        UniqueConstraint('passage_band_uid', 'station_in', 'tier', name='uq_routing_junction_station_anchor'),
+        CheckConstraint('(cross_route_uid IS NOT NULL AND station_in IS NULL) OR (cross_route_uid IS NULL AND station_in IS NOT NULL AND station_in >= 0)', name='ck_routing_junction_anchor'),
+        CheckConstraint('west_extension_in >= 0 AND east_extension_in >= 0 AND north_extension_in >= 0 AND south_extension_in >= 0 AND (usable_height_in IS NULL OR usable_height_in > 0)', name='ck_routing_junction_dimensions'),
+        CheckConstraint("provenance IN ('SCHEMATIC','MANUAL','FIELD_MEASURED')", name='ck_routing_junction_provenance'),
+    )
+    passage_band_uid: Mapped[str] = mapped_column(ForeignKey('routing_bands.uid', ondelete='CASCADE'), index=True)
+    cross_route_uid: Mapped[str | None] = mapped_column(ForeignKey('routing_cross_routes.uid', ondelete='CASCADE'), index=True)
+    station_in: Mapped[int | None] = mapped_column(Integer)
+    tier: Mapped[int] = mapped_column(Integer)
+    west_extension_in: Mapped[int] = mapped_column(Integer, default=0)
+    east_extension_in: Mapped[int] = mapped_column(Integer, default=0)
+    north_extension_in: Mapped[int] = mapped_column(Integer, default=0)
+    south_extension_in: Mapped[int] = mapped_column(Integer, default=0)
+    usable_height_in: Mapped[int | None] = mapped_column(Integer)
+    provenance: Mapped[str] = mapped_column(Text, default='SCHEMATIC')
+    label: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class RoutingJunctionCrossing(LayoutChild, Base):
+    __tablename__ = 'routing_junction_crossings'
+    __table_args__ = (
+        UniqueConstraint('above_connection_uid', 'below_connection_uid', name='uq_routing_junction_crossing'),
+        CheckConstraint('above_connection_uid <> below_connection_uid AND (clearance_in IS NULL OR clearance_in >= 0)', name='ck_routing_junction_crossing'),
+    )
+    above_connection_uid: Mapped[str] = mapped_column(ForeignKey('routing_bundle_connections.uid', ondelete='CASCADE'), index=True)
+    below_connection_uid: Mapped[str] = mapped_column(ForeignKey('routing_bundle_connections.uid', ondelete='CASCADE'), index=True)
+    clearance_in: Mapped[int | None] = mapped_column(Integer)
     notes: Mapped[str | None] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 

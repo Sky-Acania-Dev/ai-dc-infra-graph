@@ -45,6 +45,8 @@ def validate_connections(data, geometry):
             if not configured or (point[2], placement['tier']) not in passages and not landing:
                 raise ValueError('Bundle connections require enabled pathways at their junction endpoints.')
         if a['tier'] != b['tier']:
+            if connection.get('from_turn_start_in') is not None or connection.get('to_turn_start_in') is not None:
+                raise ValueError('A tier-changing connection cannot use planar turn-start distances.')
             opening = openings.get(connection['vertical_transition_uid'])
             station = routes[opening['cross_route_uid']]['station_in'] if opening and opening.get('cross_route_uid') else opening['station_in'] if opening else None
             if not opening or not opening['enabled'] or opening['passage_band_uid'] != points[0][2] or station != points[0][0] or {opening['lower_tier'], opening['upper_tier']} != {a['tier'], b['tier']}:

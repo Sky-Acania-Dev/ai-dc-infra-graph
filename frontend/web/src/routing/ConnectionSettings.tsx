@@ -11,24 +11,37 @@ export function ConnectionSettings({data, mutate, disabled}: {data: ResolvedLayo
     <p>Connect the ends of two placements for the same group or bundle. START follows increasing passage station or NORTH → SOUTH across a row route.</p>
     <select aria-label="Bundle connection" value={connectionUid} onChange={e => setConnectionUid(e.target.value)}><option value="">Add a connection</option>{data.bundle_connections.map(c => <option key={c.uid} value={c.uid}>{data.bundle_placements.find(p => p.uid === c.from_placement_uid)?.resolved_label} · {c.from_end} → {c.to_end}{!c.enabled ? " · disabled" : ""}</option>)}</select>
     <BundleConnectionForm key={connectionUid || "new"} data={data} record={data.bundle_connections.find(c => c.uid === connectionUid)} mutate={mutate} disabled={disabled} />
+    <JunctionCrossingSettings data={data} mutate={mutate} disabled={disabled}/>
     <h3>Cabinet attachments</h3><p>A takeoff along a pathway span. It does not split the graph or add a node.</p>
     <select aria-label="Cabinet attachment" value={attachmentUid} onChange={e => setAttachmentUid(e.target.value)}><option value="">Add an attachment</option>{data.cabinet_attachments.map(a => <option key={a.uid} value={a.uid}>{a.label ?? a.cabinet_uid} · {formatInches(a.offset_in)}{!a.enabled ? " · disabled" : ""}</option>)}</select>
     <CabinetAttachmentForm key={attachmentUid || "new"} data={data} record={data.cabinet_attachments.find(a => a.uid === attachmentUid)} mutate={mutate} disabled={disabled} />
   </>;
 }
 
-function BundleConnectionForm({data, record, mutate, disabled}: {data: ResolvedLayout; record?: BundleConnection; mutate: Mutate; disabled: boolean}) {
+export function BundleConnectionForm({data, record, mutate, disabled}: {data: ResolvedLayout; record?: BundleConnection; mutate: Mutate; disabled: boolean}) {
   const [from, setFrom] = useState(record?.from_placement_uid ?? ""), [to, setTo] = useState(record?.to_placement_uid ?? "");
   const [fromEnd, setFromEnd] = useState(record?.from_end ?? "END"), [toEnd, setToEnd] = useState(record?.to_end ?? "START");
   const [opening, setOpening] = useState(record?.vertical_transition_uid ?? ""), [enabled, setEnabled] = useState(record?.enabled ?? true), [notes, setNotes] = useState(record?.notes ?? "");
-  return <form className="routing-form" onSubmit={async e => { e.preventDefault(); await mutate("bundle-connections", {from_placement_uid: from, from_end: fromEnd, to_placement_uid: to, to_end: toEnd, vertical_transition_uid: opening || null, enabled, notes: notes || null}, record?.uid); }}>
+  const [area,setArea]=useState(record?.junction_area_uid??""),[fromTurn,setFromTurn]=useState(record?.from_turn_start_in==null?"":formatInches(record.from_turn_start_in)),[toTurn,setToTurn]=useState(record?.to_turn_start_in==null?"":formatInches(record.to_turn_start_in)),[error,setError]=useState("");
+  return <form className="routing-form" onSubmit={async e => { e.preventDefault();setError("");try{if(Boolean(fromTurn.trim())!==Boolean(toTurn.trim()))throw Error("Provide both turn-start distances.");await mutate("bundle-connections", {from_placement_uid: from, from_end: fromEnd, to_placement_uid: to, to_end: toEnd, vertical_transition_uid: opening || null,junction_area_uid:area||null,from_turn_start_in:fromTurn.trim()?parseInches(fromTurn):null,to_turn_start_in:toTurn.trim()?parseInches(toTurn):null, enabled, notes: notes || null}, record?.uid);}catch(e){setError(String(e));} }}>
     {[["From placement", from, setFrom], ["To placement", to, setTo]].map(([name, value, setter]) => <label key={String(name)}>{String(name)}<select required value={String(value)} onChange={e => (setter as (v: string) => void)(e.target.value)}><option value="">Select a saved placement</option>{data.bundle_placements.map(p => <option key={p.uid} value={p.uid}>{p.resolved_label} · T{p.tier} · {occupationLabel(p)}</option>)}</select></label>)}
     <label>From endpoint<select value={fromEnd} onChange={e => setFromEnd(e.target.value as "START" | "END")}><option>START</option><option>END</option></select></label>
     <label>To endpoint<select value={toEnd} onChange={e => setToEnd(e.target.value as "START" | "END")}><option>START</option><option>END</option></select></label>
     <label>Physical opening (tier change only)<select value={opening} onChange={e => setOpening(e.target.value)}><option value="">Same tier</option>{data.vertical_transitions.map(v => <option key={v.uid} value={v.uid}>{v.label ?? v.uid} · T{v.lower_tier} ↕ T{v.upper_tier}</option>)}</select></label>
+    <label>Working area<select value={area} onChange={e=>setArea(e.target.value)}><option value="">Derived junction footprint</option>{data.junction_areas?.map(a=><option key={a.uid} value={a.uid}>{a.label??a.uid} · T{a.tier}</option>)}</select></label>
+    <DimensionInput label="FROM turn start (inward from port; blank if unknown)" value={fromTurn} onChange={setFromTurn}/><DimensionInput label="TO turn start (inward from port; blank if unknown)" value={toTurn} onChange={setToTurn}/>
     <label>Notes<textarea value={notes} onChange={e => setNotes(e.target.value)} /></label><label><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />Enabled</label>
     <button disabled={disabled || !from || !to}>{record ? "Save connection" : "Add connection"}</button>{record && <button type="button" disabled={disabled} onClick={() => void mutate("bundle-connections", {}, record.uid, true)}>Delete connection</button>}
+    {error&&<p role="alert">{error}</p>}
   </form>;
+}
+
+function JunctionCrossingSettings({data,mutate,disabled}:{data:ResolvedLayout;mutate:Mutate;disabled:boolean}) {
+  const [above,setAbove]=useState(""),[below,setBelow]=useState(""),[clearance,setClearance]=useState(""),[error,setError]=useState("");
+  return <details><summary>Local above / below crossing order</summary><div className="routing-linked-list">{data.junction_crossings?.map(c=><div key={c.uid}>{c.above_connection_uid} above {c.below_connection_uid}<button type="button" disabled={disabled} onClick={()=>void mutate("junction-crossings",{enabled:!c.enabled},c.uid)}>{c.enabled?"Disable":"Enable"}</button><button type="button" disabled={disabled} onClick={()=>void mutate("junction-crossings",{},c.uid,true)}>Delete order</button></div>)}</div><form className="routing-form" onSubmit={async e=>{e.preventDefault();setError("");try{await mutate("junction-crossings",{above_connection_uid:above,below_connection_uid:below,clearance_in:clearance.trim()?parseInches(clearance):null,enabled:true});}catch(e){setError(String(e));}}}>
+    {[["Above movement",above,setAbove],["Below movement",below,setBelow]].map(([label,value,setter])=><label key={String(label)}>{String(label)}<select required value={String(value)} onChange={e=>(setter as (v:string)=>void)(e.target.value)}><option value="">Choose a connection</option>{data.bundle_connections.filter(c=>c.enabled).map(c=><option key={c.uid} value={c.uid}>{data.bundle_placements.find(p=>p.uid===c.from_placement_uid)?.resolved_label??c.uid}</option>)}</select></label>)}
+    <DimensionInput label="Required crossing clearance (optional)" value={clearance} onChange={setClearance}/><button disabled={disabled||!above||!below||above===below}>Save crossing order</button>{error&&<p role="alert">{error}</p>}
+  </form></details>;
 }
 
 function CabinetAttachmentForm({data, record, mutate, disabled}: {data: ResolvedLayout; record?: CabinetAttachment; mutate: Mutate; disabled: boolean}) {

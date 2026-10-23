@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatInches, parseInches, formatMillimeters } from "../src/routing/dimensions.ts";
+import { formatInches, formatDerivedInches, parseInches, formatMillimeters } from "../src/routing/dimensions.ts";
 import { placeRoutingCabinets } from "../src/routing/cabinetPlacement.ts";
 import { conceptualLayout } from "../src/routing/conceptualLayout.ts";
 import { conceptualSegments, annotationFor, rowName, passageName } from "../src/routing/conceptualSegments.ts";
@@ -16,6 +16,14 @@ import {validSummary,layoutSignature,SUMMARY_MAX_AGE_MS,SummaryLoadGate,readRevi
 import {physicalJunctions,physicalPlanningTargets} from "../src/routing/physicalTargets.ts";
 import {filterSummaryGroups} from "../src/routing/routingSummaryFilter.ts";
 import {sectionGroupCounts} from "../src/routing/sectionGroupCounts.ts";
+
+test("derived curve radii retain half inches without relaxing persisted dimensions",()=>{
+  assert.equal(formatDerivedInches(10.5),'10.5 in');
+  assert.equal(formatDerivedInches(24),`2'-0"`);
+  assert.throws(()=>formatInches(10.5));
+  assert.throws(()=>parseInches('10.5'));
+  assert.throws(()=>formatDerivedInches(Number.NaN));
+});
 
 test("legend filters isolate disjoint cable colors and intersect status, pair, cabinet and pathway filters", () => {
   const base={source_cabinet_uid:'a',destination_cabinet_uid:'b',source_cabinet_id:'801',destination_cabinet_id:'811'};

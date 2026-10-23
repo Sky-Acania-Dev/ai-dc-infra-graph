@@ -36,6 +36,49 @@ const routingOverviewCounts = await component("RoutingOverview", "routingOvervie
 const DataHallSectionTabs = await component("../components/DataHallSectionTabs", "DataHallSectionTabs");
 const routeStrokeLines = await component("RouteStroke", "routeStrokeLines");
 const RoutingLoadStatus = await component("RoutingLoadStatus", "RoutingLoadStatus");
+const JunctionPlan = await component("JunctionPlan", "JunctionPlan");
+const JunctionPortSections = await component("JunctionPlan", "JunctionPortSections");
+const movementOrder = await component("JunctionPlan", "movementOrder");
+
+function junctionExample() {
+  const occupation={offset_across_in:4,offset_up_in:0,occupied_width_in:2,occupied_height_in:1,layer:1,position:2,slot_width:2,slot_height:1};
+  const port=direction=>({direction,width_in:24,point:[0,0],inner_direction:null,placement_uid:null,placement_tier:1,occupation,label:direction});
+  const movements=[{uid:'a',tier:1,label:'Actual LC group × 16',cable_class:'LC',path:'M -12 0 L 0 0 L 0 12',geometry_status:'RESOLVED',from_port:port('WEST'),to_port:port('SOUTH')},
+    {uid:'b',tier:1,label:'Actual Cat6 group × 24',cable_class:'CAT6',path:'M 12 0 L -12 0',geometry_status:'RESOLVED',from_port:port('EAST'),to_port:port('WEST')}];
+  return {area:{tier:1,bounds:{west_in:-12,east_in:12,north_in:-17,south_in:17},passage_width_in:34,cross_route_width_in:24,usable_height_in:null,
+    display_tray_rectangles:[{x_in:-12,y_in:-17,width_in:24,height_in:34}],ports:['WEST','EAST','SOUTH'].map(direction=>({direction,width_in:24,label:direction,uid:direction}))},movements,
+    statistics:{points:[{x_in:0,y_in:0,movement_uids:['a','b']}]},crossing_orders:[{above_connection_uid:'a',below_connection_uid:'b'}]};
+}
+
+test("junction section selection preserves every connected port section and grid/physical modes",()=>{
+  const preview=junctionExample();let selected=null;
+  const tree=JunctionPortSections({preview,selectedUid:null,onSelect:uid=>{selected=uid;},mode:'PHYSICAL'});
+  const firstPort=tree.props.children[1][0];
+  const svg=firstPort.props.children[2];
+  svg.props.children[3][0].props.onClick();
+  assert.equal(selected,'a','Section interaction selects a bundle, not an edge or a different node');
+  for(const mode of ['PHYSICAL','GRID']) {
+    const before=renderToStaticMarkup(React.createElement(JunctionPortSections,{preview,selectedUid:null,onSelect:()=>{},mode}));
+    const after=renderToStaticMarkup(React.createElement(JunctionPortSections,{preview,selectedUid:selected,onSelect:()=>{},mode}));
+    for(const html of [before,after])for(const direction of ['WEST','EAST','SOUTH'])assert.match(html,new RegExp(`aria-label="${direction} connection section"`));
+    assert.equal((after.match(/class="junction-port-section"/g)??[]).length,3);
+    assert.match(after,/Actual Cat6 group × 24/,'Unselected bundles remain in the connected section diagram');
+    assert.match(after,/opacity="0.2"/);
+    assert.doesNotMatch(after,/NaN|undefined/);
+  }
+});
+
+test("junction plan uses square tray envelopes and reverses display stacking without changing geometry",()=>{
+  const preview=junctionExample(),before=JSON.stringify(preview);
+  assert.deepEqual(movementOrder(preview).map(m=>m.uid),['b','a']);
+  assert.deepEqual(movementOrder(preview,true).map(m=>m.uid),['a','b']);
+  const top=renderToStaticMarkup(React.createElement(JunctionPlan,{preview,selectedUid:'a',onSelect:()=>{},below:false}));
+  const underside=renderToStaticMarkup(React.createElement(JunctionPlan,{preview,selectedUid:'a',onSelect:()=>{},below:true}));
+  assert.match(underside,/scale\(-1 1\)/);assert.doesNotMatch(top,/scale\(-1 1\)/);
+  assert.match(top,/Actual LC group × 16/);assert.match(top,/opacity="0.16"/);
+  assert.doesNotMatch(top,/rx=|Cable length/);
+  assert.equal(JSON.stringify(preview),before);
+});
 
 test("map loading notice distinguishes cold load, saved-route refresh, failure and ready state", () => {
   const props={loading:false,hasRoutes:false,error:'',onRetry:()=>{}};
@@ -213,6 +256,9 @@ test("physical junction inspection shows every tier instead of one graph node's 
   for(const tier of [1,2,3]) assert.match(html,new RegExp(`aria-label="T${tier} 12 by 8 occupation grid`));
   assert.match(html,/406 actual type\/rack-pair groups/);
   assert.doesNotMatch(html,/Junction.*Tier 1<\/h3>|Stable node ID/);
+  const withOpening={...data,layout:{...data.layout,row_pair_module_in:264,section_extra_gap_in:216},vertical_transitions:[{uid:'opening',passage_band_uid:'central',station_in:900,lower_tier:1,upper_tier:2,enabled:true,label:'Measured opening'}]};
+  const opening=renderToStaticMarkup(React.createElement(PathwayInspector,{data:withOpening,graph:{nodes,edges:[]},selection:{kind:'transition',uid:'opening'},segment:null,attachmentUid:null,canManage:false,busy:false,mutate:async()=>true,onSelect:()=>{},onOpenRouting:()=>{},selectedPlacementUid:null,onSelectPlacement:()=>{}}));
+  assert.match(opening,/Inspect junction and bundle turns/);
 });
 
 test("unselected pathway summary carries overview status without requiring a cable inspector", () => {
@@ -369,6 +415,15 @@ test("actual review groups show type detail actions and configured endpoint tier
   assert.doesNotMatch(html, /actual-1|A01|connection-cable-row|Cable details/);
   assert.match(html, /unassigned/); assert.doesNotMatch(html, /fixture cable|Fake review/);
   assert.match(html, /Tier 1 → Tier 1/);
+});
+
+test("junction bundle filtering does not expand back into other types on the same rack pair",()=>{
+  const base={source_cabinet_uid:'a',destination_cabinet_uid:'b',source_cabinet_id:'801',destination_cabinet_id:'811',count:4,route_source:'MANUAL',manual_revision:1,cable_uids:[]};
+  const lc={...base,uid:'lc',cable_type:'LC-TO-LC SMF'},mpo={...base,uid:'mpo',cable_type:'MPO12-SMF',count:72};
+  const html=renderToStaticMarkup(React.createElement(CableReviewPanel,{review:{groups:[lc,mpo],cables:[],manual_group_count:2},groups:[lc],groupFilterUid:'lc',onViewCables:()=>{}}));
+  assert.match(html,/Selected junction bundle · 4 actual cables/);
+  assert.match(html,/View LC-TO-LC SMF cable details/);
+  assert.doesNotMatch(html,/MPO12-SMF|All cable types for this rack pair/);
 });
 
 test("focused rack-pair cards expose type squares and Set/Change actions without the old picker", () => {

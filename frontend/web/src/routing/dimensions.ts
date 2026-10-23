@@ -3,6 +3,12 @@ export function formatInches(value: number): string {
   if (!Number.isSafeInteger(value)) throw new Error("Dimension must be integer inches.");
   return `${value < 0 ? "−" : ""}${Math.floor(Math.abs(value) / 12)}'-${Math.abs(value) % 12}"`;
 }
+
+/** Transient curve geometry can have half-inch centers from odd-width bundles. */
+export function formatDerivedInches(value:number):string {
+  if(!Number.isFinite(value)||value<0)throw new Error("Derived dimension must be finite and nonnegative.");
+  return Number.isSafeInteger(value)?formatInches(value):`${Number(value.toFixed(3))} in`;
+}
 export function parseInches(text: string): number {
   const normalized = text.trim().replace(/[′’]/g, "'").replace(/[″“”]/g, '"');
   const plain = /^(\d+)\s*(?:in|inches|")?$/.exec(normalized);

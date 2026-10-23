@@ -260,3 +260,13 @@
 .inventory-test-info { font-size: 12px; color: #526579; padding: 8px 0; }
 @media(max-width:1000px) { .routing-workspace { grid-template-columns: minmax(0,1fr) 285px; } .routing-page { padding: 12px; } }
 @media(max-width:760px) { .routing-workspace { grid-template-columns: 1fr; } .routing-side { max-height: none; } .routing-endpoints { grid-template-columns: 1fr; } .routing-svg { height: 380px; } }
+.junction-inspector { min-width: 0; }
+.junction-inspector select { width: 100%; min-width: 0; }
+.junction-plan-svg { width: 100%; max-height: 300px; display: block; margin: 8px 0; }
+.junction-tray-fill { fill: #e8edf2; }
+.junction-plan-label { font-size: 2.8px; fill: #334155; }
+.junction-movement, .junction-section-bundle { cursor: pointer; }
+.junction-port-section { padding: 6px 0; }
+.junction-port-section > b, .junction-port-section > small { display: block; overflow-wrap: anywhere; }
+.junction-port-section svg { width: 100%; display: block; }
+.junction-inspector .section-bundle-detail small { display: block; }

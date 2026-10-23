@@ -24,6 +24,8 @@ RESOURCES = {
     'bundle-placements': (db.RoutingBundlePlacement, schema.BundlePlacementInput),
     'bundle-connections': (db.RoutingBundleConnection, schema.BundleConnectionInput),
     'cabinet-attachments': (db.RoutingCabinetAttachment, schema.CabinetAttachmentInput),
+    'junction-areas': (db.RoutingJunctionArea, schema.JunctionAreaInput),
+    'junction-crossings': (db.RoutingJunctionCrossing, schema.JunctionCrossingInput),
 }
 
 
@@ -225,11 +227,14 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
         values.update(payload)
     else:
         values = payload
+    before_junction_edit=snapshot(session,layout_uid) if resource=='junction-areas' else None
     if resource in ('passage-tiers', 'cross-route-tiers') and existing is None and values.get('tier') == 1 and values.get('pathway_type') == 'BASKET_TRAY' and 'elevation_in' not in values and 'elevation_reference' not in values and layout.bottom_basket_elevation_in is not None:
         values = {**values, 'elevation_reference': 'BOTTOM_BASKET'}
     values = input_type.model_validate(values).model_dump()
     if resource == 'cross-routes' and existing and any(values[k] != getattr(existing, k) for k in ('kind', 'cabinet_row_uid', 'section_boundary_after_section_uid')):
         raise RoutingConfigurationError('Cross-route association cannot be changed. Edit its associated row instead.')
+    if resource=='junction-areas' and existing and any(values[k]!=getattr(existing,k) for k in ('passage_band_uid','cross_route_uid','station_in','tier')):
+        raise RoutingConfigurationError('The junction anchor/tier cannot be moved. Create a working area at the other node instead.')
     original_source = (existing.source_kind, existing.source_uid) if existing is not None and resource == 'bundle-placements' else None
     original_cabinet = existing.cabinet_uid if existing is not None and resource == 'cabinet-attachments' else None
     row = existing or model(uid=str(uuid4()), routing_layout_uid=layout_uid)
@@ -241,7 +246,9 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
                           ('cross_route_uid', db.RoutingCrossRoute), ('passage_band_uid', db.RoutingBand),
                           ('from_passage_band_uid', db.RoutingBand), ('to_passage_band_uid', db.RoutingBand),
                           ('segment_annotation_uid', db.RoutingSegmentAnnotation), ('from_placement_uid', db.RoutingBundlePlacement),
-                          ('to_placement_uid', db.RoutingBundlePlacement), ('vertical_transition_uid', db.RoutingVerticalTransition)):
+                          ('to_placement_uid', db.RoutingBundlePlacement), ('vertical_transition_uid', db.RoutingVerticalTransition),
+                          ('junction_area_uid', db.RoutingJunctionArea), ('above_connection_uid', db.RoutingBundleConnection),
+                          ('below_connection_uid', db.RoutingBundleConnection)):
         if values.get(field):
             referenced = session.get(target, values[field])
             if referenced is None or referenced.routing_layout_uid != layout_uid:
@@ -266,6 +273,16 @@ def save_resource(session: Session, layout_uid: str, resource: str, payload: dic
             raise RoutingConfigurationError('Select an existing cabinet in this physical hall.')
     session.add(row)
     session.flush()
+    if before_junction_edit is not None:
+        from backend.services.routing_junction_geometry import preserve_turn_positions
+        try:
+            changes=preserve_turn_positions(before_junction_edit,snapshot(session,layout_uid),row.uid)
+            for connection_uid,starts in changes.items():
+                connection=session.get(db.RoutingBundleConnection,connection_uid)
+                connection.from_turn_start_in,connection.to_turn_start_in=starts
+            session.flush()
+        except ValueError as exc:
+            raise RoutingConfigurationError(str(exc)) from exc
     if resource == 'cabinet-rows' and existing is None:
         session.add(db.RoutingCrossRoute(uid=str(uuid4()), routing_layout_uid=layout_uid, kind='CABINET_COLD_AISLE',
                                         cabinet_row_uid=row.uid, width_in=layout.default_cross_route_width_in))
@@ -283,8 +300,18 @@ def delete_resource(session: Session, layout_uid: str, resource: str, uid: str) 
         raise RoutingNotFound('Routing record was not found in this layout.')
     if resource in ('sections', 'bands', 'cross-routes'):
         raise RoutingConfigurationError('Required hall geometry/routes cannot be deleted. Disable a cross route or delete its cabinet row/pair.')
+    before_junction_delete=snapshot(session,layout_uid) if resource=='junction-areas' else None
     session.delete(row)
     session.flush()
+    if before_junction_delete is not None:
+        session.expire_all()  # Read SET NULL references applied by PostgreSQL, not stale ORM values.
+        from backend.services.routing_junction_geometry import preserve_turn_positions
+        try:
+            for connection_uid,starts in preserve_turn_positions(before_junction_delete,snapshot(session,layout_uid),uid).items():
+                connection=session.get(db.RoutingBundleConnection,connection_uid)
+                connection.from_turn_start_in,connection.to_turn_start_in=starts
+            session.flush()
+        except ValueError as exc:raise RoutingConfigurationError(str(exc)) from exc
     validate_layout(session, layout_uid)
 
 
@@ -349,3 +376,9 @@ def validate_layout(session: Session, uid: str) -> None:
                 low, high = row['end_in'], row['end_in'] + data['layout']['cold_aisle_clear_in']
         if route['start_in'] < low or route['end_in'] > high:
             raise RoutingConfigurationError('The cross-route envelope must stay in its cold aisle or extra section gap.')
+    try:
+        from backend.services.routing_junction_geometry import validate_junctions
+        from backend.services.routing_graph import derive_graph
+        validate_junctions(data, geometry, derive_graph(data, junction_statistics=False))
+    except ValueError as exc:
+        raise RoutingConfigurationError(str(exc)) from exc

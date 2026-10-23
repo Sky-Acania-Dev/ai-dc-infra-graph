@@ -236,6 +236,9 @@ class BundleConnectionInput(Record):
     to_placement_uid: str
     to_end: Literal['START', 'END']
     vertical_transition_uid: str | None = None
+    junction_area_uid: str | None = None
+    from_turn_start_in: Inches | None = None
+    to_turn_start_in: Inches | None = None
     notes: str | None = None
     enabled: bool = True
 
@@ -243,6 +246,44 @@ class BundleConnectionInput(Record):
     def distinct(self):
         if self.from_placement_uid == self.to_placement_uid:
             raise ValueError('Connect placements on two different pathway spans.')
+        if (self.from_turn_start_in is None) != (self.to_turn_start_in is None):
+            raise ValueError('Provide both turn-start distances, or leave both unset.')
+        return self
+
+
+class JunctionAreaInput(Record):
+    passage_band_uid: str
+    cross_route_uid: str | None = None
+    station_in: Inches | None = None
+    tier: Tier
+    west_extension_in: Inches = 0
+    east_extension_in: Inches = 0
+    north_extension_in: Inches = 0
+    south_extension_in: Inches = 0
+    usable_height_in: PositiveInches | None = None
+    provenance: Literal['SCHEMATIC', 'MANUAL', 'FIELD_MEASURED'] = 'SCHEMATIC'
+    label: str | None = None
+    notes: str | None = None
+    enabled: bool = True
+
+    @model_validator(mode='after')
+    def anchor(self):
+        if (self.cross_route_uid is None) == (self.station_in is None):
+            raise ValueError('Anchor the junction to a cross route or a passage station, exclusively.')
+        return self
+
+
+class JunctionCrossingInput(Record):
+    above_connection_uid: str
+    below_connection_uid: str
+    clearance_in: Inches | None = None
+    notes: str | None = None
+    enabled: bool = True
+
+    @model_validator(mode='after')
+    def distinct(self):
+        if self.above_connection_uid == self.below_connection_uid:
+            raise ValueError('A crossing requires two distinct bundle movements.')
         return self
 
 
@@ -279,6 +320,10 @@ class GraphNode(Record):
     bundle_connection_uids: list[str] = Field(default_factory=list)
     vertical_transition_uids: list[str] = Field(default_factory=list)
     label: str | None = None
+    cable_intersection_point_count: Annotated[int, Field(strict=True, ge=0)] | None = None
+    bundle_pair_crossing_count: Annotated[int, Field(strict=True, ge=0)] | None = None
+    intersection_count_status: Literal['EXACT', 'ESTIMATED', 'UNKNOWN'] = 'UNKNOWN'
+    intersection_count_scope: str = 'CONFIGURED_MOVEMENTS'
 
 
 class GraphEdge(Record):

@@ -47,6 +47,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const [selectedCableId, setSelectedCableId] = useState<string | null>(null);
   const [cableTable, setCableTable] = useState<RoutingCableTableRequest | null>(null);
   const [selectedPlacementUid, setSelectedPlacementUid] = useState<string | null>(null);
+  const [junctionGroupUid,setJunctionGroupUid]=useState<string|null>(null);
   const [realReview, setRealReview] = useState(project === "LBB01" && physicalHall === "DH1");
   const [focusedPairKey, setFocusedPairKey] = useState<string | null>(null);
   const [reviewInspectorOpen, setReviewInspectorOpen] = useState(true);
@@ -77,7 +78,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const selectedEdge = selection?.kind === "edge" ? graph.edges.find(e => e.id === selection.uid) : undefined;
   const segment = segments.find(s => s.id === segmentId) ?? (data && selectedEdge ? edgeSegment(data, graph, selectedEdge) : null);
   const cableMembers = useSegmentCableMembers(data, segment);
-  useEffect(() => { setSelectedPlacementUid(null); }, [segmentId, attachmentUid, selection?.uid]);
+  useEffect(() => { setSelectedPlacementUid(null);setJunctionGroupUid(null); }, [segmentId, attachmentUid, selection?.uid]);
   useEffect(() => { setCableTable(null); }, [project, building, physicalHall, segmentId, attachmentUid, selection?.uid, selectedPlacementUid, realReview]);
   const clearPath = () => { setCableTable(null); setSelection(null); setSegmentId(null); setAttachmentUid(null); setSelectedCableId(null); setFocusedPairKey(null); setSummaryFilter(null); setReviewInspectorOpen(false); };
   const selectSummaryFilter = (next: RoutingSummaryFilter | null) => {
@@ -106,7 +107,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   const reviewGroups = useMemo(()=>review ? reviewGroupsForPart(review, segment?.id, null, attachmentUid, selectedNode) : [], [review, segment?.id, attachmentUid, selectedNode]);
   const selectionGroupUids = useMemo(() => review && (segment || selectedNode || attachmentUid) ? new Set(reviewGroups.map(g => g.uid)) : null, [review, segment?.id, selectedNode, attachmentUid, reviewGroups]);
   const highlightGroupUid = selectedCableId && cableTable?.groupUid ? cableTable.groupUid : review?.groups.find(g => g.cable_uids.includes(selectedCableId ?? ""))?.uid ?? null;
-  const activeGroupUid = manual.editing ? manual.activeUid : highlightGroupUid;
+  const activeGroupUid = manual.editing ? manual.activeUid : junctionGroupUid??highlightGroupUid;
   const routeFocusActive = Boolean(activeGroupUid || focusedPairKey || selected.size || selectionGroupUids != null || summaryFilter || cableTypeFilter);
   const sectionCounts = useMemo(() => data && review && routeFocusActive ? {project,building,
     counts:sectionGroupCounts(data,focusedRouteGroups(review.groups,activeGroupUid,focusedPairKey,selected,selectionGroupUids,summaryFilter,cableTypeFilter))} : null,
@@ -115,7 +116,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
   useEffect(() => () => onSectionGroupCountsChange(null), [onSectionGroupCountsChange]);
   const inspector = data && inspecting ? <aside className="side-pane connections-pane routing-page routing-side routing-segment-inspector" aria-label="Routing segment cable details">
     <div className="routing-inspector-heading"><span className="eyebrow">Segment cables</span><button disabled={manual.editing || manual.busy} onClick={clearPath}>Close routing details</button></div>
-    {review ? <CableReviewPanel key={JSON.stringify([review?.scope,segment?.id,attachmentUid,selectedNode?.x_in,selectedNode?.y_in,summaryFilter,cableTypeFilter])} review={review} groups={reviewGroups} focusedPairKey={focusedPairKey} onFocusPair={key=>{if (!manual.editing && !manual.busy) {setFocusedPairKey(key); setSelectedCableId(null); setCableTable(null); onClearSelection();}}} editor={manual} canManage={canManage && !reviewState.stale} summaryFilter={summaryFilter} onClearSummaryFilter={()=>selectSummaryFilter(null)} cableTypeFilter={cableTypeFilter} onClearCableTypeFilter={()=>selectCableTypeFilter(null)}
+    {review ? <CableReviewPanel key={JSON.stringify([review?.scope,segment?.id,attachmentUid,selectedNode?.x_in,selectedNode?.y_in,summaryFilter,cableTypeFilter,junctionGroupUid])} review={review} groupFilterUid={junctionGroupUid} groups={junctionGroupUid?reviewGroups.filter(g=>g.uid===junctionGroupUid):reviewGroups} focusedPairKey={focusedPairKey} onFocusPair={key=>{if (!manual.editing && !manual.busy) {setJunctionGroupUid(null); setFocusedPairKey(key); setSelectedCableId(null); setCableTable(null); onClearSelection();}}} editor={manual} canManage={canManage && !reviewState.stale} summaryFilter={summaryFilter} onClearSummaryFilter={()=>selectSummaryFilter(null)} cableTypeFilter={cableTypeFilter} onClearCableTypeFilter={()=>selectCableTypeFilter(null)}
       onViewCables={request => {if (!manual.editing) setCableTable(request);}} /> : (segment || attachmentUid) && <SegmentCables inventoryCables={cableMembers.cables} members={cableMembers.members} loading={cableMembers.loading} error={cableMembers.error}
       bundleFilter={selectedPlacementUid ? {uid: selectedPlacementUid, label: selectedBundle?.label ?? "Selected bundle"} : null}
       onClearFilter={() => setSelectedPlacementUid(null)} onViewCables={setCableTable} />}
@@ -152,7 +153,7 @@ export function CabinetRoutingMap({ project, building, hall, selected, connected
       {inspectorHost && inspector && createPortal(inspector, inspectorHost)}
       {pathwayInspectorHost && data && pathwayInspecting && createPortal(<PathwayInspector data={data} graph={graph} selection={selection} segment={segment} selectedEdge={selectedEdge} overview={overview}
         attachmentUid={attachmentUid} canManage={canManage} busy={busy} mutate={mutate} onSelect={setSelection} onOpenRouting={onOpenRouting}
-        selectedPlacementUid={selectedPlacementUid} reviewGroupCount={reviewGroups.length} reviewLoads={review?.loads} onSelectPlacement={uid => { setSelectedPlacementUid(uid); setSelectedCableId(null); }} />, pathwayInspectorHost)}
+        selectedPlacementUid={selectedPlacementUid} reviewGroupCount={reviewGroups.length} reviewLoads={review?.loads} onSelectJunctionGroup={setJunctionGroupUid} onSelectPlacement={uid => { setSelectedPlacementUid(uid); setSelectedCableId(null); }} />, pathwayInspectorHost)}
     </>}
   </div>;
 }

@@ -1,12 +1,26 @@
-# Junction occupation and bundle turns — proposal
+# Junction occupation and bundle turns
 
-Status: design proposal. No database migration, physical arrangement, handling limits, or automatic routing policy is introduced by this document.
+Status: junction domain model, curve resolver, intersection statistics and app inspector implemented on `codex/junction-geometry` (2026-10-23). Manufacturer handling profiles, engineered crossover humps, individual-cable packing and route-cost optimization remain future work. The design notes below distinguish those extensions from the current implementation.
+
+## Implemented contract
+
+Migration `187a4f03c852` adds `RoutingJunctionArea`, `RoutingJunctionCrossing` and nullable area/tangent references on the existing bundle connection. Areas use passage + cross-route or station + tier domain anchors, not persisted graph nodes. The graph retains one physical node per tier and exposes derived count/status/scope fields. Saved straight/quarter-circle geometry is counted analytically (`LINE_CIRCULAR_ARC_V1`); no rendered SVG samples determine the statistics.
+
+`GET /routing/layouts/{uid}/junction-preview?node_id=…` returns the working area, ports, enabled saved bundle movements, crossing order and statistics. `actual_groups=true` reads the current real group routes, including manual assignments, and proposes clearly labeled display-only 2 × 1 inch occupations. It does not create memberships, placements, openings or route assignments. The complete routed-group metadata is cached for 30 seconds, bounded to two revisions and invalidated by inventory timestamps/counts, layout geometry and manual-route records. Individual cable rows are not cached/materialized for the preview.
+
+Counts on the graph and `/junctions` endpoint have scope `CONFIGURED_MOVEMENTS`: unconfigured nodes remain `UNKNOWN`, while explicitly configured empty nodes return zero. An actual-group preview has scope `ACTUAL_GROUPS_SCHEMATIC` and reports `ESTIMATED` counts, or `UNKNOWN` if any movement is unresolved. Counts are per bundle centerline, not measured intersections of individual cables. Different tiers never intersect each other; coincident plan runs are reported separately. UI filtering and plan/underside transforms do not alter the node total.
+
+The inspector is available in both the conceptual cabinet map and geometric routing page. It supports tier selection, mirrored plan/underside viewing, working-area editing, turn-start editing and over/under configuration. Clicking a bundle in a port section retains all connection sections and the plan, emphasizes that movement and filters the actual cable-group panel. Physical/grid modes share one toggle; the existing passage-tier sections remain available below the junction inspector. Empty ports still render sections.
+
+Persisted dimensions and turn-start inputs remain integer inches. Transient derived centers/arcs can contain fractional inches from halving odd-width rectangles. Width-derived square tray envelopes and optional arm extensions constrain the turn; a sampled inner/outer envelope fit check is separate from the analytic crossing count. Changing a working-area boundary preserves saved physical tangent locations by adjusting its boundary-relative insets, or rejects an edit that would exclude them. Graph planar lengths and manual route legs are untouched.
+
+Validation rejects inconsistent circular tangents, nonexistent arm extensions, crossing-order cycles, saved endpoint heights/clearances that contradict the chosen stack, and planar turn parameters on straight or tier-changing movements. Grid-only/legacy connections remain usable with unknown physical geometry. Minimum manufacturer bend limits, supports, usable height when absent and vertical travel remain unchecked; the app makes no installation-validity or exact cable-length claim.
 
 ## Existing foundation
 
 The derived graph already represents passage/row intersections and physical tier openings. It is regenerated from domain records; generated graph nodes and edges are not persisted.
 
-`RoutingBundlePlacement` references an existing bundle/group and describes its occupation on a pathway span: a multi-cell footprint in the default 12-column by 8-row sectional grid, a physical sectional rectangle, or both. `RoutingBundleConnection` links two placements' START/END endpoints for the same referenced bundle/group. The backend validates common junction location, enabled pathways and explicit openings for adjacent-tier changes. It currently has no turn radius, swept occupation or crossing order.
+`RoutingBundlePlacement` references an existing bundle/group and describes its occupation on a pathway span: a multi-cell footprint in the default 12-column by 8-row sectional grid, a physical sectional rectangle, or both. `RoutingBundleConnection` links two placements' START/END endpoints for the same referenced bundle/group. The backend validates common junction location, enabled pathways and explicit openings for adjacent-tier changes. The junction extension adds optional planar turning and crossing metadata without changing those memberships or routes.
 
 Extend this foundation rather than making a graph node hold an unrelated list of cables.
 
@@ -101,7 +115,7 @@ Counting rules:
 
 Derive or revision-cache these statistics from the movement geometry; do not add an independently editable database counter or persist redundant generated graph records. Invalidate on route, occupation, turn-start, enable-state, tier, width or working-area changes. Physical clearance checks remain separate, and existing manual assignments are not changed by exposing these metrics.
 
-The display-only fixture returns **7 intersection points and 7 bundle-pair crossings** for its Tier 1 node. Selecting bundle A shows its 4 participating points while the node total stays 7. These are estimated from the fixture's sampled centerlines. The fixture stores its expected test result only; the preview computes its displayed statistics. This contract is part of the junction proposal: the production graph has no resolved junction movement curves yet and does not claim measured crossing counts.
+The display-only fixture returns **7 intersection points and 7 bundle-pair crossings** for its Tier 1 node. Selecting bundle A shows its 4 participating points while the node total stays 7. The earlier illustration used sampled centerlines; the backend regression now verifies the same values with analytic line/circular-arc solving. The fixture stores an expected test result, not an editable node counter. Schematic source geometry still cannot establish measured crossing counts.
 
 ## Handling requirements and dimensions
 

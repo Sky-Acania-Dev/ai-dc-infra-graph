@@ -1,4 +1,4 @@
-import type { ResolvedLayout, Resource, RoutingGraph, RoutingLayout, RoutePreview, PlacementSource, PlacementCables, CableReview } from "./types";
+import type { ResolvedLayout, Resource, RoutingGraph, RoutingLayout, RoutePreview, PlacementSource, PlacementCables, CableReview, JunctionPreview } from "./types";
 import { decodeCableReview, type IndexedReview } from "./reviewEncoding";
 
 const BASE = `${import.meta.env.VITE_API_BASE_URL ?? ""}/routing`;
@@ -15,6 +15,7 @@ export const routingApi = {
   list: (project: string, building: string, hall: string, signal?: AbortSignal) => request<RoutingLayout[]>(`/layouts?${new URLSearchParams({ project_uid: project, building_id: building, hall_code: hall })}`, "GET", undefined, signal),
   resolved: (uid: string, signal?: AbortSignal) => request<ResolvedLayout>(`/layouts/${uid}`, "GET", undefined, signal),
   graph: (uid: string, signal?: AbortSignal) => request<RoutingGraph>(`/layouts/${uid}/graph`, "GET", undefined, signal),
+  junction: (uid:string,nodeId:string,actualGroups:boolean,signal?:AbortSignal) => request<JunctionPreview>(`/layouts/${uid}/junction-preview?${new URLSearchParams({node_id:nodeId,actual_groups:String(actualGroups)})}`,"GET",undefined,signal),
   placementSources: (uid: string, signal?: AbortSignal) => request<PlacementSource[]>(`/layouts/${uid}/placement-sources`, "GET", undefined, signal),
   placementCables: (layout: string, uid: string, signal?: AbortSignal) => request<PlacementCables>(`/layouts/${layout}/bundle-placements/${uid}/cables`, "GET", undefined, signal),
   cableReview: async (layout: string, signal?: AbortSignal, scope = "pilot") => decodeCableReview(await request<CableReview | IndexedReview>(`/layouts/${layout}/cable-review?scope=${scope}`, "GET", undefined, signal)),
