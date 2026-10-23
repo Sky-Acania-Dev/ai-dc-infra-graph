@@ -60,6 +60,14 @@ Persist the design inputs, not a redundant sampled curve or mesh. Generated curv
 
 The two turn-start distances define a planar corner; they do not define a vertical climb, crossover hump or opening traversal. Those movements still need local height/clearance information. Keep a valid graph route usable even when this optional physical movement geometry is unchecked.
 
+### Complex display-only fixture
+
+[The multi-bundle fixture](fixtures/routing_junction_multi_bundle.json) describes a 34-in NORTH-passage / 24-in Row 3 T-junction on Tier 1, with eight bundle movements referencing 180 unique synthetic cable IDs. Six bundles turn into the row route and two continue straight along the passage. It covers LC, Cat6, MPO, MPO trunk T2-T1-RO, cross-section LC and cross-section Cat6. No saved application routes or cable memberships are changed. This proposal fixture is not an existing routing API payload.
+
+Each endpoint uses a physical occupation rectangle, measured across from the explicitly specified INNER side and up from the tray bed. NORTH-passage INNER is SOUTH; the fixture's Row 3 is explicitly pair position A with INNER to the EAST. The whole junction remains at Tier 1 (98 in AFF). Different bundle offsets above that bed describe local stacking, not extra routing tiers or physical openings. All occupation sizes and stack offsets are illustrative; the 12-in section window is a display range, not a measured tray clearance.
+
+The fixture's plan has seven centerline crossings. Its selected local stacking places Cat6 below LC; other bundle orderings are explicit fixture choices. A plan/underside view uses opposite occlusion order without changing the physical ABOVE/BELOW relation. West/east/south port sections show the same endpoint rectangles with cardinal labels. Representative strands inside the rendered ribbons are not individual-cable packing claims; cable counts derive from the referenced synthetic ID arrays. Cable-specific minimum bend radii, support requirements and actual usable height remain unknown.
+
 ## Crossings and stacking within one tier
 
 Add a small `RoutingJunctionCrossing` relation between movements, recording which passes above/below, a specified clearance if known, and any separator/support reference. Derive crossing locations from their paths; do not give the entire junction one global stacking order when paths only cross locally.
